@@ -85,7 +85,7 @@ export const Header: React.FC<HeaderProps> = ({
         {/* Zone 1: Single Brand element */}
         <div className="flex items-center gap-3 shrink-0">
           <div className="w-10 h-10 rounded-xl bg-white ring-1 ring-amber-400/50 shadow-sm overflow-hidden shrink-0">
-            <img src="/redeemer-seal.svg?v=2" alt="Redeemer School seal" className="w-full h-full object-contain" />
+            <img src="/redeemer-seal.svg?v=2" alt="Redeemer's International Academy seal" className="w-full h-full object-contain" />
           </div>
           <button 
             onClick={() => onSelectView('dashboard')}
@@ -131,7 +131,7 @@ export const Header: React.FC<HeaderProps> = ({
               <Building2 className="w-3.5 h-3.5" /> Contact
             </summary>
             <div className="absolute right-0 top-full mt-2 w-80 max-w-[calc(100vw-2rem)] rounded-xl border border-slate-200 bg-white p-4 text-xs text-slate-700 shadow-xl z-50">
-              <p className="font-bold text-slate-900">Redeemer School</p>
+              <p className="font-bold text-slate-900">Redeemer's International Academy</p>
               <p className="mt-2 leading-relaxed">{SCHOOL_CONTACT.address}</p>
               <div className="mt-3 flex flex-col gap-1.5">
                 {SCHOOL_CONTACT.phones.map((phone) => (
@@ -196,7 +196,7 @@ export const Header: React.FC<HeaderProps> = ({
               <Building2 className="w-3.5 h-3.5" /> Contact
             </summary>
             <div className="absolute right-0 top-full mt-2 w-80 max-w-[calc(100vw-2rem)] rounded-xl border border-slate-200 bg-white p-4 text-xs text-slate-700 shadow-xl z-50">
-              <p className="font-bold text-slate-900">Redeemer School</p>
+              <p className="font-bold text-slate-900">Redeemer's International Academy</p>
               <p className="mt-2 leading-relaxed">{SCHOOL_CONTACT.address}</p>
               <div className="mt-3 flex flex-col gap-1.5">
                 {SCHOOL_CONTACT.phones.map((phone) => (
