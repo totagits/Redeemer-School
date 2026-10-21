@@ -32,6 +32,7 @@ test('generateVerificationPayload creates valid JSON containing student identity
     campus: 'Main Campus',
     enrollmentDate: '2026-08-25',
     status: 'ENROLLED',
+    specialNeeds: false,
     guardians: [{ name: 'Musu Weah', relation: 'Mother', phone: '+231886112233', email: 'm@w.lr', isPrimary: true, authorizedPickup: true }],
     correctionLog: []
   };
@@ -60,6 +61,7 @@ test('generateStudentIdCardData builds full credential structure with school met
     campus: 'Main Campus',
     enrollmentDate: '2026-08-26',
     status: 'ENROLLED',
+    specialNeeds: false,
     guardians: [{ name: 'Cllr. Famatta Sherman', relation: 'Mother', phone: '+231888334455', email: 'f@s.lr', isPrimary: true, authorizedPickup: true }],
     correctionLog: []
   };
@@ -77,9 +79,9 @@ test('generateStudentIdCardData builds full credential structure with school met
 
 test('generateBatchIdCards filters by grade or generates for all students', () => {
   const students: StudentProfile[] = [
-    { id: '1', studentId: 'S1', moeLearnerId: null, firstName: 'A', lastName: 'B', dateOfBirth: '2010', gender: 'FEMALE', countyOfResidence: 'M', address: '', gradeLevel: 'Grade 10', section: 'A', campus: 'C', enrollmentDate: '2026', status: 'ENROLLED', guardians: [], correctionLog: [] },
-    { id: '2', studentId: 'S2', moeLearnerId: null, firstName: 'C', lastName: 'D', dateOfBirth: '2010', gender: 'MALE', countyOfResidence: 'M', address: '', gradeLevel: 'Grade 10', section: 'A', campus: 'C', enrollmentDate: '2026', status: 'ENROLLED', guardians: [], correctionLog: [] },
-    { id: '3', studentId: 'S3', moeLearnerId: null, firstName: 'E', lastName: 'F', dateOfBirth: '2008', gender: 'FEMALE', countyOfResidence: 'M', address: '', gradeLevel: 'Grade 12', section: 'B', campus: 'C', enrollmentDate: '2026', status: 'ENROLLED', guardians: [], correctionLog: [] }
+    { id: '1', studentId: 'S1', moeLearnerId: null, firstName: 'A', lastName: 'B', dateOfBirth: '2010', gender: 'FEMALE', countyOfResidence: 'M', address: '', gradeLevel: 'Grade 10', section: 'A', campus: 'C', enrollmentDate: '2026', status: 'ENROLLED', specialNeeds: false, guardians: [], correctionLog: [] },
+    { id: '2', studentId: 'S2', moeLearnerId: null, firstName: 'C', lastName: 'D', dateOfBirth: '2010', gender: 'MALE', countyOfResidence: 'M', address: '', gradeLevel: 'Grade 10', section: 'A', campus: 'C', enrollmentDate: '2026', status: 'ENROLLED', specialNeeds: false, guardians: [], correctionLog: [] },
+    { id: '3', studentId: 'S3', moeLearnerId: null, firstName: 'E', lastName: 'F', dateOfBirth: '2008', gender: 'FEMALE', countyOfResidence: 'M', address: '', gradeLevel: 'Grade 12', section: 'B', campus: 'C', enrollmentDate: '2026', status: 'ENROLLED', specialNeeds: false, guardians: [], correctionLog: [] }
   ];
 
   const allCards = generateBatchIdCards(students);

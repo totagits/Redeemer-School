@@ -13,6 +13,7 @@ import { StudentsEnrollmentModule } from './components/StudentsEnrollmentModule.
 import { ReportingModule } from './components/ReportingModule.tsx';
 import { UserManagementModule } from './components/UserManagementModule.tsx';
 import { ArchitectureView } from './components/ArchitectureView.tsx';
+import { HomeLandingPage } from './components/HomeLandingPage.tsx';
 
 import { 
   INITIAL_ACCOUNTS, 
@@ -54,7 +55,7 @@ import {
 } from './logic/erpAuth.ts';
 
 export default function App() {
-  const [currentView, setCurrentView] = useState<ERPView>('dashboard');
+  const [currentView, setCurrentView] = useState<ERPView>('home');
   const [currentRole, setCurrentRole] = useState<ErpSystemRole>('ADMINISTRATOR');
 
   // Application State
@@ -468,7 +469,8 @@ export default function App() {
       />
 
       {/* Main Content Area */}
-      <main className="flex-1 max-w-7xl w-full mx-auto px-4 sm:px-6 lg:px-8 py-6">
+      <main className={`flex-1 ${currentView === 'home' ? 'w-full' : 'max-w-7xl w-full mx-auto px-4 sm:px-6 lg:px-8 py-6'}`}>
+        {currentView === 'home' && <HomeLandingPage onOpenDemo={() => setCurrentView('dashboard')} />}
         {currentView === 'dashboard' && (
           <DashboardView
             onNavigate={setCurrentView}
@@ -569,7 +571,7 @@ export default function App() {
       </main>
 
       {/* Footer */}
-      <footer className="border-t border-slate-200 bg-white py-4 mt-auto">
+      {currentView !== 'home' && <footer className="border-t border-slate-200 bg-white py-4 mt-auto">
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 flex flex-col sm:flex-row items-center justify-between gap-3 text-xs text-slate-500">
           <div className="flex items-center gap-2">
             <span className="font-bold text-slate-900">Redeemer's International Academy ERP</span>
@@ -582,7 +584,7 @@ export default function App() {
             <span className="font-medium text-slate-600">Prototype preview · Sample data only · Not for official or payroll use</span>
           </div>
         </div>
-      </footer>
+      </footer>}
     </div>
   );
 }

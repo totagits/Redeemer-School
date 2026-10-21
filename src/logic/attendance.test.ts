@@ -80,6 +80,7 @@ test('computeStudentAttendanceStats calculates student totals and flags alerts',
     campus: 'Main Campus',
     enrollmentDate: '2026-08-01',
     status: 'ENROLLED',
+    specialNeeds: false,
     guardians: [{ name: 'Mother Johnson', relation: 'Mother', phone: '+231888111222', email: 'm@j.lr', isPrimary: true, authorizedPickup: true }],
     correctionLog: []
   };
@@ -105,14 +106,14 @@ test('identifyAtRiskStudents accurately lists students with attendance below thr
   const studentGood: StudentProfile = {
     id: 's1', studentId: 'STU-001', moeLearnerId: null, firstName: 'A', lastName: 'Good',
     dateOfBirth: '2010', gender: 'FEMALE', countyOfResidence: 'Montserrado', address: 'X',
-    gradeLevel: 'Grade 10', section: 'A', campus: 'Main', enrollmentDate: '2026', status: 'ENROLLED',
+    gradeLevel: 'Grade 10', section: 'A', campus: 'Main', enrollmentDate: '2026', status: 'ENROLLED', specialNeeds: false,
     guardians: [], correctionLog: []
   };
 
   const studentLow: StudentProfile = {
     id: 's2', studentId: 'STU-002', moeLearnerId: null, firstName: 'B', lastName: 'Low',
     dateOfBirth: '2010', gender: 'MALE', countyOfResidence: 'Montserrado', address: 'Y',
-    gradeLevel: 'Grade 10', section: 'A', campus: 'Main', enrollmentDate: '2026', status: 'ENROLLED',
+    gradeLevel: 'Grade 10', section: 'A', campus: 'Main', enrollmentDate: '2026', status: 'ENROLLED', specialNeeds: false,
     guardians: [], correctionLog: []
   };
 
