@@ -12,16 +12,16 @@ import { generateOfficialTranscriptPdfBase64, generateBirthCertificatePdfBase64 
 import { StudentAttendanceRecord } from '../logic/attendance.ts';
 
 export const THE_REDEEMER_SCHOOL_INFO = {
-  name: 'The Redeemer School',
-  formalName: 'The Redeemer School of Monrovia',
-  motto: 'Wisdom, Character & Service in Christ',
-  founded: 1984,
+  name: "Redeemer's International Academy",
+  formalName: "Redeemer's International Academy",
+  motto: 'Academic and Moral Excellence',
+  founded: 2022,
   affiliation: 'Association of Christian Schools & Private Educators of Liberia',
   moeEmisCode: 'LBR-MOE-MON-2024-0312',
   moePermitNumber: 'MOE/DE/2026/0544',
   county: 'Montserrado County',
   district: 'Greater Monrovia School District',
-  address: 'Snapper Hill & 15th Street Sinkor, Monrovia, Liberia',
+  address: "RIA Highway, Thinker's Village, Guest House Road, Paynesville, Montserrado, Liberia",
   campuses: [
     { id: 'main', name: 'Main Campus (Snapper Hill)', grades: 'Grades 7 - 12 (Junior & Senior High)' },
     { id: 'annex', name: 'Junior Annex (Sinkor)', grades: 'Kindergarten & Grades 1 - 6 (Elementary)' }
