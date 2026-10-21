@@ -16,7 +16,7 @@ import {
 import { SCHOOL_CONTACT } from '../data/schoolContact.ts';
 
 interface HomeLandingPageProps {
-  onOpenDemo: () => void;
+  onSignIn: () => void;
 }
 
 const capabilities = [
@@ -53,7 +53,7 @@ const capabilityTone: Record<string, string> = {
   amber: 'bg-amber-50 text-amber-700 ring-amber-100',
 };
 
-export const HomeLandingPage: React.FC<HomeLandingPageProps> = ({ onOpenDemo }) => (
+export const HomeLandingPage: React.FC<HomeLandingPageProps> = ({ onSignIn }) => (
   <div className="bg-white text-slate-900">
     <section className="relative isolate overflow-hidden bg-[#071b33] text-white">
       <div className="absolute inset-0 -z-10 bg-[radial-gradient(ellipse_at_78%_22%,rgba(37,99,235,0.30),transparent_42%),radial-gradient(ellipse_at_14%_95%,rgba(14,116,144,0.22),transparent_42%)]" />
@@ -64,7 +64,7 @@ export const HomeLandingPage: React.FC<HomeLandingPageProps> = ({ onOpenDemo }) 
         <div className="max-w-2xl">
           <div className="inline-flex items-center gap-2 rounded-full border border-white/15 bg-white/[0.07] px-3 py-1.5 text-xs font-semibold text-blue-100 shadow-sm backdrop-blur">
             <span className="h-1.5 w-1.5 rounded-full bg-emerald-400" />
-            ERP WORKSPACE SETUP IN PROGRESS
+            SCHOOL ERP STAGING
           </div>
           <h1 className="mt-7 max-w-2xl text-4xl font-semibold leading-[1.08] tracking-tight sm:text-5xl lg:text-[3.6rem]">
             More time for learning. <span className="text-blue-300">Less time chasing paperwork.</span>
@@ -73,8 +73,8 @@ export const HomeLandingPage: React.FC<HomeLandingPageProps> = ({ onOpenDemo }) 
             A school operations workspace shaped around the day-to-day needs of Redeemer’s International Academy—from student records and attendance to finance, faculty, and reporting.
           </p>
           <div className="mt-8 flex flex-col gap-3 sm:flex-row">
-            <button onClick={onOpenDemo} className="group inline-flex items-center justify-center gap-2 rounded-lg bg-white px-5 py-3 text-sm font-bold text-slate-900 shadow-lg shadow-blue-950/25 transition hover:-translate-y-0.5 hover:bg-blue-50 focus:outline-none focus:ring-2 focus:ring-white focus:ring-offset-2 focus:ring-offset-[#071b33]">
-              Check workspace status <ArrowRight className="h-4 w-4 transition group-hover:translate-x-0.5" />
+            <button onClick={onSignIn} className="group inline-flex items-center justify-center gap-2 rounded-lg bg-white px-5 py-3 text-sm font-bold text-slate-900 shadow-lg shadow-blue-950/25 transition hover:-translate-y-0.5 hover:bg-blue-50 focus:outline-none focus:ring-2 focus:ring-white focus:ring-offset-2 focus:ring-offset-[#071b33]">
+              Administrator sign in <ArrowRight className="h-4 w-4 transition group-hover:translate-x-0.5" />
             </button>
             <a href="#capabilities" className="inline-flex items-center justify-center gap-2 rounded-lg border border-white/20 px-5 py-3 text-sm font-semibold text-white transition hover:border-white/40 hover:bg-white/[0.06]">
               See what it brings together <ArrowDownRight className="h-4 w-4" />
@@ -173,7 +173,7 @@ export const HomeLandingPage: React.FC<HomeLandingPageProps> = ({ onOpenDemo }) 
           <p className="text-xs font-bold uppercase tracking-[0.18em] text-blue-300">Designed around the school day</p>
           <h2 className="mt-4 max-w-lg text-2xl font-semibold tracking-tight sm:text-3xl">A clearer handoff from classroom to school office.</h2>
           <p className="mt-4 max-w-lg text-sm leading-6 text-slate-300">Teachers, administrators, finance teams, and school leaders all have different responsibilities. The ERP brings their workflows into one consistent experience.</p>
-          <button onClick={onOpenDemo} className="mt-7 inline-flex items-center gap-2 text-sm font-bold text-white hover:text-blue-200">Take a look inside <ArrowRight className="h-4 w-4" /></button>
+          <button onClick={onSignIn} className="mt-7 inline-flex items-center gap-2 text-sm font-bold text-white hover:text-blue-200">Administrator sign in <ArrowRight className="h-4 w-4" /></button>
         </div>
         <div className="space-y-5">
           <FlowRow number="01" title="Record the day" text="Keep student, class, attendance, and staff activity organized." />
@@ -187,7 +187,7 @@ export const HomeLandingPage: React.FC<HomeLandingPageProps> = ({ onOpenDemo }) 
     <section id="contact" className="scroll-mt-24 border-t border-slate-100 bg-slate-50 py-12">
       <div className="mx-auto flex max-w-7xl flex-col gap-6 px-5 sm:px-8 md:flex-row md:items-center md:justify-between lg:px-10">
         <div><p className="text-xs font-bold uppercase tracking-[0.18em] text-blue-700">Redeemer’s International Academy · Est. 2022</p><p className="mt-2 text-sm text-slate-600">{SCHOOL_CONTACT.address}</p><p className="mt-1 text-sm font-semibold text-slate-800">{SCHOOL_CONTACT.phones.join('  ·  ')}</p></div>
-        <button onClick={onOpenDemo} className="inline-flex shrink-0 items-center justify-center gap-2 rounded-lg bg-blue-700 px-5 py-3 text-sm font-bold text-white shadow-sm transition hover:bg-blue-800">Check workspace status <ArrowRight className="h-4 w-4" /></button>
+        <button onClick={onSignIn} className="inline-flex shrink-0 items-center justify-center gap-2 rounded-lg bg-blue-700 px-5 py-3 text-sm font-bold text-white shadow-sm transition hover:bg-blue-800">Administrator sign in <ArrowRight className="h-4 w-4" /></button>
       </div>
     </section>
     <div className="border-t border-slate-200 bg-white px-5 py-4 text-center text-[11px] text-slate-500">Design preview only · No demo records are loaded · Secure sign-in and database-backed workflows are being built</div>

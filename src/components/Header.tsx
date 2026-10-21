@@ -29,12 +29,14 @@ interface HeaderProps {
   currentView: ERPView;
   onSelectView: (view: ERPView) => void;
   lowStockCount: number;
+  onSignIn: () => void;
 }
 
 export const Header: React.FC<HeaderProps> = ({
   currentView,
   onSelectView,
-  lowStockCount
+  lowStockCount,
+  onSignIn,
 }) => {
   const navItems: Array<{ id: ERPView; label: string; icon: React.ReactNode; badge?: number }> = [
     { id: 'dashboard', label: 'Dashboard', icon: <Layers className="w-3.5 h-3.5" /> },
@@ -79,7 +81,7 @@ export const Header: React.FC<HeaderProps> = ({
           <nav className="hidden items-center gap-6 md:flex">
             <a href="#capabilities" className="text-sm font-semibold text-slate-600 transition hover:text-slate-950">Capabilities</a>
             <a href="#contact" className="text-sm font-semibold text-slate-600 transition hover:text-slate-950">Contact</a>
-            <button onClick={() => onSelectView('home')} className="rounded-lg border border-slate-300 bg-white px-4 py-2.5 text-sm font-bold text-slate-700 shadow-sm transition hover:bg-slate-50">ERP setup in progress</button>
+            <button onClick={onSignIn} className="rounded-lg bg-blue-700 px-4 py-2.5 text-sm font-bold text-white shadow-sm transition hover:bg-blue-800">Administrator sign in</button>
           </nav>
         ) : (
         <>

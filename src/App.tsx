@@ -3,7 +3,7 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 
-import React, { useState } from 'react';
+import React, { useEffect, useState } from 'react';
 import { Header, ERPView } from './components/Header.tsx';
 import { DashboardView } from './components/DashboardView.tsx';
 import { FinanceModule } from './components/FinanceModule.tsx';
@@ -14,6 +14,7 @@ import { ReportingModule } from './components/ReportingModule.tsx';
 import { UserManagementModule } from './components/UserManagementModule.tsx';
 import { ArchitectureView } from './components/ArchitectureView.tsx';
 import { HomeLandingPage } from './components/HomeLandingPage.tsx';
+import { SchoolAccount, SignInPage, SignedInPage } from './components/SignInPage.tsx';
 
 import { 
   Account, 
@@ -41,6 +42,59 @@ import {
 export default function App() {
   const [currentView, setCurrentView] = useState<ERPView>('home');
   const [currentRole, setCurrentRole] = useState<ErpSystemRole>('ADMINISTRATOR');
+  const [authAccount, setAuthAccount] = useState<SchoolAccount | null>(null);
+  const [csrfToken, setCsrfToken] = useState('');
+  const [authLoading, setAuthLoading] = useState(true);
+  const [showSignIn, setShowSignIn] = useState(false);
+  const [signOutBusy, setSignOutBusy] = useState(false);
+  const [authError, setAuthError] = useState('');
+
+  useEffect(() => {
+    let active = true;
+    fetch('/api/auth/session', { credentials: 'same-origin' })
+      .then(async response => {
+        if (response.status === 401) return null;
+        if (!response.ok) throw new Error('Could not verify the saved sign-in session.');
+        return await response.json() as { account: SchoolAccount; csrfToken: string };
+      })
+      .then(session => {
+        if (!active) return;
+        if (session) {
+          setAuthAccount(session.account);
+          setCsrfToken(session.csrfToken);
+        }
+      })
+      .catch(cause => {
+        if (active) setAuthError(cause instanceof Error ? cause.message : 'Sign-in service could not be reached.');
+      })
+      .finally(() => {
+        if (active) setAuthLoading(false);
+      });
+    return () => { active = false; };
+  }, []);
+
+  const handleSignOut = async () => {
+    setSignOutBusy(true);
+    setAuthError('');
+    try {
+      const response = await fetch('/api/auth/logout', {
+        method: 'POST',
+        credentials: 'same-origin',
+        headers: { 'X-CSRF-Token': csrfToken },
+      });
+      if (!response.ok) {
+        const result = await response.json().catch(() => ({}));
+        throw new Error(result.error || 'Sign-out failed. Please try again.');
+      }
+      setAuthAccount(null);
+      setCsrfToken('');
+      setShowSignIn(false);
+    } catch (cause) {
+      setAuthError(cause instanceof Error ? cause.message : 'Could not reach the sign-out service.');
+    } finally {
+      setSignOutBusy(false);
+    }
+  };
 
   // Application State
   const [accounts] = useState<Account[]>([]);
@@ -434,6 +488,36 @@ export default function App() {
 
   const lowStockCount = inventory.filter(i => i.currentStock <= i.reorderLevel).length;
 
+  if (authLoading || authAccount || showSignIn) {
+    return (
+      <div className="min-h-screen bg-slate-50 flex flex-col font-sans">
+        {!authAccount && <Header
+          currentView="home"
+          onSelectView={() => setShowSignIn(false)}
+          lowStockCount={0}
+          onSignIn={() => setShowSignIn(true)}
+        />}
+        <main className="flex-1">
+          {authLoading ? (
+            <div className="grid min-h-[60vh] place-items-center text-sm font-medium text-slate-600">Checking staging sign-in…</div>
+          ) : authAccount ? (
+            <SignedInPage account={authAccount} busy={signOutBusy} error={authError} onSignOut={handleSignOut} />
+          ) : showSignIn ? (
+            <SignInPage
+              onCancel={() => setShowSignIn(false)}
+              onSignedIn={(account, token) => {
+                setAuthAccount(account);
+                setCsrfToken(token);
+                setAuthError('');
+              }}
+            />
+          ) : null}
+        </main>
+        {authAccount && <div className="border-t border-slate-200 bg-white px-4 py-4 text-center text-xs text-slate-500">Staging environment · Operational modules are not yet connected to persistent school records</div>}
+      </div>
+    );
+  }
+
   return (
     <div className="min-h-screen bg-slate-50 flex flex-col font-sans">
       {/* Toast Notification */}
@@ -449,11 +533,12 @@ export default function App() {
         currentView={currentView}
         onSelectView={setCurrentView}
         lowStockCount={lowStockCount}
+        onSignIn={() => setShowSignIn(true)}
       />
 
       {/* Main Content Area */}
       <main className={`flex-1 ${currentView === 'home' ? 'w-full' : 'max-w-7xl w-full mx-auto px-4 sm:px-6 lg:px-8 py-6'}`}>
-        {currentView === 'home' && <HomeLandingPage onOpenDemo={() => triggerToast('The live ERP workspace is being connected to secure sign-in and database-backed records. No demo records are loaded.')} />}
+        {currentView === 'home' && <HomeLandingPage onSignIn={() => setShowSignIn(true)} />}
         {currentView === 'dashboard' && (
           <DashboardView
             onNavigate={setCurrentView}
