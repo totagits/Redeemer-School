@@ -162,14 +162,14 @@ export const Header: React.FC<HeaderProps> = ({
             <select
               value={currentRole}
               onChange={(e) => onSelectRole(e.target.value as ErpSystemRole)}
-              aria-label="Switch School Staff Role"
+              aria-label="Simulate School Staff Role (demo only)"
               className="text-xs font-semibold bg-slate-100 text-slate-800 border border-slate-300 rounded-lg px-2.5 py-1.5 focus:outline-hidden focus:ring-2 focus:ring-slate-400 cursor-pointer"
             >
-              <option value="ADMINISTRATOR">Role: Principal (Super Admin)</option>
-              <option value="ACCOUNTANT">Role: School Bursar (Finance & GL)</option>
-              <option value="HR_MANAGER">Role: Academic Dean (Faculty & HR)</option>
-              <option value="INVENTORY_CLERK">Role: Storekeeper (Supplies & Inventory)</option>
-              <option value="EXECUTIVE_AUDITOR">Role: MoE Auditor (Compliance)</option>
+              <option value="ADMINISTRATOR">Demo Role: Principal (Super Admin)</option>
+              <option value="ACCOUNTANT">Demo Role: School Bursar (Finance & GL)</option>
+              <option value="HR_MANAGER">Demo Role: Academic Dean (Faculty & HR)</option>
+              <option value="INVENTORY_CLERK">Demo Role: Storekeeper (Supplies & Inventory)</option>
+              <option value="EXECUTIVE_AUDITOR">Demo Role: MoE Auditor (Compliance)</option>
             </select>
           </div>
         </div>
