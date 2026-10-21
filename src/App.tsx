@@ -574,12 +574,12 @@ export default function App() {
           <div className="flex items-center gap-2">
             <span className="font-bold text-slate-900">Redeemer's International Academy ERP</span>
             <span>·</span>
-            <span>Monrovia, Liberia (MoE EMIS: LBR-MOE-MON-2024-0312)</span>
+            <span>Paynesville, Liberia · MoE EMIS integration not connected</span>
             <span className="hidden md:inline">·</span>
-            <span className="hidden md:inline">Admissions, Dual-Currency Bursary, Faculty HR, Storehouse Logistics & RBAC</span>
+            <span className="hidden md:inline">Admissions, Finance, HR, Inventory & demo role simulation</span>
           </div>
           <div>
-            <span className="font-medium text-slate-600">Academic Year 2026/2027 · Production Ready</span>
+            <span className="font-medium text-slate-600">Prototype preview · Sample data only · Not for official or payroll use</span>
           </div>
         </div>
       </footer>
