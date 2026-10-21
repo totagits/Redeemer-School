@@ -50,7 +50,7 @@ export const HrModule: React.FC<HrModuleProps> = ({
   const [newDepartment, setNewDepartment] = useState<Employee['department']>('Engineering');
   const [newDesignation, setNewDesignation] = useState('');
   const [newBaseSalary, setNewBaseSalary] = useState('');
-  const [newAllowances, setNewAllowances] = useState('500');
+  const [newAllowances, setNewAllowances] = useState('');
 
   // Staged Payroll Run
   const currentPayPeriod = 'October 2026';
@@ -73,15 +73,15 @@ export const HrModule: React.FC<HrModuleProps> = ({
     onAddEmployee({
       firstName: newFirstName,
       lastName: newLastName,
-      email: newEmail || `${newFirstName.toLowerCase()}.${newLastName.toLowerCase()}@enterprise-erp.com`,
-      phone: newPhone || '+1 (555) 000-0000',
+      email: newEmail.trim(),
+      phone: newPhone.trim(),
       department: newDepartment,
       designation: newDesignation,
       hireDate: new Date().toISOString().split('T')[0],
       employmentType: 'FULL_TIME',
-      baseSalary: Number(newBaseSalary) || 6000,
+      baseSalary: Number(newBaseSalary),
       allowances: Number(newAllowances) || 0,
-      bankAccount: 'US-SECURE-****8910',
+      bankAccount: '',
       status: 'ACTIVE'
     });
 
@@ -331,20 +331,22 @@ export const HrModule: React.FC<HrModuleProps> = ({
                   Active Pay Period: {currentPayPeriod}
                 </span>
                 <h2 className="text-base font-bold text-slate-900 mt-0.5">
-                  Monthly Compensation & Statutory Deductions
+                  Payroll Preview · Demo Values Only
                 </h2>
                 <p className="text-xs text-slate-500">
-                  Calculates Gross, 15% Withholding Tax, 6% Pension, and Net Take-Home Pay
+                  Liberia payroll rules are not verified. Do not use these demo figures to calculate or pay staff.
                 </p>
               </div>
 
               {/* Cross Module Action */}
               <button
-                onClick={() => onPostPayrollToGL(stagedPayroll)}
-                className="px-4 py-2 text-xs font-bold text-white bg-slate-900 hover:bg-slate-800 rounded-lg shadow-sm transition-colors flex items-center gap-2 whitespace-nowrap cursor-pointer"
+                type="button"
+                disabled
+                title="Posting stays disabled until Liberia payroll rules are verified and implemented."
+                className="px-4 py-2 text-xs font-bold text-slate-500 bg-slate-100 rounded-lg shadow-sm flex items-center gap-2 whitespace-nowrap cursor-not-allowed"
               >
-                <DollarSign className="w-4 h-4 text-emerald-400" />
-                Post Payroll to General Ledger
+                <ShieldAlert className="w-4 h-4 text-amber-600" />
+                Payroll posting disabled
               </button>
             </div>
 
@@ -392,8 +394,8 @@ export const HrModule: React.FC<HrModuleProps> = ({
                     <th className="py-2.5 px-4">Employee</th>
                     <th className="py-2.5 px-4 text-right">Base ($)</th>
                     <th className="py-2.5 px-4 text-right">Gross Pay ($)</th>
-                    <th className="py-2.5 px-4 text-right">Tax (15%)</th>
-                    <th className="py-2.5 px-4 text-right">Pension (6%)</th>
+                    <th className="py-2.5 px-4 text-right">Tax (demo)</th>
+                    <th className="py-2.5 px-4 text-right">Pension (demo)</th>
                     <th className="py-2.5 px-4 text-right font-bold text-slate-900">Net Pay ($)</th>
                     <th className="py-2.5 px-4 text-center">Action</th>
                   </tr>
