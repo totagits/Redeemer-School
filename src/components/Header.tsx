@@ -85,7 +85,7 @@ export const Header: React.FC<HeaderProps> = ({
         {/* Zone 1: Single Brand element */}
         <div className="flex items-center gap-3 shrink-0">
           <div className="w-10 h-10 rounded-xl bg-white ring-1 ring-amber-400/50 shadow-sm overflow-hidden shrink-0">
-            <img src="/redeemer-seal.svg?v=1" alt="Redeemer School seal" className="w-full h-full object-contain" />
+            <img src="/redeemer-seal.svg?v=2" alt="Redeemer School seal" className="w-full h-full object-contain" />
           </div>
           <button 
             onClick={() => onSelectView('dashboard')}
