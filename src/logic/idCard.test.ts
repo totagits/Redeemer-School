@@ -69,7 +69,7 @@ test('generateStudentIdCardData builds full credential structure with school met
   const card = generateStudentIdCardData(dummyStudent, '2026/2027');
   assert.equal(card.studentId, 'STU-2026-0042');
   assert.equal(card.fullName, 'Varney Sherman');
-  assert.equal(card.schoolName, 'The Redeemer School');
+  assert.equal(card.schoolName, "Redeemer's International Academy");
   assert.equal(card.emergencyContactName, 'Cllr. Famatta Sherman');
   assert.equal(card.emergencyContactPhone, '+231888334455');
   assert.ok(card.barcodeSvg.includes('<svg'));

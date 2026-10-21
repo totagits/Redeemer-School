@@ -20,7 +20,7 @@ import { JournalEntry, CustomerInvoice, VendorBill } from '../logic/erpFinance.t
 import { Employee, LeaveRequest, PayrollRun } from '../logic/erpHr.ts';
 import { InventoryItem, StockMovement } from '../logic/erpInventory.ts';
 import { StudentProfile, AdmissionApplicant } from '../logic/students.ts';
-import { THE_REDEEMER_SCHOOL_INFO } from '../data/erpInitialData.ts';
+import { THE_REDEEMER_SCHOOL_INFO } from '../data/schoolProfile.ts';
 import { ERPView } from './Header.tsx';
 
 interface DashboardViewProps {
@@ -111,7 +111,7 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
             
             <p className="text-xs sm:text-sm text-slate-300 italic flex items-center gap-1.5">
               <span>"{THE_REDEEMER_SCHOOL_INFO.motto}"</span>
-              <span className="not-italic text-slate-400">· {THE_REDEEMER_SCHOOL_INFO.campuses[0].name} & {THE_REDEEMER_SCHOOL_INFO.campuses[1].name}</span>
+              {THE_REDEEMER_SCHOOL_INFO.campuses.length > 0 && <span className="not-italic text-slate-400">· {THE_REDEEMER_SCHOOL_INFO.campuses.map(campus => campus.name).join(' · ')}</span>}
             </p>
           </div>
 
@@ -219,7 +219,7 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
             <div className="flex items-center gap-1 text-[11px] text-slate-500 mt-1">
               <span>Acct 1010</span>
               <span>·</span>
-              <span className="text-emerald-700 font-medium">Sample balance · not reconciled</span>
+              <span className="text-emerald-700 font-medium">No reconciled balance available</span>
             </div>
           </div>
           <button 
@@ -335,7 +335,7 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
             <div className="flex items-center gap-2">
               <FileCheck2 className="w-4 h-4 text-slate-600" />
               <h2 className="text-sm font-bold text-slate-900">
-                Redeemer's International Academy — Sample Ledger Activity
+                Redeemer's International Academy — Recent Ledger Activity
               </h2>
             </div>
             <button 

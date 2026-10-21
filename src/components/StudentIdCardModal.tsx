@@ -93,14 +93,14 @@ export const StudentIdCardModal: React.FC<StudentIdCardModalProps> = ({
             <div>
               <div className="flex items-center gap-2">
                 <h2 className="text-base font-bold tracking-tight">
-                  Official Student Identity Card Generator
+                  Student ID Card Preview
                 </h2>
                 <span className="text-[10px] font-bold bg-amber-400/20 text-amber-300 border border-amber-400/40 px-2 py-0.5 rounded-sm">
-                  CR80 MoE Standard
+                  Preview only · Not an official credential
                 </span>
               </div>
               <p className="text-xs text-slate-400">
-                The Redeemer School • Snapper Hill & 15th Street Sinkor • MoE EMIS: {DEFAULT_SCHOOL_INFO.moeEmisCode}
+                {DEFAULT_SCHOOL_INFO.name} • {DEFAULT_SCHOOL_INFO.address} • MoE EMIS: {DEFAULT_SCHOOL_INFO.moeEmisCode}
               </p>
             </div>
           </div>
@@ -211,20 +211,20 @@ export const StudentIdCardModal: React.FC<StudentIdCardModalProps> = ({
                           </div>
                           <div>
                             <div className="text-[12px] font-black uppercase tracking-wider text-amber-300">
-                              THE REDEEMER SCHOOL
+                              {card.schoolName}
                             </div>
                             <div className="text-[8px] text-slate-300 tracking-tight">
-                              MONROVIA, LIBERIA • FOUNDED 1984
+                              PAYNESVILLE, LIBERIA • EST. 2022
                             </div>
                           </div>
                         </div>
 
                         <div className="text-right">
                           <div className="text-[8px] font-bold bg-amber-400 text-slate-950 px-1.5 py-0.5 rounded-xs tracking-tight">
-                            2026/2027
+                            {card.academicYear}
                           </div>
                           <div className="text-[7px] text-slate-300 mt-0.5">
-                            MoE: {card.schoolEmisCode.split('-').slice(-2).join('-')}
+                            MoE: {card.schoolEmisCode}
                           </div>
                         </div>
                       </div>
@@ -299,7 +299,7 @@ export const StudentIdCardModal: React.FC<StudentIdCardModalProps> = ({
                       <div className="bg-slate-900 text-white px-3 py-1 flex items-center justify-between text-[8px]">
                         <span className="text-amber-300 font-semibold flex items-center gap-1">
                           <ShieldCheck className="w-2.5 h-2.5" />
-                          Official MoE Verified Credential
+                          Preview only · Ministry verification not configured
                         </span>
                         <span className="text-slate-300">Expires: {card.validThrough}</span>
                       </div>
@@ -314,10 +314,10 @@ export const StudentIdCardModal: React.FC<StudentIdCardModalProps> = ({
                       <div className="border-b border-slate-700 pb-2 flex items-center justify-between">
                         <div>
                           <div className="text-[10px] font-black uppercase text-amber-400 tracking-wider">
-                            THE REDEEMER SCHOOL — MONROVIA
+                            {card.schoolName}
                           </div>
                           <div className="text-[7.5px] text-slate-400">
-                            Association of Christian Schools & Private Educators of Liberia
+                            {DEFAULT_SCHOOL_INFO.address}
                           </div>
                         </div>
                         <span className="text-[7px] text-slate-400 bg-slate-800 px-1.5 py-0.5 rounded-sm">
@@ -328,13 +328,13 @@ export const StudentIdCardModal: React.FC<StudentIdCardModalProps> = ({
                       {/* Terms & Lost Notice */}
                       <div className="space-y-1.5 text-[8px] text-slate-300 leading-snug">
                         <p>
-                          1. This identity credential is the property of The Redeemer School and must be presented upon request during school sessions, WAEC/WASSCE examinations, and campus events.
+                          1. This preview is not an issued student identity credential.
                         </p>
                         <p>
-                          2. Alteration, transfer, or duplication of this card is strictly prohibited under Republic of Liberia Education Regulations.
+                          2. Confirm school, student and Ministry details before issuing any printed identity card.
                         </p>
                         <p className="text-amber-200/90 font-medium">
-                          IF FOUND, PLEASE RETURN TO: The Redeemer School Office, Snapper Hill & 15th Street Sinkor, Greater Monrovia School District. Emergency hotline: +231 (0) 770 123 456.
+                          School office: {DEFAULT_SCHOOL_INFO.address}
                         </p>
                       </div>
 
@@ -342,24 +342,24 @@ export const StudentIdCardModal: React.FC<StudentIdCardModalProps> = ({
                       <div className="pt-2 border-t border-slate-700 flex items-end justify-between">
                         <div className="text-left">
                           <div className="font-serif italic text-amber-300 text-xs tracking-wider">
-                            Rev. Dr. Emmanuel Doe
+                            {card.principalName}
                           </div>
                           <div className="text-[7px] text-slate-400 uppercase tracking-wider">
                             School Principal & Registrar
                           </div>
                         </div>
 
-                        {/* QR Verification Code Mock */}
+                        {/* Copy the payload; the preview does not display a scannable QR code. */}
                         <div className="flex items-center gap-2">
                           <button
                             onClick={() => handleCopyPayload(card.qrPayload)}
                             className="p-1 bg-slate-800 hover:bg-slate-700 rounded-sm border border-slate-600 text-slate-300 hover:text-white transition-colors cursor-pointer"
-                            title="Copy MoE Verification Payload"
+                            title="Copy verification payload"
                           >
                             {copiedPayload ? <Check className="w-3 h-3 text-emerald-400" /> : <Copy className="w-3 h-3" />}
                           </button>
                           <div className="w-10 h-10 bg-white p-1 rounded-sm flex items-center justify-center">
-                            <QrCode className="w-8 h-8 text-slate-900" />
+                            <span className="text-[6px] font-bold text-slate-700 text-center">PAYLOAD<br />ONLY</span>
                           </div>
                         </div>
                       </div>

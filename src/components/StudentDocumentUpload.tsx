@@ -11,7 +11,6 @@ import {
   Copy, 
   Check, 
   FileCheck, 
-  Sparkles,
   Lock,
   ExternalLink,
   Info
@@ -23,11 +22,7 @@ import {
   formatDocumentSize,
   filterDocumentsByType 
 } from '../logic/students.ts';
-import { 
-  validatePdfFile, 
-  generateOfficialTranscriptPdfBase64, 
-  generateBirthCertificatePdfBase64 
-} from '../logic/pdfHelper.ts';
+import { validatePdfFile } from '../logic/pdfHelper.ts';
 
 interface StudentDocumentUploadProps {
   student: StudentProfile;
@@ -173,103 +168,6 @@ export const StudentDocumentUpload: React.FC<StudentDocumentUploadProps> = ({
     }
   };
 
-  // Quick Demo Generators
-  const handleGenerateSampleTranscript = () => {
-    const base64 = generateOfficialTranscriptPdfBase64({
-      studentName: `${student.firstName} ${student.lastName}`,
-      studentId: student.studentId,
-      gradeLevel: student.gradeLevel,
-      section: student.section,
-      academicYear: '2026/2027',
-      campus: student.campus,
-      gpa: '3.85',
-      subjects: [
-        { name: 'Mathematics & Algebra', score: 92, grade: 'A', remarks: 'Distinction' },
-        { name: 'English Language & Composition', score: 88, grade: 'B', remarks: 'Very Good' },
-        { name: 'Integrated Science & Biology', score: 90, grade: 'A', remarks: 'Distinction' },
-        { name: 'Social Studies & Civics', score: 95, grade: 'A', remarks: 'Exemplary' }
-      ]
-    });
-
-    const newDoc: StudentDocument = {
-      id: `doc-${Date.now()}-trn`,
-      studentId: student.studentId,
-      type: 'ACADEMIC_TRANSCRIPT',
-      title: `${student.gradeLevel} Official Academic Transcript (Redeemer School)`,
-      fileName: `${student.lastName.toLowerCase()}_official_transcript.pdf`,
-      fileSizeBytes: Math.round(base64.length * 0.75), // approx binary size
-      mimeType: 'application/pdf',
-      base64Data: base64,
-      uploadedAt: new Date().toISOString(),
-      uploadedBy: activeUserName,
-      verified: true,
-      verifiedBy: activeUserName,
-      verifiedAt: new Date().toISOString(),
-      notes: 'Generated and digitally authenticated via Redeemer School ERP'
-    };
-
-    const updated = [newDoc, ...documents];
-    onUpdateDocuments(student.id, updated);
-
-    if (onAuditLog) {
-      onAuditLog(
-        'STUDENT_DOC_GENERATED',
-        `Generated and stored Base64 Academic Transcript for ${student.firstName} ${student.lastName} (${student.studentId})`
-      );
-    }
-
-    if (onNotification) {
-      onNotification(`Official Academic Transcript generated and linked to ${student.firstName}'s vault.`);
-    }
-  };
-
-  const handleGenerateSampleBirthCert = () => {
-    const primaryGuardian = student.guardians.find(g => g.isPrimary) || student.guardians[0];
-    const base64 = generateBirthCertificatePdfBase64({
-      certificateNumber: `LBR-VS-${student.dateOfBirth.slice(0, 4)}-${Math.floor(10000 + Math.random() * 90000)}`,
-      childName: `${student.firstName} ${student.lastName}`,
-      dateOfBirth: student.dateOfBirth,
-      gender: student.gender === 'FEMALE' ? 'Female' : 'Male',
-      placeOfBirth: `Monrovia, ${student.countyOfResidence}`,
-      county: student.countyOfResidence,
-      motherName: primaryGuardian ? primaryGuardian.name : 'Registered Mother',
-      fatherName: 'Registered Father',
-      registrarName: 'Hon. J. Patrick Benson',
-      issueDate: new Date().toISOString().split('T')[0]
-    });
-
-    const newDoc: StudentDocument = {
-      id: `doc-${Date.now()}-brt`,
-      studentId: student.studentId,
-      type: 'BIRTH_CERTIFICATE',
-      title: 'Republic of Liberia Birth Certificate (MoH Vital Records)',
-      fileName: `${student.lastName.toLowerCase()}_birth_certificate.pdf`,
-      fileSizeBytes: Math.round(base64.length * 0.75),
-      mimeType: 'application/pdf',
-      base64Data: base64,
-      uploadedAt: new Date().toISOString(),
-      uploadedBy: activeUserName,
-      verified: true,
-      verifiedBy: activeUserName,
-      verifiedAt: new Date().toISOString(),
-      notes: 'Official Vital Statistics record'
-    };
-
-    const updated = [newDoc, ...documents];
-    onUpdateDocuments(student.id, updated);
-
-    if (onAuditLog) {
-      onAuditLog(
-        'STUDENT_DOC_GENERATED',
-        `Generated and stored Base64 Birth Certificate for ${student.firstName} ${student.lastName} (${student.studentId})`
-      );
-    }
-
-    if (onNotification) {
-      onNotification(`Official Birth Certificate generated and linked to ${student.firstName}'s vault.`);
-    }
-  };
-
   const handleToggleVerification = (doc: StudentDocument) => {
     const newStatus = !doc.verified;
     const updated = documents.map(d => {
@@ -398,27 +296,6 @@ export const StudentDocumentUpload: React.FC<StudentDocumentUploadProps> = ({
             </p>
           </div>
 
-          {/* Quick Demo Generation Actions */}
-          <div className="flex items-center gap-2 flex-wrap">
-            <button
-              type="button"
-              onClick={handleGenerateSampleTranscript}
-              className="px-2.5 py-1 text-[11px] font-semibold text-blue-700 bg-blue-50 hover:bg-blue-100 border border-blue-200 rounded-md transition-colors flex items-center gap-1 cursor-pointer"
-              title="Generate a sample Base64 transcript PDF with authentic grades"
-            >
-              <Sparkles className="w-3 h-3 text-blue-600" />
-              + Sample Transcript PDF
-            </button>
-            <button
-              type="button"
-              onClick={handleGenerateSampleBirthCert}
-              className="px-2.5 py-1 text-[11px] font-semibold text-amber-800 bg-amber-50 hover:bg-amber-100 border border-amber-200 rounded-md transition-colors flex items-center gap-1 cursor-pointer"
-              title="Generate a sample Base64 MoH birth certificate PDF"
-            >
-              <Sparkles className="w-3 h-3 text-amber-600" />
-              + Sample Birth Cert PDF
-            </button>
-          </div>
         </div>
 
         <form onSubmit={handleSaveDocument} className="space-y-3.5">
@@ -799,188 +676,21 @@ export const StudentDocumentUpload: React.FC<StudentDocumentUploadProps> = ({
               </div>
             </div>
 
-            {/* Document Viewer Body: Visual Document Rendering + Embedded PDF */}
+            {/* Render the uploaded file itself; do not synthesize transcript or certificate records. */}
             <div className="flex-1 bg-slate-100 p-4 sm:p-6 overflow-y-auto">
-              <div className="max-w-2xl mx-auto bg-white rounded-xl border border-slate-300 shadow-md p-6 sm:p-8 space-y-5">
-                {previewDoc.type === 'ACADEMIC_TRANSCRIPT' ? (
-                  /* Formatted Academic Transcript Layout */
-                  <div className="space-y-4">
-                    <div className="text-center pb-4 border-b-2 border-slate-900">
-                      <div className="text-[11px] font-bold text-blue-900 uppercase tracking-widest">
-                        The Redeemer School of Monrovia
-                      </div>
-                      <h2 className="text-lg font-black text-slate-900 tracking-tight mt-0.5">
-                        OFFICIAL ACADEMIC TRANSCRIPT
-                      </h2>
-                      <div className="text-[11px] text-slate-500 mt-0.5">
-                        Republic of Liberia · Ministry of Education EMIS: LBR-MOE-MON-2024-0312
-                      </div>
-                    </div>
-
-                    <div className="grid grid-cols-2 gap-3 bg-slate-50 p-3 rounded-lg border border-slate-200 text-xs">
-                      <div>
-                        <span className="text-slate-500 block text-[10px] uppercase font-bold">Student Name</span>
-                        <span className="font-bold text-slate-900">{student.firstName} {student.lastName}</span>
-                      </div>
-                      <div>
-                        <span className="text-slate-500 block text-[10px] uppercase font-bold">Student Identifier</span>
-                        <span className="font-mono font-bold text-blue-700">{student.studentId}</span>
-                      </div>
-                      <div>
-                        <span className="text-slate-500 block text-[10px] uppercase font-bold">Academic Level</span>
-                        <span className="font-medium text-slate-800">{student.gradeLevel} - Section {student.section}</span>
-                      </div>
-                      <div>
-                        <span className="text-slate-500 block text-[10px] uppercase font-bold">Campus / Term</span>
-                        <span className="font-medium text-slate-800">{student.campus} · 2026/2027</span>
-                      </div>
-                    </div>
-
-                    <div className="overflow-x-auto">
-                      <table className="w-full text-left text-xs border border-slate-200 rounded-lg">
-                        <thead className="bg-slate-900 text-white text-[11px]">
-                          <tr>
-                            <th className="py-2 px-3">Subject / Discipline</th>
-                            <th className="py-2 px-3 text-center">Score</th>
-                            <th className="py-2 px-3 text-center">Grade</th>
-                            <th className="py-2 px-3">Scholastic Evaluation</th>
-                          </tr>
-                        </thead>
-                        <tbody className="divide-y divide-slate-100 text-[11px]">
-                          <tr className="hover:bg-slate-50">
-                            <td className="py-2 px-3 font-semibold text-slate-800">Mathematics & Advanced Algebra</td>
-                            <td className="py-2 px-3 text-center font-mono font-bold">94%</td>
-                            <td className="py-2 px-3 text-center font-bold text-emerald-700">A</td>
-                            <td className="py-2 px-3 text-slate-600">Distinction</td>
-                          </tr>
-                          <tr className="hover:bg-slate-50 bg-slate-50/50">
-                            <td className="py-2 px-3 font-semibold text-slate-800">English Language & Literature</td>
-                            <td className="py-2 px-3 text-center font-mono font-bold">89%</td>
-                            <td className="py-2 px-3 text-center font-bold text-blue-700">B</td>
-                            <td className="py-2 px-3 text-slate-600">Proficient / Honors</td>
-                          </tr>
-                          <tr className="hover:bg-slate-50">
-                            <td className="py-2 px-3 font-semibold text-slate-800">General & Laboratory Chemistry</td>
-                            <td className="py-2 px-3 text-center font-mono font-bold">92%</td>
-                            <td className="py-2 px-3 text-center font-bold text-emerald-700">A</td>
-                            <td className="py-2 px-3 text-slate-600">High Honors</td>
-                          </tr>
-                          <tr className="hover:bg-slate-50 bg-slate-50/50">
-                            <td className="py-2 px-3 font-semibold text-slate-800">Biology & Environmental Science</td>
-                            <td className="py-2 px-3 text-center font-mono font-bold">91%</td>
-                            <td className="py-2 px-3 text-center font-bold text-emerald-700">A</td>
-                            <td className="py-2 px-3 text-slate-600">Distinction</td>
-                          </tr>
-                          <tr className="hover:bg-slate-50">
-                            <td className="py-2 px-3 font-semibold text-slate-800">History of Liberia & Civics</td>
-                            <td className="py-2 px-3 text-center font-mono font-bold">96%</td>
-                            <td className="py-2 px-3 text-center font-bold text-emerald-700">A</td>
-                            <td className="py-2 px-3 text-slate-600">Exemplary Standing</td>
-                          </tr>
-                        </tbody>
-                      </table>
-                    </div>
-
-                    <div className="flex justify-between items-center p-3 bg-emerald-50/60 border border-emerald-200 rounded-lg">
-                      <span className="font-bold text-emerald-900 text-xs">Cumulative Grade Point Average (GPA):</span>
-                      <span className="font-mono font-bold text-emerald-900 text-sm">3.88 / 4.00 (High Academic Distinction)</span>
-                    </div>
-
-                    <div className="pt-4 border-t border-slate-200 flex justify-between text-[11px] text-slate-600">
-                      <div>
-                        <div className="font-bold text-slate-900">Sister Evelyn Coleman</div>
-                        <div className="text-slate-400">Academic Registrar & Dean of Studies</div>
-                      </div>
-                      <div className="text-right">
-                        <div className="font-bold text-slate-900">Rev. Dr. Emmanuel Doe</div>
-                        <div className="text-slate-400">Principal / Head of Institution</div>
-                      </div>
-                    </div>
-                  </div>
-                ) : previewDoc.type === 'BIRTH_CERTIFICATE' ? (
-                  /* Formatted Birth Certificate Layout */
-                  <div className="space-y-4">
-                    <div className="text-center pb-4 border-b-2 border-amber-800">
-                      <div className="text-[11px] font-bold text-amber-900 uppercase tracking-widest">
-                        Republic of Liberia · Ministry of Health
-                      </div>
-                      <h2 className="text-lg font-black text-slate-900 tracking-tight mt-0.5">
-                        CERTIFICATE OF BIRTH REGISTRATION
-                      </h2>
-                      <div className="text-[11px] text-slate-500 mt-0.5">
-                        Bureau of Vital Statistics & Archives · Monrovia, Liberia
-                      </div>
-                    </div>
-
-                    <div className="p-3 bg-amber-50/60 border border-amber-200 rounded-lg text-amber-900 text-xs flex justify-between">
-                      <span className="font-bold">Official Registration Number:</span>
-                      <span className="font-mono font-bold">LBR-VS-2010-09412</span>
-                    </div>
-
-                    <div className="space-y-2 text-xs divide-y divide-slate-100">
-                      <div className="pt-2 flex justify-between">
-                        <span className="text-slate-500">Child's Registered Full Name:</span>
-                        <strong className="text-slate-900">{student.firstName} {student.lastName}</strong>
-                      </div>
-                      <div className="pt-2 flex justify-between">
-                        <span className="text-slate-500">Date of Birth & Gender:</span>
-                        <strong className="text-slate-900">{student.dateOfBirth} ({student.gender})</strong>
-                      </div>
-                      <div className="pt-2 flex justify-between">
-                        <span className="text-slate-500">Place of Birth & County:</span>
-                        <strong className="text-slate-900">JFK Memorial Medical Center, {student.countyOfResidence}</strong>
-                      </div>
-                      <div className="pt-2 flex justify-between">
-                        <span className="text-slate-500">Parental Guardians:</span>
-                        <strong className="text-slate-900">{student.guardians[0]?.name || 'Registered Parent'}</strong>
-                      </div>
-                    </div>
-
-                    <div className="pt-4 border-t border-slate-200 flex justify-between items-center text-[11px] text-slate-600">
-                      <div>
-                        <div className="font-bold text-slate-900">Hon. J. Patrick Benson</div>
-                        <div className="text-slate-400">Registrar General, Bureau of Vital Statistics</div>
-                      </div>
-                      <div className="px-3 py-1 bg-amber-100 text-amber-900 font-bold rounded-sm border border-amber-300 text-[10px] tracking-wider uppercase">
-                        Official Vital Seal
-                      </div>
-                    </div>
-                  </div>
+              <div className="max-w-4xl h-full min-h-[60vh] mx-auto bg-white rounded-xl border border-slate-300 shadow-md overflow-hidden">
+                {previewDoc.base64Data ? (
+                  <iframe title={previewDoc.title} src={previewDoc.base64Data} className="h-full min-h-[60vh] w-full" />
                 ) : (
-                  /* Generic Document Fallback View */
-                  <div className="space-y-4">
-                    <div className="flex items-center gap-3 pb-3 border-b border-slate-200">
-                      <div className="w-10 h-10 rounded-lg bg-blue-100 text-blue-700 flex items-center justify-center">
-                        <FileText className="w-6 h-6" />
-                      </div>
-                      <div>
-                        <h3 className="font-bold text-slate-900 text-sm">{previewDoc.title}</h3>
-                        <span className="text-xs text-slate-500">{previewDoc.fileName} · {formatDocumentSize(previewDoc.fileSizeBytes)}</span>
-                      </div>
-                    </div>
-
-                    <div className="p-4 bg-slate-50 rounded-lg border border-slate-200 space-y-2 text-xs">
-                      <div className="flex justify-between">
-                        <span className="text-slate-500">Document Type:</span>
-                        <span className="font-bold text-slate-900">{previewDoc.type}</span>
-                      </div>
-                      <div className="flex justify-between">
-                        <span className="text-slate-500">Stored Format:</span>
-                        <span className="font-mono font-bold text-emerald-700">Base64 Encoded PDF Data URI</span>
-                      </div>
-                      <div className="flex justify-between">
-                        <span className="text-slate-500">Verification Status:</span>
-                        <span className="font-bold text-slate-900">{previewDoc.verified ? 'Verified by Registrar' : 'Pending Verification'}</span>
-                      </div>
-                    </div>
+                  <div className="grid min-h-[60vh] place-items-center p-8 text-center text-sm text-slate-600">
+                    No file is available to preview. Download the document or upload it again.
                   </div>
                 )}
-
                 {/* Base64 & Download Direct Bar */}
                 <div className="p-3 bg-slate-50 border border-slate-200 rounded-lg flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2 text-xs">
                   <div className="flex items-center gap-2 text-slate-600">
                     <Lock className="w-3.5 h-3.5 text-purple-600 shrink-0" />
-                    <span>Cryptographic Storage: In-memory Base64 Payload ({previewDoc.base64Data.length.toLocaleString()} chars)</span>
+                    <span>Temporary browser-held file data ({previewDoc.base64Data.length.toLocaleString()} characters)</span>
                   </div>
 
                   <div className="flex items-center gap-2">

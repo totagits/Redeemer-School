@@ -21,7 +21,7 @@ import { CustomerInvoice, VendorBill, JournalEntry, Account, computeFinancialSta
 import { InventoryItem } from '../logic/erpInventory.ts';
 import { Employee, PayrollRun } from '../logic/erpHr.ts';
 import { StudentProfile } from '../logic/students.ts';
-import { THE_REDEEMER_SCHOOL_INFO } from '../data/erpInitialData.ts';
+import { THE_REDEEMER_SCHOOL_INFO } from '../data/schoolProfile.ts';
 import { 
   computeAgingReport, 
   computeInventoryCategoryReport, 

@@ -5,16 +5,17 @@
  */
 
 import type { StudentProfile } from './students.ts';
+import { THE_REDEEMER_SCHOOL_INFO } from '../data/schoolProfile.ts';
 
 export const DEFAULT_SCHOOL_INFO = {
-  name: 'The Redeemer School',
-  formalName: 'The Redeemer School of Monrovia',
-  motto: 'Wisdom, Character & Service in Christ',
-  moeEmisCode: 'LBR-MOE-MON-2024-0312',
-  moePermitNumber: 'MOE/DE/2026/0544',
+  name: THE_REDEEMER_SCHOOL_INFO.name,
+  formalName: THE_REDEEMER_SCHOOL_INFO.formalName,
+  motto: THE_REDEEMER_SCHOOL_INFO.motto,
+  moeEmisCode: THE_REDEEMER_SCHOOL_INFO.moeEmisCode,
+  moePermitNumber: THE_REDEEMER_SCHOOL_INFO.moePermitNumber,
   county: 'Montserrado County',
-  address: 'Snapper Hill & 15th Street Sinkor, Monrovia, Liberia',
-  principal: 'Rev. Dr. Emmanuel Doe'
+  address: 'RIA Highway, Thinker’s Village, Guest House Road, Paynesville, Montserrado, Liberia',
+  principal: THE_REDEEMER_SCHOOL_INFO.principal
 };
 
 export interface StudentIdCardData {
@@ -103,7 +104,7 @@ export function generateVerificationPayload(student: StudentProfile): string {
     name: `${student.firstName} ${student.lastName}`,
     grade: `${student.gradeLevel}-${student.section}`,
     school: DEFAULT_SCHOOL_INFO.moeEmisCode,
-    year: '2026/2027',
+    year: THE_REDEEMER_SCHOOL_INFO.academicYear,
     v: '1.0'
   };
   return JSON.stringify(payload);
@@ -114,11 +115,11 @@ export function generateVerificationPayload(student: StudentProfile): string {
  */
 export function generateStudentIdCardData(
   student: StudentProfile,
-  academicYear: string = '2026/2027'
+  academicYear: string = THE_REDEEMER_SCHOOL_INFO.academicYear
 ): StudentIdCardData {
   const primaryGuardian = student.guardians && student.guardians.length > 0 
     ? student.guardians[0] 
-    : { name: 'School Emergency Office', relation: 'Institution', phone: '+231 (0) 770 123 456' };
+    : { name: 'Not provided', relation: 'Not provided', phone: 'Not provided' };
 
   const barcodeSvg = generateBarcodeSvg(student.studentId);
   const qrPayload = generateVerificationPayload(student);
@@ -140,16 +141,16 @@ export function generateStudentIdCardData(
     gender: student.gender,
     gradeLevel: student.gradeLevel,
     section: `Section ${student.section}`,
-    campus: student.campus || 'Snapper Hill Main Campus',
+    campus: student.campus || 'Not configured',
     countyOfResidence: student.countyOfResidence,
     address: student.address,
     emergencyContactName: primaryGuardian.name,
     emergencyContactRelation: primaryGuardian.relation,
     emergencyContactPhone: primaryGuardian.phone,
-    bloodGroup: 'O+ (Verified)',
+    bloodGroup: 'Not recorded',
     academicYear,
-    issuedDate: '2026-09-01',
-    validThrough: '2027-07-31',
+    issuedDate: 'Not issued',
+    validThrough: 'Not configured',
     schoolName: DEFAULT_SCHOOL_INFO.name,
     schoolMotto: DEFAULT_SCHOOL_INFO.motto,
     schoolEmisCode: DEFAULT_SCHOOL_INFO.moeEmisCode,

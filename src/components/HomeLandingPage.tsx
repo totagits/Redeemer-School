@@ -64,7 +64,7 @@ export const HomeLandingPage: React.FC<HomeLandingPageProps> = ({ onOpenDemo }) 
         <div className="max-w-2xl">
           <div className="inline-flex items-center gap-2 rounded-full border border-white/15 bg-white/[0.07] px-3 py-1.5 text-xs font-semibold text-blue-100 shadow-sm backdrop-blur">
             <span className="h-1.5 w-1.5 rounded-full bg-emerald-400" />
-            SCHOOL OPERATIONS, CONNECTED
+            ERP WORKSPACE SETUP IN PROGRESS
           </div>
           <h1 className="mt-7 max-w-2xl text-4xl font-semibold leading-[1.08] tracking-tight sm:text-5xl lg:text-[3.6rem]">
             More time for learning. <span className="text-blue-300">Less time chasing paperwork.</span>
@@ -74,7 +74,7 @@ export const HomeLandingPage: React.FC<HomeLandingPageProps> = ({ onOpenDemo }) 
           </p>
           <div className="mt-8 flex flex-col gap-3 sm:flex-row">
             <button onClick={onOpenDemo} className="group inline-flex items-center justify-center gap-2 rounded-lg bg-white px-5 py-3 text-sm font-bold text-slate-900 shadow-lg shadow-blue-950/25 transition hover:-translate-y-0.5 hover:bg-blue-50 focus:outline-none focus:ring-2 focus:ring-white focus:ring-offset-2 focus:ring-offset-[#071b33]">
-              Explore the ERP demo <ArrowRight className="h-4 w-4 transition group-hover:translate-x-0.5" />
+              Check workspace status <ArrowRight className="h-4 w-4 transition group-hover:translate-x-0.5" />
             </button>
             <a href="#capabilities" className="inline-flex items-center justify-center gap-2 rounded-lg border border-white/20 px-5 py-3 text-sm font-semibold text-white transition hover:border-white/40 hover:bg-white/[0.06]">
               See what it brings together <ArrowDownRight className="h-4 w-4" />
@@ -97,10 +97,10 @@ export const HomeLandingPage: React.FC<HomeLandingPageProps> = ({ onOpenDemo }) 
                 <img src="/redeemer-seal.svg?v=2" alt="" className="h-10 w-10 rounded-xl object-contain ring-1 ring-slate-200" />
                 <div>
                   <p className="text-sm font-bold text-slate-900">School overview</p>
-                  <p className="mt-0.5 text-[11px] text-slate-500">A glimpse inside the ERP</p>
+              <p className="mt-0.5 text-[11px] text-slate-500">Illustrative interface preview</p>
                 </div>
               </div>
-              <span className="rounded-full bg-amber-50 px-2.5 py-1 text-[10px] font-bold uppercase tracking-wide text-amber-800 ring-1 ring-amber-200">Demo preview</span>
+              <span className="rounded-full bg-amber-50 px-2.5 py-1 text-[10px] font-bold uppercase tracking-wide text-amber-800 ring-1 ring-amber-200">Design preview</span>
             </div>
             <div className="grid grid-cols-2 gap-3 bg-slate-50 p-4 sm:gap-4 sm:p-5">
               <PreviewStat icon={GraduationCap} label="Student records" value="Connected view" color="text-blue-700 bg-blue-100" />
@@ -128,7 +128,7 @@ export const HomeLandingPage: React.FC<HomeLandingPageProps> = ({ onOpenDemo }) 
               </div>
             </div>
             <div className="flex items-center gap-2 border-t border-slate-100 px-5 py-3 text-[10px] text-slate-500 sm:px-6">
-              <ShieldCheck className="h-3.5 w-3.5 text-emerald-600" /> Sample interface preview · Not live school data
+              <ShieldCheck className="h-3.5 w-3.5 text-emerald-600" /> Illustrative screen only · No school records shown
             </div>
           </div>
           <div className="absolute -bottom-5 -left-3 hidden items-center gap-2 rounded-xl border border-slate-200 bg-white px-4 py-3 shadow-lg sm:flex lg:-left-8">
@@ -160,7 +160,7 @@ export const HomeLandingPage: React.FC<HomeLandingPageProps> = ({ onOpenDemo }) 
               <span className={`inline-grid h-11 w-11 place-items-center rounded-xl ring-1 ${capabilityTone[tone]}`}><Icon className="h-5 w-5" /></span>
               <h3 className="mt-5 text-sm font-bold text-slate-900">{title}</h3>
               <p className="mt-2 text-sm leading-6 text-slate-600">{description}</p>
-              <span className="mt-5 inline-flex items-center gap-1 text-xs font-semibold text-blue-700">Explore the demo <ChevronRight className="h-3.5 w-3.5 transition group-hover:translate-x-0.5" /></span>
+              <span className="mt-5 inline-flex items-center gap-1 text-xs font-semibold text-blue-700">Planned capability <ChevronRight className="h-3.5 w-3.5 transition group-hover:translate-x-0.5" /></span>
             </article>
           ))}
         </div>
@@ -187,10 +187,10 @@ export const HomeLandingPage: React.FC<HomeLandingPageProps> = ({ onOpenDemo }) 
     <section id="contact" className="scroll-mt-24 border-t border-slate-100 bg-slate-50 py-12">
       <div className="mx-auto flex max-w-7xl flex-col gap-6 px-5 sm:px-8 md:flex-row md:items-center md:justify-between lg:px-10">
         <div><p className="text-xs font-bold uppercase tracking-[0.18em] text-blue-700">Redeemer’s International Academy · Est. 2022</p><p className="mt-2 text-sm text-slate-600">{SCHOOL_CONTACT.address}</p><p className="mt-1 text-sm font-semibold text-slate-800">{SCHOOL_CONTACT.phones.join('  ·  ')}</p></div>
-        <button onClick={onOpenDemo} className="inline-flex shrink-0 items-center justify-center gap-2 rounded-lg bg-blue-700 px-5 py-3 text-sm font-bold text-white shadow-sm transition hover:bg-blue-800">Explore the ERP demo <ArrowRight className="h-4 w-4" /></button>
+        <button onClick={onOpenDemo} className="inline-flex shrink-0 items-center justify-center gap-2 rounded-lg bg-blue-700 px-5 py-3 text-sm font-bold text-white shadow-sm transition hover:bg-blue-800">Check workspace status <ArrowRight className="h-4 w-4" /></button>
       </div>
     </section>
-    <div className="border-t border-slate-200 bg-white px-5 py-4 text-center text-[11px] text-slate-500">Prototype preview · Sample data only · Not for official student records, accounting, or payroll use</div>
+    <div className="border-t border-slate-200 bg-white px-5 py-4 text-center text-[11px] text-slate-500">Design preview only · No demo records are loaded · Secure sign-in and database-backed workflows are being built</div>
   </div>
 );
 

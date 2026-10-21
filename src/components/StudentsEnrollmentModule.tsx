@@ -30,7 +30,7 @@ import {
   StudentDocument,
   detectDuplicateStudent 
 } from '../logic/students.ts';
-import { THE_REDEEMER_SCHOOL_INFO } from '../data/erpInitialData.ts';
+import { THE_REDEEMER_SCHOOL_INFO } from '../data/schoolProfile.ts';
 import { StudentDocumentUpload } from './StudentDocumentUpload.tsx';
 import { DailyAttendanceTracker } from './DailyAttendanceTracker.tsx';
 import { StudentIdCardModal } from './StudentIdCardModal.tsx';
@@ -61,7 +61,7 @@ export const StudentsEnrollmentModule: React.FC<StudentsEnrollmentModuleProps> =
   students,
   applicants,
   attendanceRecords = [],
-  activeUserName = 'Sister Evelyn Coleman',
+  activeUserName = '',
   activeUserRole = 'HR_MANAGER',
   onAddApplicant,
   onUpdateApplicantStatus,

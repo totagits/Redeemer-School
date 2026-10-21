@@ -16,22 +16,6 @@ import { ArchitectureView } from './components/ArchitectureView.tsx';
 import { HomeLandingPage } from './components/HomeLandingPage.tsx';
 
 import { 
-  INITIAL_ACCOUNTS, 
-  INITIAL_JOURNAL_ENTRIES, 
-  INITIAL_INVOICES, 
-  INITIAL_BILLS, 
-  INITIAL_EMPLOYEES, 
-  INITIAL_LEAVE_REQUESTS, 
-  INITIAL_INVENTORY, 
-  INITIAL_STOCK_MOVEMENTS,
-  INITIAL_USERS,
-  INITIAL_SECURITY_AUDIT_LOGS,
-  INITIAL_STUDENTS,
-  INITIAL_ADMISSION_APPLICANTS,
-  INITIAL_ATTENDANCE_RECORDS
-} from './data/erpInitialData.ts';
-
-import { 
   Account, 
   JournalEntry, 
   CustomerInvoice, 
@@ -59,24 +43,24 @@ export default function App() {
   const [currentRole, setCurrentRole] = useState<ErpSystemRole>('ADMINISTRATOR');
 
   // Application State
-  const [accounts] = useState<Account[]>(INITIAL_ACCOUNTS);
-  const [journalEntries, setJournalEntries] = useState<JournalEntry[]>(INITIAL_JOURNAL_ENTRIES);
-  const [invoices, setInvoices] = useState<CustomerInvoice[]>(INITIAL_INVOICES);
-  const [bills, setBills] = useState<VendorBill[]>(INITIAL_BILLS);
+  const [accounts] = useState<Account[]>([]);
+  const [journalEntries, setJournalEntries] = useState<JournalEntry[]>([]);
+  const [invoices, setInvoices] = useState<CustomerInvoice[]>([]);
+  const [bills, setBills] = useState<VendorBill[]>([]);
 
-  const [employees, setEmployees] = useState<Employee[]>(INITIAL_EMPLOYEES);
-  const [leaveRequests, setLeaveRequests] = useState<LeaveRequest[]>(INITIAL_LEAVE_REQUESTS);
+  const [employees, setEmployees] = useState<Employee[]>([]);
+  const [leaveRequests, setLeaveRequests] = useState<LeaveRequest[]>([]);
   const [payrollRuns, setPayrollRuns] = useState<PayrollRun[]>([]);
 
-  const [inventory, setInventory] = useState<InventoryItem[]>(INITIAL_INVENTORY);
-  const [stockMovements, setStockMovements] = useState<StockMovement[]>(INITIAL_STOCK_MOVEMENTS);
+  const [inventory, setInventory] = useState<InventoryItem[]>([]);
+  const [stockMovements, setStockMovements] = useState<StockMovement[]>([]);
 
-  const [students, setStudents] = useState<StudentProfile[]>(INITIAL_STUDENTS);
-  const [applicants, setApplicants] = useState<AdmissionApplicant[]>(INITIAL_ADMISSION_APPLICANTS);
-  const [attendanceRecords, setAttendanceRecords] = useState<StudentAttendanceRecord[]>(INITIAL_ATTENDANCE_RECORDS);
+  const [students, setStudents] = useState<StudentProfile[]>([]);
+  const [applicants, setApplicants] = useState<AdmissionApplicant[]>([]);
+  const [attendanceRecords, setAttendanceRecords] = useState<StudentAttendanceRecord[]>([]);
 
-  const [users, setUsers] = useState<ErpUser[]>(INITIAL_USERS);
-  const [auditLogs, setAuditLogs] = useState<SecurityAuditRecord[]>(INITIAL_SECURITY_AUDIT_LOGS);
+  const [users, setUsers] = useState<ErpUser[]>([]);
+  const [auditLogs, setAuditLogs] = useState<SecurityAuditRecord[]>([]);
 
   // Success Notification / Toast
   const [toastMessage, setToastMessage] = useState<string | null>(null);
@@ -86,9 +70,10 @@ export default function App() {
     setTimeout(() => setToastMessage(null), 3500);
   };
 
-  const activeUser = users.find(u => u.role === currentRole) || users[0];
+  const activeUser = users.find(u => u.role === currentRole);
 
   const recordAudit = (action: string, module: SecurityAuditRecord['module'], details: string) => {
+    if (!activeUser) return;
     const log = createAuditLog(activeUser, action, module, details);
     setAuditLogs([log, ...auditLogs]);
   };
@@ -130,7 +115,7 @@ export default function App() {
         { accountId: '4010', accountName: 'Operating Sales Revenue', debit: 0, credit: inv.totalAmount, memo: inv.customerName }
       ],
       sourceModule: 'AR_BILLING',
-      createdBy: activeUser.fullName
+      createdBy: activeUser?.fullName ?? ''
     });
 
     recordAudit('INVOICE_CREATED', 'FINANCE', `Issued customer invoice ${invoiceNumber} for $${inv.totalAmount.toFixed(2)} to ${inv.customerName}`);
@@ -152,7 +137,7 @@ export default function App() {
           { accountId: '1020', accountName: 'Accounts Receivable', debit: 0, credit: amount, memo: 'Payment clear' }
         ],
         sourceModule: 'AR_BILLING',
-        createdBy: activeUser.fullName
+        createdBy: activeUser?.fullName ?? ''
       });
 
       recordAudit('PAYMENT_RECEIVED', 'FINANCE', `Settled $${amount.toFixed(2)} against invoice ${inv.invoiceNumber}`);
@@ -187,7 +172,7 @@ export default function App() {
         { accountId: '2010', accountName: 'Accounts Payable', debit: 0, credit: bill.amount, memo: bill.vendorName }
       ],
       sourceModule: 'AP_VENDOR',
-      createdBy: activeUser.fullName
+      createdBy: activeUser?.fullName ?? ''
     });
 
     recordAudit('BILL_APPROVED', 'FINANCE', `Approved vendor bill ${billNumber} for $${bill.amount.toFixed(2)} from ${bill.vendorName}`);
@@ -208,7 +193,7 @@ export default function App() {
           { accountId: '1010', accountName: 'Cash and Operating Bank', debit: 0, credit: amount, memo: 'EFT Wire' }
         ],
         sourceModule: 'AP_VENDOR',
-        createdBy: activeUser.fullName
+        createdBy: activeUser?.fullName ?? ''
       });
 
       recordAudit('BILL_DISBURSED', 'FINANCE', `Disbursed $${amount.toFixed(2)} to vendor ${bill.vendorName} for ${bill.billNumber}`);
@@ -289,7 +274,7 @@ export default function App() {
         }
       ],
       sourceModule: 'PAYROLL',
-      createdBy: activeUser.fullName
+      createdBy: activeUser?.fullName ?? ''
     });
 
     setPayrollRuns([...payrollRuns, { ...payrollRun, status: 'POSTED_TO_GL' }]);
@@ -353,7 +338,7 @@ export default function App() {
       quantity: qty,
       referenceNumber: `PO-${Date.now().toString().slice(-4)}`,
       reason: 'Automated reorder replenishment triggered',
-      performedBy: activeUser.fullName
+      performedBy: activeUser?.fullName ?? ''
     });
   };
 
@@ -463,14 +448,12 @@ export default function App() {
       <Header
         currentView={currentView}
         onSelectView={setCurrentView}
-        currentRole={currentRole}
-        onSelectRole={setCurrentRole}
         lowStockCount={lowStockCount}
       />
 
       {/* Main Content Area */}
       <main className={`flex-1 ${currentView === 'home' ? 'w-full' : 'max-w-7xl w-full mx-auto px-4 sm:px-6 lg:px-8 py-6'}`}>
-        {currentView === 'home' && <HomeLandingPage onOpenDemo={() => setCurrentView('dashboard')} />}
+        {currentView === 'home' && <HomeLandingPage onOpenDemo={() => triggerToast('The live ERP workspace is being connected to secure sign-in and database-backed records. No demo records are loaded.')} />}
         {currentView === 'dashboard' && (
           <DashboardView
             onNavigate={setCurrentView}
@@ -495,7 +478,7 @@ export default function App() {
             students={students}
             applicants={applicants}
             attendanceRecords={attendanceRecords}
-            activeUserName={activeUser.fullName}
+            activeUserName={activeUser?.fullName ?? ''}
             activeUserRole={currentRole}
             onAddApplicant={handleAddApplicant}
             onUpdateApplicantStatus={handleUpdateApplicantStatus}
@@ -578,10 +561,10 @@ export default function App() {
             <span>·</span>
             <span>Paynesville, Liberia · MoE EMIS integration not connected</span>
             <span className="hidden md:inline">·</span>
-            <span className="hidden md:inline">Admissions, Finance, HR, Inventory & demo role simulation</span>
+            <span className="hidden md:inline">School workspace access is being prepared</span>
           </div>
           <div>
-            <span className="font-medium text-slate-600">Prototype preview · Sample data only · Not for official or payroll use</span>
+            <span className="font-medium text-slate-600">No demo records loaded · Database-backed sign-in and workflows are not enabled yet</span>
           </div>
         </div>
       </footer>}
