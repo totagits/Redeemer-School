@@ -98,14 +98,10 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
           <div className="space-y-2">
             <div className="flex items-center gap-2.5">
               <span className="px-2.5 py-0.5 text-[11px] font-bold uppercase tracking-wider bg-amber-400 text-slate-950 rounded-md">
-                Official School ERP
+                Prototype Preview
               </span>
               <span className="text-xs text-slate-300 font-mono">
-                EMIS: {THE_REDEEMER_SCHOOL_INFO.moeEmisCode}
-              </span>
-              <span className="text-slate-500 hidden sm:inline">·</span>
-              <span className="text-xs text-slate-300 hidden sm:inline">
-                Permit: {THE_REDEEMER_SCHOOL_INFO.moePermitNumber}
+                MoE EMIS connection: Not configured
               </span>
             </div>
             
@@ -165,7 +161,7 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
             </span>
             <span className="text-slate-600">|</span>
             <span className="text-emerald-400 font-medium">
-              Dual-Currency Bursary Engine Active (USD / LRD)
+              Finance preview · no payment provider connected
             </span>
           </div>
 
@@ -223,7 +219,7 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
             <div className="flex items-center gap-1 text-[11px] text-slate-500 mt-1">
               <span>Acct 1010</span>
               <span>·</span>
-              <span className="text-emerald-700 font-medium">Reconciled (Ecobank)</span>
+              <span className="text-emerald-700 font-medium">Sample balance · not reconciled</span>
             </div>
           </div>
           <button 
@@ -339,7 +335,7 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
             <div className="flex items-center gap-2">
               <FileCheck2 className="w-4 h-4 text-slate-600" />
               <h2 className="text-sm font-bold text-slate-900">
-                The Redeemer School — Recent Ledger Postings
+                Redeemer's International Academy — Sample Ledger Activity
               </h2>
             </div>
             <button 
@@ -375,7 +371,7 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
                         <span>Created by {entry.createdBy}</span>
                         <span>·</span>
                         <span className="text-emerald-700 font-semibold flex items-center gap-0.5">
-                          <CheckCircle2 className="w-3 h-3 inline" /> Posted to GL
+                          <CheckCircle2 className="w-3 h-3 inline" /> Simulated in preview
                         </span>
                       </div>
                     </div>
@@ -443,17 +439,17 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
             <div className="flex items-center gap-2 mb-2">
               <ShieldCheck className="w-4 h-4 text-emerald-400" />
               <span className="text-xs font-bold uppercase tracking-wider text-slate-300">
-                MoE EMIS Compliance
+                MoE EMIS Readiness · Not Connected
               </span>
             </div>
             <h4 className="text-sm font-bold text-white">
-              The Redeemer School Accreditation
+              MoE reporting integration is not verified
             </h4>
             <p className="text-xs text-slate-300 mt-1 leading-relaxed">
-              Longitudinal student registers, WAEC/WASSCE candidate tracking, and certified teacher credentials verified for the 2026/2027 academic cycle.
+              This preview uses sample records. No official MoE integration, credential verification, or submission connection is configured.
             </p>
             <div className="mt-3 pt-3 border-t border-slate-800 flex items-center justify-between text-[11px] text-slate-400">
-              <span>Status: <strong className="text-emerald-400">Licensed & Verified</strong></span>
+              <span>Status: <strong className="text-amber-300">Not connected or verified</strong></span>
               <button
                 onClick={() => onNavigate('reports')}
                 className="text-amber-300 hover:text-amber-200 font-bold underline cursor-pointer"
