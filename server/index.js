@@ -10,16 +10,17 @@ const port = Number(process.env.PORT || 3000);
 const here = path.dirname(fileURLToPath(import.meta.url));
 const distDir = path.resolve(here, '../dist');
 
-if (!process.env.DATABASE_URL) {
-  throw new Error('DATABASE_URL is required. Configure PostgreSQL before starting the production server.');
-}
-
-const pool = new Pool({
-  connectionString: process.env.DATABASE_URL,
-  max: Number(process.env.DB_POOL_MAX || 10),
-  idleTimeoutMillis: 30_000,
-  connectionTimeoutMillis: 5_000,
-});
+// The frontend is still a demo and can be served before the staging database
+// has been provisioned. Keep the site available, while reporting database
+// readiness as unavailable until DATABASE_URL is configured.
+const pool = process.env.DATABASE_URL
+  ? new Pool({
+      connectionString: process.env.DATABASE_URL,
+      max: Number(process.env.DB_POOL_MAX || 10),
+      idleTimeoutMillis: 30_000,
+      connectionTimeoutMillis: 5_000,
+    })
+  : null;
 
 app.disable('x-powered-by');
 app.use(express.json({ limit: '1mb' }));
@@ -29,6 +30,9 @@ app.get('/api/health/live', (_req, res) => {
 });
 
 app.get('/api/health/ready', async (_req, res) => {
+  if (!pool) {
+    return res.status(503).json({ status: 'not_ready', database: 'not_configured' });
+  }
   try {
     await pool.query('SELECT 1');
     res.status(200).json({ status: 'ready', database: 'connected' });
@@ -51,7 +55,7 @@ const server = app.listen(port, '0.0.0.0', () => {
 async function shutdown(signal) {
   console.log(`${signal} received; closing server and database pool.`);
   server.close(async () => {
-    await pool.end();
+    if (pool) await pool.end();
     process.exit(0);
   });
 }

@@ -4,7 +4,7 @@
 
 This milestone adds the PostgreSQL schema and migration runner for school tenancy, campus structure, accounts and sessions, academic years, students and classes, teacher subject assignments, lesson materials, attendance, assessments and grade moderation, teacher task evaluation, staff time entries, compensation contracts, and an audit trail. It also adds an Express production server with live and database-readiness health endpoints.
 
-It does **not** convert the current React screens from sample/in-memory data to database-backed operations, complete the sign-in flow, establish file storage, or make the product ready for real school records. Those require subsequent, separately tested milestones.
+It does **not** convert the current React screens from sample/in-memory data to database-backed operations, complete the sign-in flow, establish file storage, or make the product ready for real school records. Those require subsequent, separately tested milestones. The web server can serve the demo while PostgreSQL is not configured; in that state the database readiness endpoint reports `not_ready` and database-backed operations are unavailable.
 
 ## Teacher workflow requirements
 
