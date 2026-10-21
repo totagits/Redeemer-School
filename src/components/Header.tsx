@@ -9,10 +9,10 @@ import {
   BarChart3, 
   ShieldCheck,
   GraduationCap,
-  BookOpen
 } from 'lucide-react';
 import { ErpSystemRole } from '../logic/erpAuth.ts';
 import { THE_REDEEMER_SCHOOL_INFO } from '../data/erpInitialData.ts';
+import { SCHOOL_CONTACT } from '../data/schoolContact.ts';
 
 export type ERPView = 
   | 'dashboard' 
@@ -84,11 +84,8 @@ export const Header: React.FC<HeaderProps> = ({
         
         {/* Zone 1: Single Brand element */}
         <div className="flex items-center gap-3 shrink-0">
-          <div className="w-10 h-10 rounded-xl bg-gradient-to-br from-indigo-950 via-slate-900 to-blue-900 text-white flex items-center justify-center font-bold text-sm shadow-sm ring-1 ring-amber-400/40 relative">
-            <span className="font-mono tracking-tighter text-amber-300 font-extrabold text-sm">RS</span>
-            <div className="absolute -bottom-1 -right-1 bg-amber-400 text-slate-950 rounded-full p-0.5 shadow-xs">
-              <BookOpen className="w-2.5 h-2.5" />
-            </div>
+          <div className="w-10 h-10 rounded-xl bg-white ring-1 ring-amber-400/50 shadow-sm overflow-hidden shrink-0">
+            <img src="/redeemer-seal.svg?v=1" alt="Redeemer School seal" className="w-full h-full object-contain" />
           </div>
           <button 
             onClick={() => onSelectView('dashboard')}
@@ -103,7 +100,7 @@ export const Header: React.FC<HeaderProps> = ({
               </span>
             </div>
             <span className="text-[11px] text-slate-500 font-medium whitespace-nowrap block">
-              School Operations ERP • Monrovia, Liberia
+              School Operations ERP • Paynesville, Liberia
             </span>
           </button>
         </div>
@@ -129,6 +126,20 @@ export const Header: React.FC<HeaderProps> = ({
               )}
             </button>
           ))}
+          <details className="relative shrink-0">
+            <summary className="list-none px-2.5 py-1.5 text-xs font-semibold rounded-md text-slate-600 hover:text-slate-900 hover:bg-slate-50 cursor-pointer flex items-center gap-1.5">
+              <Building2 className="w-3.5 h-3.5" /> Contact
+            </summary>
+            <div className="absolute right-0 top-full mt-2 w-80 max-w-[calc(100vw-2rem)] rounded-xl border border-slate-200 bg-white p-4 text-xs text-slate-700 shadow-xl z-50">
+              <p className="font-bold text-slate-900">Redeemer School</p>
+              <p className="mt-2 leading-relaxed">{SCHOOL_CONTACT.address}</p>
+              <div className="mt-3 flex flex-col gap-1.5">
+                {SCHOOL_CONTACT.phones.map((phone) => (
+                  <a key={phone} href={`tel:${phone}`} className="font-semibold text-blue-700 hover:text-blue-900">{phone}</a>
+                ))}
+              </div>
+            </div>
+          </details>
         </nav>
 
         {/* Zone 3: Active User & Role Switcher */}
@@ -180,6 +191,20 @@ export const Header: React.FC<HeaderProps> = ({
             {item.label}
           </button>
         ))}
+        <details className="relative shrink-0">
+            <summary className="list-none px-2.5 py-1.5 text-xs font-semibold rounded-md text-slate-600 hover:text-slate-900 hover:bg-slate-50 cursor-pointer flex items-center gap-1.5">
+              <Building2 className="w-3.5 h-3.5" /> Contact
+            </summary>
+            <div className="absolute right-0 top-full mt-2 w-80 max-w-[calc(100vw-2rem)] rounded-xl border border-slate-200 bg-white p-4 text-xs text-slate-700 shadow-xl z-50">
+              <p className="font-bold text-slate-900">Redeemer School</p>
+              <p className="mt-2 leading-relaxed">{SCHOOL_CONTACT.address}</p>
+              <div className="mt-3 flex flex-col gap-1.5">
+                {SCHOOL_CONTACT.phones.map((phone) => (
+                  <a key={phone} href={`tel:${phone}`} className="font-semibold text-blue-700 hover:text-blue-900">{phone}</a>
+                ))}
+              </div>
+            </div>
+          </details>
       </div>
     </header>
   );
