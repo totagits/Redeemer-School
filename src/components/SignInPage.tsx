@@ -9,6 +9,7 @@ export interface SchoolAccount {
   fullName: string;
   roles: string[];
   permissions: string[];
+  mustResetPassword?: boolean;
 }
 
 interface SignInPageProps {
@@ -64,11 +65,11 @@ export const SignInPage: React.FC<SignInPageProps> = ({ onCancel, onSignedIn }) 
           <div className="mb-6 flex items-center gap-3">
             <span className="grid h-11 w-11 place-items-center rounded-xl bg-blue-50 text-blue-800"><LockKeyhole className="h-5 w-5" /></span>
             <div>
-              <p className="text-xs font-bold uppercase tracking-[0.16em] text-blue-700">Staging sign-in</p>
-              <h1 className="mt-1 text-xl font-bold text-slate-950">School administrator</h1>
+              <p className="text-xs font-bold uppercase tracking-[0.16em] text-blue-700">School staff sign-in</p>
+              <h1 className="mt-1 text-xl font-bold text-slate-950">Sign in to Redeemer ERP</h1>
             </div>
           </div>
-          <p className="mb-6 text-sm leading-6 text-slate-600">Sign in with the administrator account created for Redeemer’s International Academy.</p>
+          <p className="mb-6 text-sm leading-6 text-slate-600">Use your school code and the account details provided by your school administrator.</p>
 
           <form onSubmit={handleSubmit} className="space-y-4">
             <label className="block text-sm font-semibold text-slate-700">
@@ -76,7 +77,7 @@ export const SignInPage: React.FC<SignInPageProps> = ({ onCancel, onSignedIn }) 
               <input required autoComplete="organization" value={schoolCode} onChange={event => setSchoolCode(event.target.value.toUpperCase())} className="mt-1.5 w-full rounded-lg border border-slate-300 px-3 py-2.5 font-normal uppercase outline-none focus:border-blue-600 focus:ring-2 focus:ring-blue-100" />
             </label>
             <label className="block text-sm font-semibold text-slate-700">
-              Administrator email
+              School email
               <input required type="email" autoComplete="username" value={email} onChange={event => setEmail(event.target.value)} className="mt-1.5 w-full rounded-lg border border-slate-300 px-3 py-2.5 font-normal outline-none focus:border-blue-600 focus:ring-2 focus:ring-blue-100" />
             </label>
             <label className="block text-sm font-semibold text-slate-700">

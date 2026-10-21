@@ -4,6 +4,7 @@ import express from 'express';
 import { createServer } from 'node:http';
 import { once } from 'node:events';
 import { createAuthRouter } from './auth.js';
+import { createOperationsRouter } from './operations.js';
 import { hashPassword } from './authCrypto.js';
 
 const schoolId = 'b210b463-c02c-4be9-9003-8a9005e8dbe5';
@@ -110,7 +111,9 @@ class FakeClient {
 async function startServer(t, pool) {
   const app = express();
   app.use(express.json());
-  app.use('/api/auth', createAuthRouter({ pool, secret, secureCookie: false }));
+  const authRouter = createAuthRouter({ pool, secret, secureCookie: false });
+  app.use('/api/auth', authRouter);
+  app.use('/api/operations', createOperationsRouter({ authenticate: authRouter.requireAuth }));
   const server = createServer(app).listen(0, '127.0.0.1');
   await once(server, 'listening');
   t.after(() => new Promise((resolve) => server.close(resolve)));
@@ -139,6 +142,10 @@ test('login creates a scoped session, GET session validates it, and CSRF protect
   assert.equal(session.status, 200);
   assert.equal((await session.json()).account.email, 'admin@redeemer.example');
 
+  const deniedSetup = await fetch(`${baseUrl}/api/operations/setup`, { headers: { Cookie: cookie } });
+  assert.equal(deniedSetup.status, 403);
+  assert.equal((await deniedSetup.json()).error, 'You do not have permission to view school setup.');
+
   const rejectedLogout = await fetch(`${baseUrl}/api/auth/logout`, {
     method: 'POST', headers: { Cookie: cookie },
   });
@@ -151,7 +158,7 @@ test('login creates a scoped session, GET session validates it, and CSRF protect
   assert.equal(logout.status, 204);
   assert.match(logout.headers.get('set-cookie'), /Max-Age=0/);
   assert.equal(pool.sessions.size, 0);
-  assert.equal(pool.releaseCount, 4);
+  assert.equal(pool.releaseCount, 5);
 });
 
 test('authentication stays closed when the runtime database role is privileged', async (t) => {

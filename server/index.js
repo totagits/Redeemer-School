@@ -4,6 +4,7 @@ import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import pg from 'pg';
 import { createAuthRouter } from './auth.js';
+import { createOperationsRouter } from './operations.js';
 import { isStrongSessionSecret } from './authCrypto.js';
 
 const { Pool } = pg;
@@ -80,11 +81,13 @@ app.get('/api/health/ready', async (_req, res) => {
   res.status(200).json({ status: 'ready', database: 'connected', authentication });
 });
 
-app.use('/api/auth', createAuthRouter({
+const authRouter = createAuthRouter({
   pool: runtimePool,
   secret: sessionSecret,
   sessionTtlMs: Number(process.env.AUTH_SESSION_TTL_MS || 8 * 60 * 60 * 1000),
-}));
+});
+app.use('/api/auth', authRouter);
+app.use('/api/operations', createOperationsRouter({ authenticate: authRouter.requireAuth }));
 
 app.use('/api', (_req, res) => {
   res.status(404).json({ error: 'API route not found' });

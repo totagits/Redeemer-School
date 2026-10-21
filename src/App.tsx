@@ -14,7 +14,8 @@ import { ReportingModule } from './components/ReportingModule.tsx';
 import { UserManagementModule } from './components/UserManagementModule.tsx';
 import { ArchitectureView } from './components/ArchitectureView.tsx';
 import { HomeLandingPage } from './components/HomeLandingPage.tsx';
-import { SchoolAccount, SignInPage, SignedInPage } from './components/SignInPage.tsx';
+import { SchoolAccount, SignInPage } from './components/SignInPage.tsx';
+import { OperationsWorkspace } from './components/OperationsWorkspace.tsx';
 
 import { 
   Account, 
@@ -501,7 +502,7 @@ export default function App() {
           {authLoading ? (
             <div className="grid min-h-[60vh] place-items-center text-sm font-medium text-slate-600">Checking staging sign-in…</div>
           ) : authAccount ? (
-            <SignedInPage account={authAccount} busy={signOutBusy} error={authError} onSignOut={handleSignOut} />
+            <OperationsWorkspace account={authAccount} csrfToken={csrfToken} busy={signOutBusy} error={authError} onSignOut={handleSignOut} onPasswordChanged={() => setAuthAccount(current => current ? { ...current, mustResetPassword: false } : current)} />
           ) : showSignIn ? (
             <SignInPage
               onCancel={() => setShowSignIn(false)}
@@ -513,7 +514,7 @@ export default function App() {
             />
           ) : null}
         </main>
-        {authAccount && <div className="border-t border-slate-200 bg-white px-4 py-4 text-center text-xs text-slate-500">Staging environment · Operational modules are not yet connected to persistent school records</div>}
+        {authAccount && <div className="border-t border-slate-200 bg-white px-4 py-4 text-center text-xs text-slate-500">Staging environment · Academic setup and attendance workflows are connected to persistent school records</div>}
       </div>
     );
   }

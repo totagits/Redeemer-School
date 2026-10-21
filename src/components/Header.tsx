@@ -81,7 +81,7 @@ export const Header: React.FC<HeaderProps> = ({
           <nav className="hidden items-center gap-6 md:flex">
             <a href="#capabilities" className="text-sm font-semibold text-slate-600 transition hover:text-slate-950">Capabilities</a>
             <a href="#contact" className="text-sm font-semibold text-slate-600 transition hover:text-slate-950">Contact</a>
-            <button onClick={onSignIn} className="rounded-lg bg-blue-700 px-4 py-2.5 text-sm font-bold text-white shadow-sm transition hover:bg-blue-800">Administrator sign in</button>
+            <button onClick={onSignIn} className="rounded-lg bg-blue-700 px-4 py-2.5 text-sm font-bold text-white shadow-sm transition hover:bg-blue-800">Staff sign in</button>
           </nav>
         ) : (
         <>

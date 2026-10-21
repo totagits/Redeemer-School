@@ -221,6 +221,10 @@ export function createAuthRouter({ pool, secret, sessionTtlMs = 8 * 60 * 60 * 10
     next();
   }
 
+  // Reuse the exact session and tenant-scoping guard for protected operational APIs.
+  // The middleware owns an open transaction; each route must commit or roll it back.
+  router.requireAuth = requireAuth;
+
   router.post('/login', limitLogin, async (req, res) => {
     res.setHeader('Cache-Control', 'no-store');
     if (!await isRuntimeRoleSafe()) return authDisabled(res);
