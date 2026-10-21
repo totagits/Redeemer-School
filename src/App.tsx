@@ -572,7 +572,7 @@ export default function App() {
       <footer className="border-t border-slate-200 bg-white py-4 mt-auto">
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 flex flex-col sm:flex-row items-center justify-between gap-3 text-xs text-slate-500">
           <div className="flex items-center gap-2">
-            <span className="font-bold text-slate-900">The Redeemer School ERP</span>
+            <span className="font-bold text-slate-900">Redeemer's International Academy ERP</span>
             <span>·</span>
             <span>Monrovia, Liberia (MoE EMIS: LBR-MOE-MON-2024-0312)</span>
             <span className="hidden md:inline">·</span>
