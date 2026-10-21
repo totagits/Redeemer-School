@@ -136,20 +136,20 @@ export const StudentsEnrollmentModule: React.FC<StudentsEnrollmentModuleProps> =
     onAddApplicant({
       firstName: candFirst,
       lastName: candLast,
-      dateOfBirth: candDob || '2010-05-15',
+      dateOfBirth: candDob,
       gender: candGender,
       county: candCounty,
       targetGrade: candGrade,
       guardianName: candGuardian,
       guardianRelation: candRelation,
-      guardianPhone: candPhone || '+231 (0) 886 000 000',
-      guardianEmail: candEmail || `${candFirst.toLowerCase()}@guardian.lr`,
+      guardianPhone: candPhone,
+      guardianEmail: candEmail,
       status: 'SUBMITTED',
       appliedDate: new Date().toISOString().split('T')[0],
       documents: [
-        { title: 'Ministry of Health Birth Certificate', submitted: true, verified: false },
-        { title: 'Previous School Transcript & Conduct Letter', submitted: true, verified: false },
-        { title: 'Grade 9 WAEC / BECE Slip', submitted: true, verified: false }
+        { title: 'Ministry of Health Birth Certificate', submitted: false, verified: false },
+        { title: 'Previous School Transcript & Conduct Letter', submitted: false, verified: false },
+        { title: 'Grade 9 WAEC / BECE Slip', submitted: false, verified: false }
       ]
     });
 
