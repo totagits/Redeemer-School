@@ -43,7 +43,6 @@ CREATE TABLE curriculum_resources (
   FOREIGN KEY (school_id, curriculum_subject_id) REFERENCES grade_curriculum_subjects(school_id, id) ON DELETE CASCADE,
   FOREIGN KEY (school_id, created_by) REFERENCES user_accounts(school_id, id),
   CHECK (resource_url IS NULL OR resource_url ~ '^https://'),
-  CHECK (resource_url IS NOT NULL OR storage_key IS NOT NULL OR resource_type IN ('TEXTBOOK', 'BOOK', 'WORKBOOK', 'OTHER')),
   UNIQUE (school_id, id)
 );
 
