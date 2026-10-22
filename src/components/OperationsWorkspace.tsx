@@ -1,9 +1,11 @@
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import { BookOpen, Check, Clipboard, LoaderCircle, Plus, RefreshCw, School, Users } from 'lucide-react';
 import type { SchoolAccount } from './SignInPage.tsx';
+import { classifySchoolGrade } from '../logic/schoolGradingPolicy.ts';
 
 type Row = Record<string, string | null | undefined>;
-type Setup = { school: Row; years: Row[]; subjects: Row[]; classes: Row[]; teachers: Row[]; students: Row[]; assignments: Row[]; educationLevels: Row[]; gradeLevels: Row[]; terms: Row[]; curriculum: Row[]; resources: Row[]; periods: Row[]; timetable: Row[] };
+type Assessment = Row & { id: string; teacher_assignment_id: string; title: string; assessment_type: string; max_score: string; status: string; class_name: string; subject_name: string; teacher_name: string; scored_students: number };
+type Setup = { school: Row; years: Row[]; subjects: Row[]; classes: Row[]; teachers: Row[]; students: Row[]; assignments: Row[]; educationLevels: Row[]; gradeLevels: Row[]; terms: Row[]; curriculum: Row[]; resources: Row[]; periods: Row[]; timetable: Row[]; assessments: Assessment[] };
 type Portal = { role: string; linked?: boolean; message?: string; student?: Row; subjects?: Row[]; timetable?: Row[]; attendance?: Row[]; grades?: Row[]; resources?: Row[]; children?: Array<Row & { subjects: Row[]; timetable: Row[]; attendance: Row[]; grades: Row[]; resources: Row[] }> };
 type RosterEntry = { id: string; student_number: string; first_name: string; last_name: string; attendance_status: string | null; note: string | null };
 const today = () => new Date().toLocaleDateString('en-CA');
@@ -136,6 +138,9 @@ export const OperationsWorkspace: React.FC<Props> = ({ account, csrfToken, busy:
         {canConfigure && <section className={`${sectionClass} mb-6`}><div className="mb-5 flex items-center gap-2"><BookOpen className="h-5 w-5 text-blue-700"/><h2 className="text-lg font-extrabold text-slate-950">Academic setup</h2></div>
           <div className="grid gap-5 md:grid-cols-2 xl:grid-cols-3">
             <form className="space-y-3 rounded-xl bg-slate-50 p-4" onSubmit={submit(async form => { const data = new FormData(form); await post('academic-years', { name: data.get('name'), startsOn: data.get('startsOn'), endsOn: data.get('endsOn') }); })}>
+Warning: truncated output (original token count: 6253)
+Total output lines: 70
+
               <h3 className="font-bold text-slate-900">Academic year</h3><label className={labelClass}>Year name<input required name="name" placeholder="2026–2027" className={inputClass}/></label><div className="grid grid-cols-2 gap-2"><label className={labelClass}>Starts<input required type="date" name="startsOn" className={inputClass}/></label><label className={labelClass}>Ends<input required type="date" name="endsOn" className={inputClass}/></label></div><button disabled={saving} className={buttonClass}><Plus className="h-4 w-4"/> Add year</button>
             </form>
             <form className="space-y-3 rounded-xl bg-slate-50 p-4" onSubmit={submit(async form => { const data = new FormData(form); await post('subjects', { code: data.get('code'), name: data.get('name') }); })}>
@@ -163,21 +168,7 @@ export const OperationsWorkspace: React.FC<Props> = ({ account, csrfToken, busy:
             <form className="space-y-3 rounded-xl bg-slate-50 p-4" onSubmit={submit(async form => { const d = new FormData(form); await post('periods', { name: d.get('name'), startsAt: d.get('startsAt'), endsAt: d.get('endsAt') }); })}>
               <h3 className="font-bold text-slate-900">Bell schedule period</h3><label className={labelClass}>Period name<input required name="name" placeholder="Period 1" className={inputClass}/></label><div className="grid grid-cols-2 gap-2"><label className={labelClass}>Starts<input required type="time" name="startsAt" className={inputClass}/></label><label className={labelClass}>Ends<input required type="time" name="endsAt" className={inputClass}/></label></div><button disabled={saving} className={buttonClass}><Plus className="h-4 w-4"/> Add period</button>
             </form>
-            {canManageTimetable && <form className="space-y-3 rounded-xl bg-slate-50 p-4" onSubmit={submit(async form => { const d = new FormData(form); await post('timetable', { assignmentId: d.get('assignmentId'), periodId: d.get('periodId'), dayOfWeek: Number(d.get('dayOfWeek')), effectiveFrom: d.get('effectiveFrom'), effectiveTo: d.get('effectiveTo') }); })}>
-              <h3 className="font-bold text-slate-900">Class & teacher timetable</h3><label className={labelClass}>Assigned class and teacher<select required name="assignmentId" className={inputClass}><option value="">Choose assignment</option>{setup.assignments.map(x => <option key={x.id} value={x.id!}>{x.class_name} · {x.subject_name} · {x.teacher_name}</option>)}</select></label><label className={labelClass}>Period<select required name="periodId" className={inputClass}><option value="">Choose period</option>{setup.periods.map(x => <option key={x.id} value={x.id!}>{x.name} · {x.starts_at?.slice(0,5)}–{x.ends_at?.slice(0,5)}</option>)}</select></label><label className={labelClass}>Weekday<select name="dayOfWeek" className={inputClass}>{['Monday','Tuesday','Wednesday','Thursday','Friday','Saturday','Sunday'].map((x,i) => <option key={x} value={i+1}>{x}</option>)}</select></label><label className={labelClass}>Effective from<input required type="date" name="effectiveFrom" defaultValue={today()} className={inputClass}/></label><label className={labelClass}>Until (optional)<input type="date" name="effectiveTo" className={inputClass}/></label><button disabled={saving || !setup.periods.length || !setup.assignments.length} className={buttonClass}><Plus className="h-4 w-4"/> Schedule class</button>
-            </form>}
-          </div>
-          <div className="mt-5 grid gap-5 md:grid-cols-2"><div><h3 className="mb-2 font-bold text-slate-900">Configured curriculum</h3><ul className="divide-y divide-slate-100">{setup.curriculum.map(x => <li key={x.id} className="py-2 text-sm text-slate-700">{x.grade_name} · {x.subject_name}: {x.weekly_minutes} min / {x.periods_per_week} lessons weekly <span className="text-slate-500">({x.academic_year_name}{x.term_name ? ` · ${x.term_name}` : ''})</span></li>)}</ul></div><div><h3 className="mb-2 font-bold text-slate-900">Scheduled classes</h3><ul className="divide-y divide-slate-100">{setup.timetable.map(x => <li key={x.id} className="py-2 text-sm text-slate-700">{['','Mon','Tue','Wed','Thu','Fri','Sat','Sun'][Number(x.day_of_week)]} {x.starts_at?.slice(0,5)} · {x.class_name} · {x.subject_name} <span className="text-slate-500">({x.teacher_name})</span></li>)}</ul></div></div>
-        </section>}
-        <div className="grid gap-6 xl:grid-cols-2">
-          {canManageStaff && <section className={sectionClass}><div className="mb-4 flex items-center gap-2"><Users className="h-5 w-5 text-blue-700"/><h2 className="text-lg font-extrabold text-slate-950">Teacher records</h2></div>
-            <form className="grid gap-3 sm:grid-cols-2" onSubmit={submit(async form => { const data = new FormData(form); const result = await post('teachers', { fullName: data.get('fullName'), email: data.get('email'), employeeNumber: data.get('employeeNumber') }); setTemporaryPassword(result.temporaryPassword); })}>
-              <label className={labelClass}>Full name<input required name="fullName" autoComplete="name" className={inputClass}/></label><label className={labelClass}>Employee number<input required name="employeeNumber" className={inputClass}/></label><label className={`${labelClass} sm:col-span-2`}>Teacher email<input required type="email" name="email" autoComplete="email" className={inputClass}/></label><button disabled={saving} className={buttonClass}><Plus className="h-4 w-4"/> Create teacher login</button>
-            </form>
-          </section>}
-          {canConfigure && <section className={sectionClass}><div className="mb-4 flex items-center gap-2"><BookOpen className="h-5 w-5 text-blue-700"/><h2 className="text-lg font-extrabold text-slate-950">Assign teaching responsibility</h2></div>
-            <form className="grid gap-3 sm:grid-cols-2" onSubmit={submit(async form => { const data = new FormData(form); await post('teacher-assignments', { teacherId: data.get('teacherId'), subjectId: data.get('subjectId'), classGroupId: data.get('classGroupId'), academicYearId: data.get('academicYearId'), effectiveFrom: data.get('effectiveFrom') }); })}>
-              <label className={labelClass}>Teacher<select required name="teacherId" className={inputClass}><option value="">Choose teacher</option>{setup.teachers.map(row => <option key={row.id} value={row.id!}>{row.full_name} · {row.employee_number}</option>)}</select></label><label className={labelClass}>Subject<select required name="subjectId" className={inputClass}><option value="">Choose subject</option>{setup.subjects.map(row => <option key={row.id} value={row.id!}>{row.name} ({row.code})</option>)}</select></label><label className={labelClass}>Class<select required name="classGroupId" className={inputClass}><option value="">Choose class</option>{setup.classes.map(row => <option key={row.id} value={row.id!}>{row.name} · {row.academic_year_name}</option>)}</select></label><label className={labelClass}>Academic year<select required name="academicYearId" className={inputClass}><option value="">Choose year</option>{setup.years.map(row => <option key={row.id} value={row.id!}>{row.name}</option>)}</select></label><label className={labelClass}>Effective from<input required type="date" name="effectiveFrom" defaultValue={today()} className={inputClass}/></label><button disabled={saving} className={`${buttonClass} self-end`}><Plus className="h-4 w-4"/> Save assignment</button>
+            {canManageTimetable && <f…1253 tokens truncated…value="">Choose subject</option>{setup.subjects.map(row => <option key={row.id} value={row.id!}>{row.name} ({row.code})</option>)}</select></label><label className={labelClass}>Class<select required name="classGroupId" className={inputClass}><option value="">Choose class</option>{setup.classes.map(row => <option key={row.id} value={row.id!}>{row.name} · {row.academic_year_name}</option>)}</select></label><label className={labelClass}>Academic year<select required name="academicYearId" className={inputClass}><option value="">Choose year</option>{setup.years.map(row => <option key={row.id} value={row.id!}>{row.name}</option>)}</select></label><label className={labelClass}>Effective from<input required type="date" name="effectiveFrom" defaultValue={today()} className={inputClass}/></label><button disabled={saving} className={`${buttonClass} self-end`}><Plus className="h-4 w-4"/> Save assignment</button>
             </form>
             <ul className="mt-4 divide-y divide-slate-100">{setup.assignments.map(row => <li key={row.id} className="py-2 text-sm text-slate-700"><b>{row.teacher_name}</b> · {row.subject_name} · {row.class_name} <span className="text-slate-500">({row.academic_year_name})</span></li>)}</ul>
           </section>}
@@ -207,13 +198,125 @@ export const OperationsWorkspace: React.FC<Props> = ({ account, csrfToken, busy:
   </section>;
 };
 
+const AssessmentGradebook: React.FC<{ setup: Setup; account: SchoolAccount; csrfToken: string; onUpdated: () => Promise<void> }> = ({ setup, account, csrfToken, onUpdated }) => {
+  const [selectedId, setSelectedId] = useState('');
+  const [assessment, setAssessment] = useState<{ id: string; title: string; type: string; maxScore: number; status: string; className: string; subjectName: string } | null>(null);
+  const [students, setStudents] = useState<Array<{ id: string; studentNumber: string; firstName: string; lastName: string; score: string; feedback: string }>>([]);
+  const [loadingRoster, setLoadingRoster] = useState(false);
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState('');
+  const [notice, setNotice] = useState('');
+  const canEnter = account.permissions.includes('grades.enter');
+  const canModerate = account.permissions.includes('grades.moderate');
+  const canPublish = account.permissions.includes('grades.publish');
+  const selected = setup.assessments.find(item => item.id === selectedId);
+
+  const loadRoster = useCallback(async (id: string) => {
+    if (!id) return;
+    setLoadingRoster(true); setError('');
+    try {
+      const response = await fetch(`/api/operations/assessments/${encodeURIComponent(id)}/roster`, { credentials: 'same-origin' });
+      const result = await response.json();
+      if (!response.ok) throw new Error(result.error || 'Could not load assessment marks.');
+      setAssessment(result.assessment);
+      setStudents((result.students || []).map((student: Record<string, unknown>) => ({
+        id: String(student.id), studentNumber: String(student.studentNumber), firstName: String(student.firstName), lastName: String(student.lastName),
+        score: student.score == null ? '' : String(student.score), feedback: student.feedback == null ? '' : String(student.feedback),
+      })));
+    } catch (cause) { setError(cause instanceof Error ? cause.message : 'Could not load assessment marks.'); setAssessment(null); setStudents([]); }
+    finally { setLoadingRoster(false); }
+  }, []);
+
+  useEffect(() => {
+    if (!selectedId && setup.assessments.length) setSelectedId(setup.assessments[0].id);
+    if (selectedId && !setup.assessments.some(item => item.id === selectedId)) setSelectedId('');
+  }, [selectedId, setup.assessments]);
+
+  useEffect(() => { if (selectedId) void loadRoster(selectedId); }, [selectedId, loadRoster]);
+
+  const sendAction = async (path: string, body: Record<string, unknown> = {}) => {
+    setBusy(true); setError(''); setNotice('');
+    try {
+      const response = await fetch(`/api/operations/${path}`, { method: 'POST', credentials: 'same-origin', headers: { 'Content-Type': 'application/json', 'X-CSRF-Token': csrfToken }, body: JSON.stringify(body) });
+      const result = await response.json().catch(() => ({}));
+      if (!response.ok) throw new Error(result.error || 'The grade operation could not be completed.');
+      await onUpdated();
+      if (selectedId) await loadRoster(selectedId);
+      return result;
+    } catch (cause) { setError(cause instanceof Error ? cause.message : 'The grade operation could not be completed.'); return null; }
+    finally { setBusy(false); }
+  };
+
+  const createAssessment = async (event: React.FormEvent<HTMLFormElement>) => {
+    event.preventDefault(); const form = event.currentTarget; const data = new FormData(form); setBusy(true); setError(''); setNotice('');
+    try {
+      const rawDueAt = String(data.get('dueAt') || '');
+      const response = await fetch('/api/operations/assessments', { method: 'POST', credentials: 'same-origin', headers: { 'Content-Type': 'application/json', 'X-CSRF-Token': csrfToken }, body: JSON.stringify({ assignmentId: data.get('assignmentId'), title: data.get('title'), assessmentType: data.get('assessmentType'), maxScore: Number(data.get('maxScore')), dueAt: rawDueAt ? new Date(rawDueAt).toISOString() : null }) });
+      const result = await response.json().catch(() => ({}));
+      if (!response.ok) throw new Error(result.error || 'Could not create the assessment.');
+      form.reset(); setSelectedId(result.assessment.id); setNotice('Assessment created. Enter marks for the enrolled students below.'); await onUpdated();
+    } catch (cause) { setError(cause instanceof Error ? cause.message : 'Could not create the assessment.'); }
+    finally { setBusy(false); }
+  };
+
+  const saveScores = async () => {
+    if (!selectedId) return;
+    const scores = students.filter(student => student.score.trim() !== '').map(student => ({ studentId: student.id, score: Number(student.score), feedback: student.feedback }));
+    if (!scores.length || scores.some(item => !Number.isFinite(item.score) || item.score < 0 || item.score > Number(assessment?.maxScore))) { setError('Enter valid marks between zero and the assessment maximum.'); return; }
+    const result = await sendAction(`assessments/${encodeURIComponent(selectedId)}/scores`, { scores });
+    if (result) setNotice(`${result.saved} mark${result.saved === 1 ? '' : 's'} saved.`);
+  };
+
+  const completeCount = students.filter(student => student.score.trim() !== '').length;
+  return <section className={`${sectionClass} mb-6`}>
+    <div className="mb-5 flex flex-col gap-2 sm:flex-row sm:items-end sm:justify-between"><div><p className="text-xs font-bold uppercase tracking-[0.14em] text-blue-700">Teaching & learning</p><h2 className="mt-1 text-lg font-extrabold text-slate-950">Assessments & gradebook</h2><p className="mt-1 text-sm text-slate-600">Create quizzes, tests, exams, assignments, or projects; record marks and route results for review.</p></div>
+      {selected && <span className="w-fit rounded-full bg-slate-100 px-3 py-1 text-xs font-bold text-slate-700">{selected.status.replaceAll('_', ' ')}</span>}
+    </div>
+    {error && <p role="alert" className="mb-4 rounded-lg border border-red-200 bg-red-50 p-3 text-sm text-red-800">{error}</p>}
+    {notice && <p role="status" className="mb-4 rounded-lg border border-emerald-200 bg-emerald-50 p-3 text-sm text-emerald-900">{notice}</p>}
+    <div className="grid gap-5 lg:grid-cols-[minmax(260px,0.75fr)_minmax(0,1.5fr)]">
+      {canEnter && <form onSubmit={createAssessment} className="space-y-3 rounded-xl bg-slate-50 p-4">
+        <h3 className="font-bold text-slate-900">Create assessment</h3>
+        <label className={labelClass}>My assigned class and subject<select required name="assignmentId" className={inputClass}><option value="">Choose assignment</option>{setup.assignments.map(row => <option key={row.id} value={row.id!}>{row.class_name} · {row.subject_name}{account.roles.includes('TEACHER') ? '' : ` · ${row.teacher_name}`}</option>)}</select></label>
+        <label className={labelClass}>Title<input required name="title" maxLength={160} className={inputClass} placeholder="Quiz 1: Fractions"/></label>
+        <div className="grid grid-cols-2 gap-3"><label className={labelClass}>Type<select name="assessmentType" className={inputClass}><option value="QUIZ">Quiz</option><option value="TEST">Test</option><option value="EXAM">Exam</option><option value="ASSIGNMENT">Assignment</option><option value="PROJECT">Project</option></select></label><label className={labelClass}>Maximum mark<input required name="maxScore" type="number" min="0.01" max="9999.99" step="0.01" defaultValue="100" className={inputClass}/></label></div>
+        <label className={labelClass}>Due date (optional)<input name="dueAt" type="datetime-local" className={inputClass}/></label>
+        <button disabled={busy || !setup.assignments.length} className={buttonClass}><Plus className="h-4 w-4"/> Create assessment</button>
+        {!setup.assignments.length && <p className="text-xs text-slate-500">Set up a teacher and assign a class and subject before creating assessments.</p>}
+      </form>}
+      <div className="space-y-4">
+        <label className={labelClass}>Assessment<select value={selectedId} onChange={event => setSelectedId(event.target.value)} className={inputClass}><option value="">Choose an assessment</option>{setup.assessments.map(item => <option key={item.id} value={item.id}>{item.class_name} · {item.subject_name} · {item.title} ({item.status.replaceAll('_', ' ')})</option>)}</select></label>
+        {loadingRoster ? <p className="flex items-center gap-2 py-8 text-sm text-slate-600"><LoaderCircle className="h-4 w-4 animate-spin"/> Loading class marks…</p> : assessment ? <>
+          <div className="flex flex-wrap justify-between gap-2 rounded-xl border border-slate-200 bg-white p-3 text-sm"><span><b>{assessment.className}</b> · {assessment.subjectName} · {assessment.type}</span><span>Maximum: <b>{assessment.maxScore}</b></span></div>
+          {students.length ? <div className="overflow-x-auto rounded-xl border border-slate-200"><table className="w-full min-w-[720px] text-left text-sm"><thead className="bg-slate-50 text-xs uppercase text-slate-500"><tr><th className="px-3 py-3">Student</th><th className="px-3 py-3">Mark / {assessment.maxScore}</th><th className="px-3 py-3">Outcome</th><th className="px-3 py-3">Feedback</th></tr></thead><tbody className="divide-y divide-slate-100">{students.map(student => {
+            const numericScore = student.score.trim() ? Number(student.score) : null;
+            let outcome = '—'; let percentLabel = '';
+            if (numericScore !== null && Number.isFinite(numericScore) && assessment.maxScore > 0 && numericScore >= 0 && numericScore <= assessment.maxScore) {
+              const percent = numericScore / assessment.maxScore * 100; percentLabel = `${percent.toFixed(1)}%`;
+              const result = classifySchoolGrade(percent);
+              outcome = result.outcome === 'FAIL' ? 'Fail' : result.outcome === 'PASS' ? 'Pass' : 'Review required';
+            }
+            return <tr key={student.id}><td className="px-3 py-2.5"><span className="font-semibold">{student.firstName} {student.lastName}</span><span className="block text-xs text-slate-500">{student.studentNumber}</span></td><td className="px-3 py-2.5">{canEnter && assessment.status === 'OPEN' ? <input aria-label={`Mark for ${student.firstName} ${student.lastName}`} type="number" min="0" max={assessment.maxScore} step="0.01" value={student.score} onChange={event => setStudents(current => current.map(row => row.id === student.id ? { ...row, score: event.target.value } : row))} className="w-28 rounded-lg border border-slate-300 px-2 py-2"/> : student.score || '—'}</td><td className="px-3 py-2.5"><span className={outcome === 'Pass' ? 'font-semibold text-emerald-700' : outcome === 'Fail' ? 'font-semibold text-red-700' : 'font-semibold text-amber-700'}>{outcome}</span>{percentLabel && <span className="ml-1 text-xs text-slate-500">{percentLabel}</span>}</td><td className="px-3 py-2.5">{canEnter && assessment.status === 'OPEN' ? <input aria-label={`Feedback for ${student.firstName} ${student.lastName}`} value={student.feedback} onChange={event => setStudents(current => current.map(row => row.id === student.id ? { ...row, feedback: event.target.value } : row))} maxLength={1000} className="w-full rounded-lg border border-slate-300 px-2 py-2"/> : student.feedback || '—'}</td></tr>;
+          })}</tbody></table></div> : <p className="rounded-lg bg-slate-50 p-4 text-sm text-slate-600">No active students are enrolled in this class yet.</p>}
+          <p className="text-xs leading-5 text-slate-500">Score bands use percentage of the assessment maximum: 1–60% fail, 70–100% pass. Scores from 0 to below 1% and above 60% but below 70% are held for review under the current policy.</p>
+          <div className="flex flex-wrap gap-2">
+            {canEnter && assessment.status === 'OPEN' && <><button onClick={() => void saveScores()} disabled={busy || completeCount === 0} className={buttonClass}>{busy ? 'Saving…' : 'Save marks'}</button><button onClick={() => void sendAction(`assessments/${encodeURIComponent(selectedId)}/submit`)} disabled={busy || students.length === 0 || completeCount !== students.length} className="rounded-lg border border-blue-300 px-4 py-2.5 text-sm font-bold text-blue-800 disabled:opacity-50">Submit all marks for review</button></>}
+            {canModerate && assessment.status === 'SUBMITTED_FOR_REVIEW' && <button onClick={() => void sendAction(`assessments/${encodeURIComponent(selectedId)}/approve`)} disabled={busy} className={buttonClass}>Approve marks</button>}
+            {canPublish && assessment.status === 'APPROVED' && <button onClick={() => void sendAction(`assessments/${encodeURIComponent(selectedId)}/publish`)} disabled={busy} className={buttonClass}>Publish results to portals</button>}
+          </div>
+        </> : <p className="rounded-lg bg-slate-50 p-4 text-sm text-slate-600">Choose an assessment to view its class roster and marks. Newly created assessments appear here.</p>}
+      </div>
+    </div>
+  </section>;
+};
+
 const PortalDashboard: React.FC<{ portal: Portal }> = ({ portal }) => {
   const card = 'rounded-2xl border border-slate-200 bg-white p-5 shadow-sm';
   const childView = (student: Row, data: { subjects: Row[]; timetable: Row[]; attendance: Row[]; grades: Row[]; resources: Row[] }, canViewResults: boolean) => <div key={student.id} className="space-y-5">
     <div className="grid gap-3 sm:grid-cols-3"><div className={card}><p className="text-xs font-bold uppercase text-slate-500">Learner</p><p className="mt-1 text-lg font-bold">{student.first_name} {student.last_name}</p><p className="text-sm text-slate-600">{student.class_name || 'Class not assigned'} · {student.student_number}</p></div><div className={card}><p className="text-xs font-bold uppercase text-slate-500">Subjects</p><p className="mt-1 text-2xl font-bold">{data.subjects.length}</p></div><div className={card}><p className="text-xs font-bold uppercase text-slate-500">Recent attendance records</p><p className="mt-1 text-2xl font-bold">{data.attendance.length}</p></div></div>
     <div className="grid gap-5 lg:grid-cols-2"><section className={card}><h2 className="font-extrabold">My subjects</h2>{data.subjects.length ? <ul className="mt-3 divide-y divide-slate-100">{data.subjects.map((x,i) => <li key={`${x.subject_name}-${i}`} className="py-2 text-sm"><b>{x.subject_name}</b><span className="text-slate-600"> · {x.weekly_minutes} minutes / {x.periods_per_week} lessons weekly</span></li>)}</ul> : <p className="mt-3 text-sm text-slate-500">Curriculum has not been published for this grade yet.</p>}</section>
       <section className={card}><h2 className="font-extrabold">Class timetable</h2>{data.timetable.length ? <ul className="mt-3 divide-y divide-slate-100">{data.timetable.map((x,i) => <li key={`${x.day_of_week}-${x.period_name}-${i}`} className="py-2 text-sm">{['','Monday','Tuesday','Wednesday','Thursday','Friday','Saturday','Sunday'][Number(x.day_of_week)]} · {String(x.starts_at).slice(0,5)}–{String(x.ends_at).slice(0,5)} · <b>{x.subject_name}</b><span className="text-slate-600"> · {x.teacher_name}</span></li>)}</ul> : <p className="mt-3 text-sm text-slate-500">No lessons are scheduled yet.</p>}</section>
-      <section className={card}><h2 className="font-extrabold">Published grades</h2>{!canViewResults ? <p className="mt-3 text-sm text-slate-500">The school has not enabled grade visibility for this guardian account.</p> : data.grades.length ? <ul className="mt-3 divide-y divide-slate-100">{data.grades.map((x,i) => { const percent = Number(x.max_score) ? Number(x.score) / Number(x.max_score) * 100 : 0; const outcome = percent <= 60 ? 'Fail' : percent < 70 ? 'Review' : 'Pass'; return <li key={`${x.title}-${i}`} className="flex justify-between gap-3 py-2 text-sm"><span><b>{x.subject_name}</b> · {x.title} <span className="text-slate-500">({x.assessment_type})</span></span><span className="font-semibold">{x.score}/{x.max_score} · {outcome}</span></li>; })}</ul> : <p className="mt-3 text-sm text-slate-500">No grades have been published.</p>}</section>
+      <section className={card}><h2 className="font-extrabold">Published grades</h2>{!canViewResults ? <p className="mt-3 text-sm text-slate-500">The school has not enabled grade visibility for this guardian account.</p> : data.grades.length ? <ul className="mt-3 divide-y divide-slate-100">{data.grades.map((x,i) => { const percent = Number(x.max_score) ? Number(x.score) / Number(x.max_score) * 100 : 0; const result = classifySchoolGrade(percent); const outcome = result.outcome === 'FAIL' ? 'Fail' : result.outcome === 'PASS' ? 'Pass' : 'Review required'; return <li key={`${x.title}-${i}`} className="flex justify-between gap-3 py-2 text-sm"><span><b>{x.subject_name}</b> · {x.title} <span className="text-slate-500">({x.assessment_type})</span></span><span className="font-semibold">{x.score}/{x.max_score} · {outcome}</span></li>; })}</ul> : <p className="mt-3 text-sm text-slate-500">No grades have been published.</p>}</section>
       <section className={card}><h2 className="font-extrabold">Books & learning materials</h2>{data.resources.length ? <ul className="mt-3 divide-y divide-slate-100">{data.resources.map((x,i) => <li key={`${x.title}-${i}`} className="py-2 text-sm"><b>{x.title}</b><span className="text-slate-600"> · {x.subject_name} · {x.resource_type}{x.required ? ' · Required' : ''}</span>{x.author && <span className="text-slate-500"> · {x.author}</span>}{x.resource_url && <a className="ml-2 text-blue-700 underline" href={String(x.resource_url)} target="_blank" rel="noreferrer">Open resource</a>}</li>)}</ul> : <p className="mt-3 text-sm text-slate-500">No materials have been added for this grade.</p>}</section>
       <section className={`${card} lg:col-span-2`}><h2 className="font-extrabold">Recent attendance</h2>{data.attendance.length ? <div className="mt-3 overflow-x-auto"><table className="w-full text-left text-sm"><thead><tr className="text-xs uppercase text-slate-500"><th className="py-2">Date</th><th>Subject</th><th>Status</th></tr></thead><tbody className="divide-y divide-slate-100">{data.attendance.slice(0,12).map((x,i) => <tr key={`${x.scheduled_at}-${i}`}><td className="py-2">{String(x.scheduled_at).slice(0,10)}</td><td>{x.subject_name}</td><td>{x.status}</td></tr>)}</tbody></table></div> : <p className="mt-3 text-sm text-slate-500">No attendance history recorded.</p>}</section></div>
   </div>;

@@ -43,6 +43,15 @@ function needsPermission(code) {
     next();
   };
 }
+function needsAnyPermission(codes) {
+  return async (req, res, next) => {
+    if (!codes.some(code => req.auth.account.permissions.includes(code))) {
+      await close(req, false);
+      return res.status(403).json({ error: 'You do not have permission to view grade records.' });
+    }
+    next();
+  };
+}
 function csrf(req, res, next) {
   if (!sameSecret(req.get('x-csrf-token'), req.auth.claims.csrfToken)) {
     void close(req, false);
@@ -84,7 +93,7 @@ export function createOperationsRouter({ authenticate }) {
     try {
       const schoolId = req.auth.claims.schoolId;
       const isTeacher = req.auth.account.roles.includes('TEACHER') && !req.auth.account.permissions.includes('academics.configure');
-      const [school, years, subjects, classes, teachers, students, assignments, educationLevels, gradeLevels, terms, curriculum, resources, periods, slots] = await Promise.all([
+      const [school, years, subjects, classes, teachers, students, assignments, educationLevels, gradeLevels, terms, curriculum, resources, periods, slots, assessments] = await Promise.all([
         req.auth.client.query('SELECT id, code, name, timezone FROM schools WHERE id = $1', [schoolId]),
         req.auth.client.query(`SELECT y.id, y.name, y.starts_on, y.ends_on, y.status FROM academic_years y WHERE y.school_id = $1 ${isTeacher ? 'AND EXISTS (SELECT 1 FROM teacher_subject_assignments a WHERE a.school_id = y.school_id AND a.academic_year_id = y.id AND a.teacher_id = $2)' : ''} ORDER BY y.starts_on DESC`, isTeacher ? [schoolId, req.auth.claims.userId] : [schoolId]),
         req.auth.client.query(`SELECT s.id, s.code, s.name FROM subjects s WHERE s.school_id = $1 AND s.is_active ${isTeacher ? 'AND EXISTS (SELECT 1 FROM teacher_subject_assignments a WHERE a.school_id = s.school_id AND a.subject_id = s.id AND a.teacher_id = $2)' : ''} ORDER BY s.name`, isTeacher ? [schoolId, req.auth.claims.userId] : [schoolId]),
@@ -113,11 +122,22 @@ export function createOperationsRouter({ authenticate }) {
         req.auth.client.query(`SELECT r.id, r.curriculum_subject_id, r.resource_type, r.title, r.author, r.publisher, r.isbn, r.edition, r.description, r.resource_url, r.required, gc.grade_level_id, gc.subject_id FROM curriculum_resources r JOIN grade_curriculum_subjects gc ON gc.school_id = r.school_id AND gc.id = r.curriculum_subject_id WHERE r.school_id = $1 ${isTeacher ? 'AND EXISTS (SELECT 1 FROM teacher_subject_assignments a JOIN class_groups c ON c.school_id = a.school_id AND c.id = a.class_group_id WHERE a.school_id = gc.school_id AND a.teacher_id = $2 AND a.subject_id = gc.subject_id AND c.grade_level_id = gc.grade_level_id)' : ''} ORDER BY r.created_at DESC`, isTeacher ? [schoolId, req.auth.claims.userId] : [schoolId]),
         req.auth.client.query('SELECT id, name, starts_at, ends_at FROM timetable_periods WHERE school_id = $1 ORDER BY starts_at', [schoolId]),
         req.auth.client.query(`SELECT ts.id, ts.teacher_assignment_id, ts.day_of_week, ts.effective_from, ts.effective_to, tp.name AS period_name, tp.starts_at, tp.ends_at, c.name AS class_name, s.name AS subject_name, u.full_name AS teacher_name FROM timetable_slots ts JOIN timetable_periods tp ON tp.school_id = ts.school_id AND tp.id = ts.period_id JOIN teacher_subject_assignments a ON a.school_id = ts.school_id AND a.id = ts.teacher_assignment_id JOIN class_groups c ON c.school_id = a.school_id AND c.id = a.class_group_id JOIN subjects s ON s.school_id = a.school_id AND s.id = a.subject_id JOIN user_accounts u ON u.school_id = a.school_id AND u.id = a.teacher_id WHERE ts.school_id = $1 ${isTeacher ? 'AND a.teacher_id = $2' : ''} ORDER BY ts.day_of_week, tp.starts_at`, isTeacher ? [schoolId, req.auth.claims.userId] : [schoolId]),
+        req.auth.client.query(`SELECT a.id, a.teacher_assignment_id, a.title, a.assessment_type, a.max_score, a.due_at, a.status, a.created_at,
+            c.name AS class_name, s.name AS subject_name, u.full_name AS teacher_name,
+            COUNT(sc.id)::int AS scored_students
+          FROM assessments a
+          JOIN teacher_subject_assignments ta ON ta.school_id = a.school_id AND ta.id = a.teacher_assignment_id
+          JOIN class_groups c ON c.school_id = ta.school_id AND c.id = ta.class_group_id
+          JOIN subjects s ON s.school_id = ta.school_id AND s.id = ta.subject_id
+          JOIN user_accounts u ON u.school_id = ta.school_id AND u.id = ta.teacher_id
+          LEFT JOIN assessment_scores sc ON sc.school_id = a.school_id AND sc.assessment_id = a.id
+          WHERE a.school_id = $1 ${isTeacher ? 'AND ta.teacher_id = $2' : ''}
+          GROUP BY a.id, c.name, s.name, u.full_name ORDER BY a.created_at DESC LIMIT 100`, isTeacher ? [schoolId, req.auth.claims.userId] : [schoolId]),
       ]);
       await close(req, true);
       return res.json({ school: school.rows[0], years: years.rows, subjects: subjects.rows, classes: classes.rows,
         teachers: teachers.rows, students: students.rows, assignments: assignments.rows, educationLevels: educationLevels.rows, gradeLevels: gradeLevels.rows, terms: terms.rows,
-        curriculum: curriculum.rows, resources: resources.rows, periods: periods.rows, timetable: slots.rows });
+        curriculum: curriculum.rows, resources: resources.rows, periods: periods.rows, timetable: slots.rows, assessments: assessments.rows });
     } catch (error) { return fail(req, res, error); }
   });
 
@@ -311,6 +331,141 @@ export function createOperationsRouter({ authenticate }) {
       if (!result.rowCount) { await close(req, false); return res.status(400).json({ error: 'Choose a curriculum subject that belongs to this school.' }); }
       await audit(req, 'CURRICULUM_RESOURCE_CREATED', 'CURRICULUM_RESOURCE', result.rows[0].id, { type, title });
       return done(req, res, 201, { resource: result.rows[0] });
+    } catch (error) { return fail(req, res, error); }
+  });
+
+  router.post('/assessments', needsPermission('grades.enter'), csrf, async (req, res) => {
+    const assignmentId = text(req.body?.assignmentId, 50);
+    const title = text(req.body?.title, 160);
+    const type = text(req.body?.assessmentType, 20).toUpperCase();
+    const maxScore = Number(req.body?.maxScore);
+    const dueAt = req.body?.dueAt ? new Date(req.body.dueAt) : null;
+    if (!assignmentId || !title || !['QUIZ', 'TEST', 'EXAM', 'ASSIGNMENT', 'PROJECT'].includes(type) || !Number.isFinite(maxScore) || maxScore <= 0 || maxScore > 9999.99 || (dueAt && !Number.isFinite(dueAt.valueOf()))) {
+      await close(req, false); return res.status(400).json({ error: 'Choose an assigned class and subject, enter a title, assessment type, maximum score, and valid optional due date.' });
+    }
+    const isTeacher = req.auth.account.roles.includes('TEACHER');
+    try {
+      const result = await req.auth.client.query(`INSERT INTO assessments
+          (school_id, teacher_assignment_id, created_by, title, assessment_type, max_score, due_at, status)
+        SELECT $1, ta.id, $3, $4, $5, $6, $7, 'OPEN'
+        FROM teacher_subject_assignments ta
+        WHERE ta.school_id = $1 AND ta.id = $2
+          AND ta.effective_from <= CURRENT_DATE AND (ta.effective_to IS NULL OR ta.effective_to >= CURRENT_DATE)
+          AND ($8::boolean = false OR ta.teacher_id = $3)
+        RETURNING id, teacher_assignment_id, title, assessment_type, max_score, due_at, status`,
+      [req.auth.claims.schoolId, assignmentId, req.auth.claims.userId, title, type, maxScore, dueAt, isTeacher]);
+      if (!result.rowCount) { await close(req, false); return res.status(403).json({ error: 'You can create assessments only for an active teaching assignment you are authorized to manage.' }); }
+      await audit(req, 'ASSESSMENT_CREATED', 'ASSESSMENT', result.rows[0].id, { assignmentId, type, maxScore });
+      return done(req, res, 201, { assessment: result.rows[0] });
+    } catch (error) { return fail(req, res, error); }
+  });
+
+  router.get('/assessments/:assessmentId/roster', needsAnyPermission(['grades.enter', 'grades.moderate', 'grades.publish']), async (req, res) => {
+    const assessmentId = text(req.params.assessmentId, 50);
+    const isTeacher = req.auth.account.roles.includes('TEACHER') && !req.auth.account.permissions.includes('grades.moderate');
+    try {
+      const result = await req.auth.client.query(`SELECT a.id AS assessment_id, a.title, a.assessment_type, a.max_score, a.status,
+          ta.id AS assignment_id, c.name AS class_name, s.name AS subject_name,
+          st.id AS student_id, st.student_number, st.first_name, st.last_name, sc.score, sc.feedback
+        FROM assessments a
+        JOIN teacher_subject_assignments ta ON ta.school_id = a.school_id AND ta.id = a.teacher_assignment_id
+        JOIN class_groups c ON c.school_id = ta.school_id AND c.id = ta.class_group_id
+        JOIN subjects s ON s.school_id = ta.school_id AND s.id = ta.subject_id
+        JOIN class_enrollments ce ON ce.school_id = ta.school_id AND ce.class_group_id = ta.class_group_id AND ce.status = 'ACTIVE'
+        JOIN students st ON st.school_id = ce.school_id AND st.id = ce.student_id AND st.status = 'ACTIVE'
+        LEFT JOIN assessment_scores sc ON sc.school_id = a.school_id AND sc.assessment_id = a.id AND sc.student_id = st.id
+        WHERE a.school_id = $1 AND a.id = $2 AND ($3::boolean = false OR ta.teacher_id = $4)
+        ORDER BY st.last_name, st.first_name`, [req.auth.claims.schoolId, assessmentId, isTeacher, req.auth.claims.userId]);
+      if (!result.rowCount) { await close(req, false); return res.status(404).json({ error: 'Assessment not found, or no active students are enrolled in its class.' }); }
+      await close(req, true);
+      const first = result.rows[0];
+      return res.json({ assessment: { id: first.assessment_id, title: first.title, type: first.assessment_type, maxScore: first.max_score, status: first.status, assignmentId: first.assignment_id, className: first.class_name, subjectName: first.subject_name }, students: result.rows.map(row => ({ id: row.student_id, studentNumber: row.student_number, firstName: row.first_name, lastName: row.last_name, score: row.score, feedback: row.feedback })) });
+    } catch (error) { return fail(req, res, error); }
+  });
+
+  router.post('/assessments/:assessmentId/scores', needsPermission('grades.enter'), csrf, async (req, res) => {
+    const assessmentId = text(req.params.assessmentId, 50);
+    const entries = req.body?.scores;
+    if (!assessmentId || !Array.isArray(entries) || entries.length < 1 || entries.length > 500) {
+      await close(req, false); return res.status(400).json({ error: 'Provide marks for at least one enrolled student.' });
+    }
+    const normalized = entries.map(item => ({
+      studentId: text(item?.studentId, 50),
+      score: Number(item?.score),
+      feedback: text(item?.feedback, 1000),
+    }));
+    if (normalized.some(item => !item.studentId || !Number.isFinite(item.score) || item.score < 0) || new Set(normalized.map(item => item.studentId)).size !== normalized.length) {
+      await close(req, false); return res.status(400).json({ error: 'Each student needs one valid mark. Marks cannot be negative.' });
+    }
+    const isTeacher = req.auth.account.roles.includes('TEACHER');
+    try {
+      for (const item of normalized) {
+        const result = await req.auth.client.query(`INSERT INTO assessment_scores (school_id, assessment_id, student_id, score, feedback, entered_by)
+          SELECT $1, a.id, st.id, $5, NULLIF($6, ''), $4
+          FROM assessments a
+          JOIN teacher_subject_assignments ta ON ta.school_id = a.school_id AND ta.id = a.teacher_assignment_id
+          JOIN class_enrollments ce ON ce.school_id = ta.school_id AND ce.class_group_id = ta.class_group_id AND ce.status = 'ACTIVE'
+          JOIN students st ON st.school_id = ce.school_id AND st.id = ce.student_id AND st.status = 'ACTIVE'
+          WHERE a.school_id = $1 AND a.id = $2 AND a.status = 'OPEN' AND st.id = $3
+            AND $5 <= a.max_score AND ($7::boolean = false OR ta.teacher_id = $4)
+          ON CONFLICT (school_id, assessment_id, student_id) DO UPDATE SET score = EXCLUDED.score, feedback = EXCLUDED.feedback, entered_by = EXCLUDED.entered_by
+          RETURNING id`, [req.auth.claims.schoolId, assessmentId, item.studentId, req.auth.claims.userId, item.score, item.feedback, isTeacher]);
+        if (!result.rowCount) { await close(req, false); return res.status(400).json({ error: 'A mark exceeds the assessment maximum, belongs to a non-enrolled student, or the assessment is no longer open.' }); }
+      }
+      await audit(req, 'ASSESSMENT_SCORES_SAVED', 'ASSESSMENT', assessmentId, { count: normalized.length });
+      return done(req, res, 200, { saved: normalized.length });
+    } catch (error) { return fail(req, res, error); }
+  });
+
+  router.post('/assessments/:assessmentId/submit', needsPermission('grades.enter'), csrf, async (req, res) => {
+    const assessmentId = text(req.params.assessmentId, 50);
+    const isTeacher = req.auth.account.roles.includes('TEACHER');
+    try {
+      const completeness = await req.auth.client.query(`SELECT a.id, ta.teacher_id,
+          COUNT(DISTINCT st.id)::int AS enrolled_count, COUNT(DISTINCT sc.student_id)::int AS scored_count
+        FROM assessments a
+        JOIN teacher_subject_assignments ta ON ta.school_id = a.school_id AND ta.id = a.teacher_assignment_id
+        JOIN class_enrollments ce ON ce.school_id = ta.school_id AND ce.class_group_id = ta.class_group_id AND ce.status = 'ACTIVE'
+        JOIN students st ON st.school_id = ce.school_id AND st.id = ce.student_id AND st.status = 'ACTIVE'
+        LEFT JOIN assessment_scores sc ON sc.school_id = a.school_id AND sc.assessment_id = a.id AND sc.student_id = st.id
+        WHERE a.school_id = $1 AND a.id = $2 AND a.status = 'OPEN' AND ($3::boolean = false OR ta.teacher_id = $4)
+        GROUP BY a.id, ta.teacher_id`, [req.auth.claims.schoolId, assessmentId, isTeacher, req.auth.claims.userId]);
+      const row = completeness.rows[0];
+      if (!row || Number(row.enrolled_count) === 0 || Number(row.enrolled_count) !== Number(row.scored_count)) {
+        await close(req, false); return res.status(400).json({ error: 'Enter marks for every active student in the class before submitting for review.' });
+      }
+      await req.auth.client.query(`UPDATE assessments SET status = 'SUBMITTED_FOR_REVIEW' WHERE school_id = $1 AND id = $2 AND status = 'OPEN'`, [req.auth.claims.schoolId, assessmentId]);
+      await audit(req, 'ASSESSMENT_SUBMITTED_FOR_REVIEW', 'ASSESSMENT', assessmentId, { scoredStudents: row.scored_count });
+      return done(req, res, 200, { submitted: true });
+    } catch (error) { return fail(req, res, error); }
+  });
+
+  router.post('/assessments/:assessmentId/approve', needsPermission('grades.moderate'), csrf, async (req, res) => {
+    const assessmentId = text(req.params.assessmentId, 50);
+    try {
+      const result = await req.auth.client.query(`UPDATE assessments a SET status = 'APPROVED'
+        FROM teacher_subject_assignments ta
+        WHERE a.school_id = $1 AND a.id = $2 AND a.status = 'SUBMITTED_FOR_REVIEW'
+          AND ta.school_id = a.school_id AND ta.id = a.teacher_assignment_id AND a.created_by <> $3
+        RETURNING a.id`, [req.auth.claims.schoolId, assessmentId, req.auth.claims.userId]);
+      if (!result.rowCount) { await close(req, false); return res.status(403).json({ error: 'Only an authorized reviewer other than the assessment creator can approve submitted marks.' }); }
+      await req.auth.client.query(`UPDATE assessment_scores SET moderated_by = $3, moderated_at = now() WHERE school_id = $1 AND assessment_id = $2`, [req.auth.claims.schoolId, assessmentId, req.auth.claims.userId]);
+      await audit(req, 'ASSESSMENT_APPROVED', 'ASSESSMENT', assessmentId);
+      return done(req, res, 200, { approved: true });
+    } catch (error) { return fail(req, res, error); }
+  });
+
+  router.post('/assessments/:assessmentId/publish', needsPermission('grades.publish'), csrf, async (req, res) => {
+    const assessmentId = text(req.params.assessmentId, 50);
+    try {
+      const result = await req.auth.client.query(`UPDATE assessments a SET status = 'PUBLISHED'
+        WHERE a.school_id = $1 AND a.id = $2 AND a.status = 'APPROVED'
+          AND EXISTS (SELECT 1 FROM assessment_scores sc WHERE sc.school_id = a.school_id AND sc.assessment_id = a.id)
+        RETURNING a.id`, [req.auth.claims.schoolId, assessmentId]);
+      if (!result.rowCount) { await close(req, false); return res.status(400).json({ error: 'Only an approved assessment with recorded marks can be published.' }); }
+      await req.auth.client.query(`UPDATE assessment_scores SET published_at = now() WHERE school_id = $1 AND assessment_id = $2`, [req.auth.claims.schoolId, assessmentId]);
+      await audit(req, 'ASSESSMENT_PUBLISHED', 'ASSESSMENT', assessmentId);
+      return done(req, res, 200, { published: true });
     } catch (error) { return fail(req, res, error); }
   });
 

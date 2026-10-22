@@ -1,0 +1,108 @@
+import test from 'node:test';
+import assert from 'node:assert/strict';
+import express from 'express';
+import { createServer } from 'node:http';
+import { once } from 'node:events';
+import { createOperationsRouter } from './operations.js';
+
+const schoolId = 'b210b463-c02c-4be9-9003-8a9005e8dbe5';
+const teacherId = '721ddf68-1c98-4faa-9dc7-9161daa79870';
+const otherAssignment = '32f8f4d3-5d2a-4f36-bd4e-fc0f38a44f07';
+const ownAssignment = '5fc7528a-f2e5-4bbc-8d54-3fb2012044ee';
+const assessmentId = '13dfffb0-e1d0-4f2c-8878-bbbdace8e2fd';
+
+class FakeClient {
+  constructor({ account, ownsAssignment = true, assessmentCreator = teacherId }) {
+    this.account = account;
+    this.ownsAssignment = ownsAssignment;
+    this.assessmentCreator = assessmentCreator;
+    this.statements = [];
+    this.released = false;
+  }
+
+  async query(sql, params = []) {
+    const normalized = sql.replace(/\s+/g, ' ').trim();
+    this.statements.push({ sql: normalized, params });
+    if (['BEGIN', 'COMMIT', 'ROLLBACK'].includes(normalized)) return { rows: [], rowCount: 0 };
+    if (normalized.startsWith('INSERT INTO assessments')) {
+      const teacherScoped = params[7] === true;
+      if (params[1] !== ownAssignment || (teacherScoped && !this.ownsAssignment)) return { rows: [], rowCount: 0 };
+      return { rows: [{ id: assessmentId, teacher_assignment_id: ownAssignment, title: params[3], assessment_type: params[4], max_score: params[5], due_at: params[6], status: 'OPEN' }], rowCount: 1 };
+    }
+    if (normalized.startsWith('UPDATE assessments a SET status = \'APPROVED\'')) {
+      if (params[2] === this.assessmentCreator) return { rows: [], rowCount: 0 };
+      return { rows: [{ id: assessmentId }], rowCount: 1 };
+    }
+    if (normalized.startsWith('INSERT INTO audit_events')) return { rows: [], rowCount: 1 };
+    throw new Error(`Unexpected query in grade workflow test: ${normalized}`);
+  }
+
+  release() { this.released = true; }
+}
+
+async function startServer(t, account, options = {}) {
+  const clients = [];
+  const app = express();
+  app.use(express.json());
+  app.use('/api/operations', createOperationsRouter({
+    authenticate(req, _res, next) {
+      const client = new FakeClient({ account, ...options });
+      clients.push(client);
+      req.auth = {
+        account,
+        claims: { schoolId, userId: account.id, csrfToken: 'csrf-test-token' },
+        client,
+      };
+      next();
+    },
+  }));
+  const server = createServer(app).listen(0, '127.0.0.1');
+  await once(server, 'listening');
+  t.after(() => new Promise(resolve => server.close(resolve)));
+  return { url: `http://127.0.0.1:${server.address().port}`, clients };
+}
+
+const teacher = { id: teacherId, roles: ['TEACHER'], permissions: ['grades.enter'] };
+const assessmentBody = { assignmentId: ownAssignment, title: 'Quiz 1', assessmentType: 'QUIZ', maxScore: 20, dueAt: null };
+
+test('teacher can create an assessment for their assigned class and subject', async t => {
+  const { url, clients } = await startServer(t, teacher);
+  const response = await fetch(`${url}/api/operations/assessments`, {
+    method: 'POST', headers: { 'Content-Type': 'application/json', 'X-CSRF-Token': 'csrf-test-token' }, body: JSON.stringify(assessmentBody),
+  });
+  assert.equal(response.status, 201);
+  assert.equal((await response.json()).assessment.status, 'OPEN');
+  assert.ok(clients[0].statements.some(item => item.sql.startsWith('INSERT INTO audit_events')));
+  assert.equal(clients[0].statements.at(-1).sql, 'COMMIT');
+});
+
+test('teacher cannot create an assessment for another teacher assignment', async t => {
+  const { url, clients } = await startServer(t, teacher, { ownsAssignment: false });
+  const response = await fetch(`${url}/api/operations/assessments`, {
+    method: 'POST', headers: { 'Content-Type': 'application/json', 'X-CSRF-Token': 'csrf-test-token' }, body: JSON.stringify({ ...assessmentBody, assignmentId: otherAssignment }),
+  });
+  assert.equal(response.status, 403);
+  assert.equal(clients[0].statements.some(item => item.sql.startsWith('INSERT INTO audit_events')), false);
+  assert.equal(clients[0].statements.at(-1).sql, 'ROLLBACK');
+});
+
+test('assessment creation requires grades.enter permission', async t => {
+  const account = { id: teacherId, roles: ['TEACHER'], permissions: ['attendance.read'] };
+  const { url, clients } = await startServer(t, account);
+  const response = await fetch(`${url}/api/operations/assessments`, {
+    method: 'POST', headers: { 'Content-Type': 'application/json', 'X-CSRF-Token': 'csrf-test-token' }, body: JSON.stringify(assessmentBody),
+  });
+  assert.equal(response.status, 403);
+  assert.equal(clients[0].statements.some(item => item.sql.startsWith('INSERT INTO assessments')), false);
+});
+
+test('assessment creator cannot approve their own submitted marks', async t => {
+  const principal = { id: teacherId, roles: ['PRINCIPAL'], permissions: ['grades.moderate'] };
+  const { url, clients } = await startServer(t, principal, { assessmentCreator: teacherId });
+  const response = await fetch(`${url}/api/operations/assessments/${assessmentId}/approve`, {
+    method: 'POST', headers: { 'Content-Type': 'application/json', 'X-CSRF-Token': 'csrf-test-token' }, body: JSON.stringify({}),
+  });
+  assert.equal(response.status, 403);
+  assert.equal(clients[0].statements.some(item => item.sql.startsWith('INSERT INTO audit_events')), false);
+  assert.equal(clients[0].statements.at(-1).sql, 'ROLLBACK');
+});
