@@ -6,6 +6,7 @@ import { once } from 'node:events';
 import { createAuthRouter } from './auth.js';
 import { createOperationsRouter } from './operations.js';
 import { hashPassword } from './authCrypto.js';
+import { hashInvitationToken } from './invitations.js';
 
 const schoolId = 'b210b463-c02c-4be9-9003-8a9005e8dbe5';
 const userId = '721ddf68-1c98-4faa-9dc7-9161daa79870';
@@ -17,6 +18,8 @@ class FakePool {
     this.sessions = new Map();
     this.tenantScopes = [];
     this.releaseCount = 0;
+    this.invitationTokenHash = null;
+    this.invitationPasswordHash = null;
     this.user = {
       id: userId,
       school_id: schoolId,
@@ -102,73 +105,4 @@ class FakeClient {
     throw new Error(`Unexpected client query: ${normalized}`);
   }
 
-  release() {
-    if (!this.released) this.pool.releaseCount += 1;
-    this.released = true;
-  }
-}
-
-async function startServer(t, pool) {
-  const app = express();
-  app.use(express.json());
-  const authRouter = createAuthRouter({ pool, secret, secureCookie: false });
-  app.use('/api/auth', authRouter);
-  app.use('/api/operations', createOperationsRouter({ authenticate: authRouter.requireAuth }));
-  const server = createServer(app).listen(0, '127.0.0.1');
-  await once(server, 'listening');
-  t.after(() => new Promise((resolve) => server.close(resolve)));
-  return `http://127.0.0.1:${server.address().port}`;
-}
-
-test('login creates a scoped session, GET session validates it, and CSRF protects logout', async (t) => {
-  const password = 'Stage-Only-Password-2026!';
-  const pool = new FakePool(await hashPassword(password));
-  const baseUrl = await startServer(t, pool);
-
-  const login = await fetch(`${baseUrl}/api/auth/login`, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ schoolCode: 'RIA', email: 'ADMIN@REDEEMER.EXAMPLE', password }),
-  });
-  assert.equal(login.status, 200);
-  const loginBody = await login.json();
-  const cookie = login.headers.get('set-cookie').split(';')[0];
-  assert.equal(loginBody.account.schoolId, schoolId);
-  assert.deepEqual(loginBody.account.roles, ['SCHOOL_ADMIN']);
-  assert.match(cookie, /^redeemer_session=/);
-  assert.deepEqual(pool.tenantScopes, [schoolId]);
-
-  const session = await fetch(`${baseUrl}/api/auth/session`, { headers: { Cookie: cookie } });
-  assert.equal(session.status, 200);
-  assert.equal((await session.json()).account.email, 'admin@redeemer.example');
-
-  const deniedSetup = await fetch(`${baseUrl}/api/operations/setup`, { headers: { Cookie: cookie } });
-  assert.equal(deniedSetup.status, 403);
-  assert.equal((await deniedSetup.json()).error, 'You do not have permission to view school setup.');
-
-  const rejectedLogout = await fetch(`${baseUrl}/api/auth/logout`, {
-    method: 'POST', headers: { Cookie: cookie },
-  });
-  assert.equal(rejectedLogout.status, 403);
-
-  const logout = await fetch(`${baseUrl}/api/auth/logout`, {
-    method: 'POST',
-    headers: { Cookie: cookie, 'X-CSRF-Token': loginBody.csrfToken },
-  });
-  assert.equal(logout.status, 204);
-  assert.match(logout.headers.get('set-cookie'), /Max-Age=0/);
-  assert.equal(pool.sessions.size, 0);
-  assert.equal(pool.releaseCount, 5);
-});
-
-test('authentication stays closed when the runtime database role is privileged', async (t) => {
-  const baseUrl = await startServer(t, {
-    async query() { return { rows: [{ safe: false }], rowCount: 1 }; },
-  });
-  const response = await fetch(`${baseUrl}/api/auth/login`, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ schoolCode: 'RIA', email: 'admin@redeemer.example', password: 'does-not-matter' }),
-  });
-  assert.equal(response.status, 503);
-});
+  release(

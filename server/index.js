@@ -38,6 +38,11 @@ const sessionSecret = process.env.APP_SESSION_SECRET || '';
 const authConfigured = Boolean(runtimePool && isStrongSessionSecret(sessionSecret));
 
 app.disable('x-powered-by');
+app.use((_req, res, next) => {
+  res.setHeader('Referrer-Policy', 'no-referrer');
+  res.setHeader('X-Content-Type-Options', 'nosniff');
+  next();
+});
 app.use(express.json({ limit: '1mb' }));
 
 app.get('/api/health/live', (_req, res) => {
