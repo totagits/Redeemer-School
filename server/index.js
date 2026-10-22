@@ -13,19 +13,9 @@ const port = Number(process.env.PORT || 3000);
 const here = path.dirname(fileURLToPath(import.meta.url));
 const distDir = path.resolve(here, '../dist');
 
-// The frontend is still a demo and can be served before the staging database
-// has been provisioned. Keep the site available, while reporting database
-// readiness as unavailable until DATABASE_URL is configured.
-const pool = process.env.DATABASE_URL
-  ? new Pool({
-      connectionString: process.env.DATABASE_URL,
-      max: Number(process.env.DB_POOL_MAX || 10),
-      idleTimeoutMillis: 30_000,
-      connectionTimeoutMillis: 5_000,
-    })
-  : null;
-// Protected application APIs must use the dedicated, non-superuser runtime role.
-// DATABASE_URL is reserved for migrations and administrative bootstrap only.
+// Protected application APIs and readiness checks use only the dedicated,
+// non-superuser runtime role. DATABASE_URL is reserved for migrations and
+// administrative bootstrap and is not required by the running application.
 const runtimePool = process.env.RUNTIME_DATABASE_URL
   ? new Pool({
       connectionString: process.env.RUNTIME_DATABASE_URL,
@@ -50,11 +40,11 @@ app.get('/api/health/live', (_req, res) => {
 });
 
 app.get('/api/health/ready', async (_req, res) => {
-  if (!pool) {
+  if (!runtimePool) {
     return res.status(503).json({ status: 'not_ready', database: 'not_configured' });
   }
   try {
-    await pool.query('SELECT 1');
+    await runtimePool.query('SELECT 1');
   } catch {
     return res.status(503).json({ status: 'not_ready', database: 'unavailable' });
   }
@@ -108,7 +98,7 @@ const server = app.listen(port, '0.0.0.0', () => {
 async function shutdown(signal) {
   console.log(`${signal} received; closing server and database pool.`);
   server.close(async () => {
-    await Promise.all([pool?.end(), runtimePool?.end()].filter(Boolean));
+    await Promise.all([runtimePool?.end()].filter(Boolean));
     process.exit(0);
   });
 }
