@@ -20,6 +20,8 @@ class FakePool {
     this.releaseCount = 0;
     this.invitationTokenHash = null;
     this.invitationPasswordHash = null;
+    this.passwordResetTokenHash = null;
+    this.passwordResetPasswordHash = null;
     this.user = {
       id: userId,
       school_id: schoolId,
@@ -61,10 +63,20 @@ class FakeClient {
     if (normalized.includes('app.resolve_school_id_by_code')) {
       return { rows: [{ id: params[0] === 'RIA' ? schoolId : null }], rowCount: 1 };
     }
+    if (normalized.startsWith('SELECT id, email, full_name FROM user_accounts')) {
+      return this.currentSchoolId === schoolId && params[1] === 'admin@redeemer.example'
+        ? { rows: [{ id: userId, email: this.pool.user.email, full_name: this.pool.user.full_name }], rowCount: 1 }
+        : { rows: [], rowCount: 0 };
+    }
     if (normalized.startsWith('SELECT id, school_id, email, full_name, password_hash')) {
       return this.currentSchoolId === schoolId && params[1] === 'admin@redeemer.example'
         ? { rows: [{ ...this.pool.user }], rowCount: 1 }
         : { rows: [], rowCount: 0 };
+    }
+    if (normalized.startsWith('UPDATE account_password_resets')) return { rows: [], rowCount: 0 };
+    if (normalized.startsWith('INSERT INTO account_password_resets')) {
+      this.pool.passwordResetTokenHash = params[2];
+      return { rows: [], rowCount: 1 };
     }
     if (normalized.startsWith('INSERT INTO auth_sessions')) {
       this.pool.sessions.set(params[0], {
@@ -111,10 +123,10 @@ class FakeClient {
   }
 }
 
-async function startServer(t, pool) {
+async function startServer(t, pool, options = {}) {
   const app = express();
   app.use(express.json());
-  const authRouter = createAuthRouter({ pool, secret, secureCookie: false });
+  const authRouter = createAuthRouter({ pool, secret, secureCookie: false, ...options });
   app.use('/api/auth', authRouter);
   app.use('/api/operations', createOperationsRouter({ authenticate: authRouter.requireAuth }));
   const server = createServer(app).listen(0, '127.0.0.1');
@@ -221,4 +233,49 @@ test('account invitation endpoint rejects passwords under 12 characters before d
   });
   assert.equal(response.status, 400);
   assert.equal(called, false);
+});
+
+
+test('password reset requests hide account existence and use a one-time hashed token', async t => {
+  const pool = new FakePool(await hashPassword('existing-test-password-0001'));
+  let emailedToken = '';
+  const baseUrl = await startServer(t, pool, {
+    sendPasswordReset: async ({ email, token }) => {
+      assert.equal(email, 'admin@redeemer.example');
+      emailedToken = token;
+    },
+  });
+
+  const missing = await fetch(baseUrl + '/api/auth/request-password-reset', {
+    method: 'POST', headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ schoolCode: 'RIA', email: 'nobody@redeemer.example' }),
+  });
+  const missingBody = await missing.json();
+  assert.equal(missing.status, 202);
+
+  const requested = await fetch(baseUrl + '/api/auth/request-password-reset', {
+    method: 'POST', headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ schoolCode: 'RIA', email: 'ADMIN@REDEEMER.EXAMPLE' }),
+  });
+  assert.equal(requested.status, 202);
+  assert.deepEqual(await requested.json(), missingBody);
+  assert.match(emailedToken, /^[A-Za-z0-9_-]{43}$/);
+  assert.notEqual(pool.passwordResetTokenHash, emailedToken);
+  assert.equal(pool.passwordResetTokenHash, hashInvitationToken(emailedToken));
+
+  pool.query = async (sql, params = []) => {
+    if (sql.includes('FROM pg_roles')) return { rows: [{ safe: true }], rowCount: 1 };
+    if (sql.includes('app.consume_password_reset')) {
+      pool.passwordResetPasswordHash = params[1];
+      return params[0] === pool.passwordResetTokenHash ? { rows: [{ user_id: userId }], rowCount: 1 } : { rows: [], rowCount: 0 };
+    }
+    throw new Error('Unexpected pool query: ' + sql);
+  };
+  const newPassword = 'New-Staging-Password-2026!';
+  const reset = await fetch(baseUrl + '/api/auth/reset-password', {
+    method: 'POST', headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ token: emailedToken, newPassword }),
+  });
+  assert.equal(reset.status, 204);
+  assert.notEqual(pool.passwordResetPasswordHash, newPassword);
 });

@@ -489,7 +489,7 @@ export default function App() {
 
   const lowStockCount = inventory.filter(i => i.currentStock <= i.reorderLevel).length;
 
-  if (window.location.pathname === '/set-password') {
+  if (window.location.pathname === '/set-password' || window.location.pathname === '/reset-password') {
     return <InvitationPasswordSetupPage onContinue={() => {
       window.history.replaceState(null, '', '/');
       setShowSignIn(true);

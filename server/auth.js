@@ -1,6 +1,6 @@
 import { randomBytes, timingSafeEqual } from 'node:crypto';
 import express from 'express';
-import { hashInvitationToken } from './invitations.js';
+import { createInvitationSecret, hashInvitationToken, sendPasswordResetEmail } from './invitations.js';
 import {
   hashPassword,
   hashSessionToken,
@@ -154,10 +154,11 @@ function authDisabled(res) {
   return res.status(503).json({ error: 'Sign-in is not configured for this environment.' });
 }
 
-export function createAuthRouter({ pool, secret, sessionTtlMs = 8 * 60 * 60 * 1000, secureCookie = process.env.NODE_ENV === 'production' }) {
+export function createAuthRouter({ pool, secret, sessionTtlMs = 8 * 60 * 60 * 1000, secureCookie = process.env.NODE_ENV === 'production', sendPasswordReset = sendPasswordResetEmail }) {
   const router = express.Router();
   const limitLogin = createRateLimiter();
   const limitInvitationAccept = createRateLimiter();
+  const limitPasswordReset = createRateLimiter();
   let runtimeRoleSafe;
 
   async function isRuntimeRoleSafe() {
@@ -343,6 +344,81 @@ export function createAuthRouter({ pool, secret, sessionTtlMs = 8 * 60 * 60 * 10
         client.release();
       }
       return res.status(503).json({ error: 'Sign-in service is temporarily unavailable.' });
+    }
+  });
+
+
+  router.post('/request-password-reset', limitPasswordReset, async (req, res) => {
+    res.setHeader('Cache-Control', 'no-store');
+    const generic = { message: 'If an active account matches those details, a password reset link will be sent to its registered email address.' };
+    if (!await isRuntimeRoleSafe()) return authDisabled(res);
+
+    const schoolCode = typeof req.body?.schoolCode === 'string' ? req.body.schoolCode.trim().toUpperCase() : '';
+    const email = typeof req.body?.email === 'string' ? req.body.email.trim().toLowerCase() : '';
+    if (!/^[A-Z0-9][A-Z0-9_-]{1,49}$/.test(schoolCode) || email.length > 254 || !/^\S+@\S+\.\S+$/.test(email)) {
+      return res.status(202).json(generic);
+    }
+
+    let client;
+    try {
+      client = await pool.connect();
+      await client.query('BEGIN');
+      const schoolResult = await client.query('SELECT app.resolve_school_id_by_code($1) AS id', [schoolCode]);
+      const schoolId = schoolResult.rows[0]?.id;
+      if (!schoolId) {
+        await rollbackAndRelease(client);
+        return res.status(202).json(generic);
+      }
+      await setTenantContext(client, schoolId);
+      const accountResult = await client.query(
+        `SELECT id, email, full_name FROM user_accounts
+         WHERE school_id = $1 AND lower(email) = $2
+           AND status = 'ACTIVE' AND deactivated_at IS NULL LIMIT 1`,
+        [schoolId, email]
+      );
+      const account = accountResult.rows[0];
+      if (!account) {
+        await rollbackAndRelease(client);
+        return res.status(202).json(generic);
+      }
+
+      const { token, tokenHash } = createInvitationSecret();
+      await client.query(
+        `UPDATE account_password_resets SET revoked_at = now()
+         WHERE school_id = $1 AND user_id = $2 AND redeemed_at IS NULL AND revoked_at IS NULL`,
+        [schoolId, account.id]
+      );
+      await client.query(
+        `INSERT INTO account_password_resets (school_id, user_id, token_hash, expires_at)
+         VALUES ($1, $2, $3, now() + interval '60 minutes')`,
+        [schoolId, account.id, tokenHash]
+      );
+      await sendPasswordReset({ email: account.email, fullName: account.full_name, token });
+      await commitAndRelease(client);
+      client = null;
+      return res.status(202).json(generic);
+    } catch (error) {
+      if (client) await rollbackAndRelease(client);
+      console.error('Password reset request failed:', error instanceof Error ? error.message : 'unknown error');
+      return res.status(202).json(generic);
+    }
+  });
+
+  router.post('/reset-password', limitInvitationAccept, async (req, res) => {
+    res.setHeader('Cache-Control', 'no-store');
+    if (!await isRuntimeRoleSafe()) return authDisabled(res);
+    const token = typeof req.body?.token === 'string' ? req.body.token : '';
+    const newPassword = typeof req.body?.newPassword === 'string' ? req.body.newPassword : '';
+    if (!/^[A-Za-z0-9_-]{43}$/.test(token) || newPassword.length < 12 || Buffer.byteLength(newPassword, 'utf8') > 1024) {
+      return res.status(400).json({ error: 'Use a valid password reset link and choose a password with at least 12 characters.' });
+    }
+    try {
+      const passwordHash = await hashPassword(newPassword);
+      const result = await pool.query('SELECT user_id FROM app.consume_password_reset($1, $2)', [hashInvitationToken(token), passwordHash]);
+      if (!result.rowCount) return res.status(400).json({ error: 'This reset link is invalid, expired, or already used. Request a new password reset link.' });
+      return res.status(204).end();
+    } catch {
+      return res.status(503).json({ error: 'Password reset is temporarily unavailable. Please try again.' });
     }
   });
 

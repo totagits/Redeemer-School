@@ -298,6 +298,18 @@ export function createOperationsRouter({ authenticate, sendInvitation = sendAcco
     }
     try {
       const schoolId = req.auth.claims.schoolId;
+      const existing = await req.auth.client.query(`SELECT id, email, full_name, role, status, must_reset_password
+        FROM user_accounts WHERE school_id = $1 AND lower(email) = $2 LIMIT 1`, [schoolId, email]);
+      if (existing.rowCount) {
+        const pending = existing.rows[0];
+        if (pending.role === role && pending.status === 'ACTIVE' && pending.must_reset_password) {
+          await createAndSendInvitation(req.auth.client, { schoolId, userId: pending.id, email: pending.email, fullName: pending.full_name, role, createdBy: req.auth.claims.userId }, sendInvitation);
+          await audit(req, 'STAFF_INVITATION_RESENT', 'STAFF_ACCOUNT', pending.id, { role });
+          return done(req, res, 200, { account: pending, notice: `A new setup link was sent to ${email}. The previous link is no longer valid; the new link expires in 48 hours.` });
+        }
+        await close(req, false);
+        return res.status(409).json({ error: 'That email is already linked to a configured school account. Check the email address or contact the system administrator.' });
+      }
       const passwordHash = await hashPassword(randomBytes(32).toString('base64url'));
       const account = await req.auth.client.query(`INSERT INTO user_accounts
         (school_id, email, password_hash, full_name, role, status, must_reset_password)

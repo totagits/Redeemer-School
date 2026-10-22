@@ -87,4 +87,29 @@ export async function sendAccountInvitation({ email, fullName, role, token }) {
   }
 }
 
+
+export async function sendPasswordResetEmail({ email, fullName, token }) {
+  const { apiKey, from, appUrl } = invitationConfig(email);
+  const link = new URL('/reset-password?token=' + encodeURIComponent(token), appUrl + '/').toString();
+  const safeName = escapeHtml(fullName);
+  const text = 'Hello ' + fullName + ',\n\nA password reset was requested for your Redeemer ERP account. Use this one-time link to choose a new password:\n\n' + link + '\n\nThe link expires in 60 minutes and can only be used once. If you did not request this, ignore this email; your current password will remain unchanged.';
+  const html = '<!doctype html><html><body style="font-family:Arial,sans-serif;color:#172033;line-height:1.6"><div style="max-width:560px;margin:32px auto;padding:28px;border:1px solid #e2e8f0;border-radius:16px"><p style="color:#1d4ed8;font-size:12px;font-weight:bold;letter-spacing:.12em;text-transform:uppercase">Redeemer ERP</p><h1 style="font-size:24px">Reset your password</h1><p>Hello ' + safeName + ',</p><p>Use the button below to choose a new password for your Redeemer ERP account.</p><p><a href="' + escapeHtml(link) + '" style="display:inline-block;background:#1d4ed8;color:#fff;padding:12px 18px;border-radius:8px;text-decoration:none;font-weight:bold">Reset my password</a></p><p>This one-time link expires in 60 minutes. If you did not request this, ignore this email; your current password will remain unchanged.</p><p style="font-size:13px;color:#64748b">Do not forward the reset link.</p></div></body></html>';
+  const controller = new AbortController();
+  const timeout = setTimeout(() => controller.abort(), 10_000);
+  try {
+    const response = await fetch('https://api.resend.com/emails', {
+      method: 'POST',
+      headers: { Authorization: 'Bearer ' + apiKey, 'Content-Type': 'application/json' },
+      body: JSON.stringify({ from, to: [email], subject: 'Reset your Redeemer ERP password', html, text }),
+      signal: controller.signal,
+    });
+    if (!response.ok) throw new InvitationDeliveryError('Password reset email delivery failed.');
+  } catch (error) {
+    if (error instanceof InvitationDeliveryError) throw error;
+    throw new InvitationDeliveryError('The password reset email service could not be reached.');
+  } finally {
+    clearTimeout(timeout);
+  }
+}
+
 export const invitationTtlHours = INVITATION_TTL_HOURS;

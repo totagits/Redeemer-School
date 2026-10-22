@@ -26,12 +26,14 @@ interface AuthResponse {
 export const InvitationPasswordSetupPage: React.FC<{ onContinue: () => void }> = ({ onContinue }) => {
   const [token] = useState(() => {
     const value = new URLSearchParams(window.location.search).get('token') || '';
-    window.history.replaceState(null, '', '/set-password');
+    const route = window.location.pathname === '/reset-password' ? '/reset-password' : '/set-password';
+    window.history.replaceState(null, '', route);
     return value;
   });
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState('');
   const [complete, setComplete] = useState(false);
+  const isReset = window.location.pathname === '/reset-password';
 
   async function handleSubmit(event: React.FormEvent<HTMLFormElement>) {
     event.preventDefault();
@@ -43,7 +45,7 @@ export const InvitationPasswordSetupPage: React.FC<{ onContinue: () => void }> =
     if (newPassword !== confirmPassword) { setError('The passwords do not match.'); return; }
     setBusy(true);
     try {
-      const response = await fetch('/api/auth/accept-invitation', {
+      const response = await fetch(isReset ? '/api/auth/reset-password' : '/api/auth/accept-invitation', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         credentials: 'same-origin',
@@ -52,7 +54,7 @@ export const InvitationPasswordSetupPage: React.FC<{ onContinue: () => void }> =
       const result = await response.json().catch(() => ({}));
       if (!response.ok) throw new Error(result.error || 'Could not set the account password.');
       setComplete(true);
-      window.history.replaceState(null, '', '/set-password');
+      window.history.replaceState(null, '', isReset ? '/reset-password' : '/set-password');
     } catch (cause) {
       setError(cause instanceof Error ? cause.message : 'Could not reach the password setup service. Please try again.');
     } finally {
@@ -64,18 +66,18 @@ export const InvitationPasswordSetupPage: React.FC<{ onContinue: () => void }> =
     <div className="w-full max-w-md rounded-2xl border border-slate-200 bg-white p-6 shadow-xl sm:p-8">
       <p className="text-xs font-bold uppercase tracking-[0.16em] text-blue-700">Redeemer ERP · Staging</p>
       {complete ? <>
-        <h1 className="mt-2 text-2xl font-extrabold text-slate-950">Password set</h1>
-        <p className="mt-3 text-sm leading-6 text-slate-600">Your account is ready. Sign in with your school code, email address, and new password.</p>
+        <h1 className="mt-2 text-2xl font-extrabold text-slate-950">{isReset ? 'Password reset' : 'Password set'}</h1>
+        <p className="mt-3 text-sm leading-6 text-slate-600">{isReset ? 'Your password has been changed. Sign in with your school code, email address, and new password.' : 'Your account is ready. Sign in with your school code, email address, and new password.'}</p>
         <button onClick={onContinue} className="mt-6 inline-flex w-full items-center justify-center rounded-lg bg-blue-700 px-4 py-3 text-sm font-bold text-white hover:bg-blue-800">Continue to sign in</button>
       </> : <>
-        <h1 className="mt-2 text-2xl font-extrabold text-slate-950">Set your account password</h1>
-        <p className="mt-2 text-sm leading-6 text-slate-600">Choose a private password with at least 12 characters. This invitation link can only be used once.</p>
-        {!token && <p role="alert" className="mt-4 rounded-lg border border-amber-200 bg-amber-50 p-3 text-sm text-amber-950">This invitation link is missing or has already been removed from the address. Open the complete link from your email or ask the school administrator for a new invitation.</p>}
+        <h1 className="mt-2 text-2xl font-extrabold text-slate-950">{isReset ? 'Reset your password' : 'Set your account password'}</h1>
+        <p className="mt-2 text-sm leading-6 text-slate-600">{isReset ? 'Choose a new private password with at least 12 characters. This reset link expires after 60 minutes and can only be used once.' : 'Choose a private password with at least 12 characters. This invitation link can only be used once.'}</p>
+        {!token && <p role="alert" className="mt-4 rounded-lg border border-amber-200 bg-amber-50 p-3 text-sm text-amber-950">{isReset ? 'This password reset link is missing. Request a new reset link from the sign-in page.' : 'This invitation link is missing or has already been removed from the address. Open the complete link from your email or ask the school administrator for a new invitation.'}</p>}
         <form onSubmit={handleSubmit} className="mt-5 space-y-4">
           <label className="block text-sm font-semibold text-slate-700">New password<input required minLength={12} autoComplete="new-password" name="newPassword" type="password" className="mt-1.5 w-full rounded-lg border border-slate-300 px-3 py-2.5 font-normal outline-none focus:border-blue-600 focus:ring-2 focus:ring-blue-100" /></label>
           <label className="block text-sm font-semibold text-slate-700">Confirm password<input required minLength={12} autoComplete="new-password" name="confirmPassword" type="password" className="mt-1.5 w-full rounded-lg border border-slate-300 px-3 py-2.5 font-normal outline-none focus:border-blue-600 focus:ring-2 focus:ring-blue-100" /></label>
           {error && <p role="alert" className="rounded-lg border border-red-200 bg-red-50 px-3 py-2.5 text-sm text-red-800">{error}</p>}
-          <button disabled={busy || !token} className="inline-flex w-full items-center justify-center gap-2 rounded-lg bg-blue-700 px-4 py-3 text-sm font-bold text-white hover:bg-blue-800 disabled:cursor-wait disabled:opacity-70">{busy ? <><LoaderCircle className="h-4 w-4 animate-spin" /> Setting password…</> : 'Set password'}</button>
+          <button disabled={busy || !token} className="inline-flex w-full items-center justify-center gap-2 rounded-lg bg-blue-700 px-4 py-3 text-sm font-bold text-white hover:bg-blue-800 disabled:cursor-wait disabled:opacity-70">{busy ? <><LoaderCircle className="h-4 w-4 animate-spin" /> Setting password…</> : (isReset ? 'Reset password' : 'Set password')}</button>
         </form>
       </>}
     </div>
@@ -89,6 +91,8 @@ export const SignInPage: React.FC<SignInPageProps> = ({ onCancel, onSignedIn }) 
   const [showPassword, setShowPassword] = useState(false);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState('');
+  const [recoveryMode, setRecoveryMode] = useState<'password' | 'email' | null>(null);
+  const [recoveryMessage, setRecoveryMessage] = useState('');
 
   async function handleSubmit(event: React.FormEvent<HTMLFormElement>) {
     event.preventDefault();
@@ -153,6 +157,35 @@ export const SignInPage: React.FC<SignInPageProps> = ({ onCancel, onSignedIn }) 
               {busy ? <><LoaderCircle className="h-4 w-4 animate-spin" /> Signing in…</> : 'Sign in'}
             </button>
           </form>
+          <div className="mt-3 flex justify-between gap-4 text-sm">
+            <button type="button" onClick={() => { setRecoveryMode(recoveryMode === 'password' ? null : 'password'); setError(''); setRecoveryMessage(''); }} className="font-semibold text-blue-700 hover:text-blue-900">Forgot password?</button>
+            <button type="button" onClick={() => { setRecoveryMode(recoveryMode === 'email' ? null : 'email'); setError(''); }} className="font-semibold text-blue-700 hover:text-blue-900">Forgot email?</button>
+          </div>
+          {recoveryMode === 'password' && <form className="mt-4 space-y-3 rounded-xl border border-slate-200 bg-slate-50 p-4" onSubmit={async event => {
+            event.preventDefault(); setError(''); setRecoveryMessage('');
+            const data = new FormData(event.currentTarget);
+            setBusy(true);
+            try {
+              const response = await fetch('/api/auth/request-password-reset', { method: 'POST', headers: { 'Content-Type': 'application/json' }, credentials: 'same-origin', body: JSON.stringify({ schoolCode: String(data.get('schoolCode') || '').trim().toUpperCase(), email: String(data.get('email') || '').trim() }) });
+              const result = await response.json().catch(() => ({}));
+              if (!response.ok) throw new Error(result.error || 'The password reset service is temporarily unavailable.');
+              setRecoveryMessage(result.message || 'If the details match an active account, a reset link will be emailed.');
+            } catch (cause) { setError(cause instanceof Error ? cause.message : 'Could not reach the password reset service. Please try again.'); }
+            finally { setBusy(false); }
+          }}>
+            <h2 className="text-sm font-bold text-slate-900">Reset your password</h2>
+            <label className="block text-sm font-semibold text-slate-700">School code<input required name="schoolCode" defaultValue="RIA" autoComplete="organization" className="mt-1 w-full rounded-lg border border-slate-300 bg-white px-3 py-2.5 font-normal uppercase" /></label>
+            <label className="block text-sm font-semibold text-slate-700">Registered school email<input required type="email" name="email" autoComplete="email" className="mt-1 w-full rounded-lg border border-slate-300 bg-white px-3 py-2.5 font-normal" /></label>
+            {error && <p role="alert" className="rounded-lg bg-red-50 p-2.5 text-sm text-red-800">{error}</p>}
+            {recoveryMessage && <p role="status" className="rounded-lg bg-emerald-50 p-2.5 text-sm text-emerald-900">{recoveryMessage}</p>}
+            <button disabled={busy} className="w-full rounded-lg bg-blue-700 px-3 py-2.5 text-sm font-bold text-white disabled:opacity-70">{busy ? 'Sending…' : 'Email me a reset link'}</button>
+          </form>}
+          {recoveryMode === 'email' && <div className="mt-4 rounded-xl border border-blue-100 bg-blue-50 p-4 text-sm leading-6 text-slate-700">
+            <h2 className="font-bold text-slate-900">Forgot your school email?</h2>
+            <p className="mt-2">For your privacy, this page cannot reveal account email addresses. Contact the school office and share your name and school or staff/student ID. The office should verify your identity before changing the email linked to your account.</p>
+            <p className="mt-2 font-semibold">Redeemer’s International Academy · 0778786116 / 0555664239</p>
+            <p>RIA Highway, Thinker’s Village, Guest House Road, Paynesville, Montserrado, Liberia</p>
+          </div>}
           <p className="mt-5 flex items-start gap-2 rounded-lg bg-amber-50 p-3 text-xs leading-5 text-amber-950"><ShieldCheck className="mt-0.5 h-4 w-4 shrink-0" /> Staging sign-in verifies your account. Student, finance, staff, and other operating screens are still being connected to the database. Do not enter real school records yet.</p>
         </div>
       </div>
