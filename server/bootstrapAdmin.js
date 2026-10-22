@@ -94,20 +94,7 @@ try {
   const existing = await client.query('SELECT 1 FROM user_accounts WHERE school_id = $1 LIMIT 1', [schoolId]);
   if (existing.rowCount) throw new Error('This school already has an account. Use normal account management instead.');
 
-  await client.query(
-    `INSERT INTO school_roles (school_id, code, name, is_system_role)
-     VALUES ($1, 'SCHOOL_ADMIN', 'School administrator', true)
-     ON CONFLICT (school_id, code) DO NOTHING`,
-    [schoolId]
-  );
-  await client.query(
-    `INSERT INTO role_permissions (school_id, role_id, permission_code)
-     SELECT $1, r.id, p.code
-     FROM school_roles r CROSS JOIN permissions p
-     WHERE r.school_id = $1 AND r.code = 'SCHOOL_ADMIN'
-     ON CONFLICT DO NOTHING`,
-    [schoolId]
-  );
+  await client.query('SELECT app.seed_standard_school_roles($1)', [schoolId]);
   const account = await client.query(
     `INSERT INTO user_accounts
        (school_id, email, password_hash, full_name, role, status, must_reset_password)
