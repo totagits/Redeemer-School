@@ -48,7 +48,7 @@ function needsAnyPermission(codes) {
   return async (req, res, next) => {
     if (!codes.some(code => req.auth.account.permissions.includes(code))) {
       await close(req, false);
-      return res.status(403).json({ error: 'You do not have permission to view grade records.' });
+      return res.status(403).json({ error: 'You do not have permission to view this information.' });
     }
     next();
   };
@@ -118,10 +118,167 @@ export function createOperationsRouter({ authenticate, sendInvitation = sendAcco
     } catch (error) { return fail(req, res, error); }
   });
 
+  router.get('/students', needsPermission('students.read'), async (req, res) => {
+    try {
+      const schoolId = req.auth.claims.schoolId;
+      const isTeacher = req.auth.account.roles.includes('TEACHER');
+      const students = await req.auth.client.query(`SELECT st.id, st.student_number, st.first_name, st.middle_name, st.last_name, st.status,
+          c.id AS class_group_id, c.name AS class_name, y.name AS academic_year_name,
+          (SELECT count(*)::int FROM student_attendance sa WHERE sa.school_id = st.school_id AND sa.student_id = st.id) AS attendance_records,
+          (SELECT count(*)::int FROM fee_invoices fi WHERE fi.school_id = st.school_id AND fi.student_id = st.id AND fi.status NOT IN ('PAID','VOID')) AS open_invoices
+        FROM students st
+        LEFT JOIN class_enrollments ce ON ce.school_id = st.school_id AND ce.student_id = st.id AND ce.status = 'ACTIVE'
+        LEFT JOIN class_groups c ON c.school_id = ce.school_id AND c.id = ce.class_group_id
+        LEFT JOIN academic_years y ON y.school_id = c.school_id AND y.id = c.academic_year_id
+        WHERE st.school_id = $1 AND ($2::boolean = false OR EXISTS (
+          SELECT 1 FROM class_enrollments scoped_ce JOIN teacher_subject_assignments scoped_a
+            ON scoped_a.school_id = scoped_ce.school_id AND scoped_a.class_group_id = scoped_ce.class_group_id
+          WHERE scoped_ce.school_id = st.school_id AND scoped_ce.student_id = st.id AND scoped_a.teacher_id = $3
+        ))
+        ORDER BY st.last_name, st.first_name`, [schoolId, isTeacher, req.auth.claims.userId]);
+      const classes = req.auth.account.permissions.includes('students.write')
+        ? await req.auth.client.query(`SELECT c.id, c.name, c.grade_level, y.name AS academic_year_name
+            FROM class_groups c JOIN academic_years y ON y.school_id = c.school_id AND y.id = c.academic_year_id
+            WHERE c.school_id = $1 ORDER BY y.starts_on DESC, c.grade_level, c.name`, [schoolId])
+        : { rows: [] };
+      await close(req, true);
+      return res.json({ students: students.rows, classes: classes.rows, canEnroll: req.auth.account.permissions.includes('students.write') });
+    } catch (error) { return fail(req, res, error); }
+  });
+
+  router.get('/finance', needsPermission('finance.read'), async (req, res) => {
+    try {
+      const schoolId = req.auth.claims.schoolId;
+      const [invoices, payments, students, years] = await Promise.all([
+        req.auth.client.query(`SELECT fi.id, fi.invoice_number, fi.currency, fi.issued_on, fi.due_on, fi.status,
+            st.id AS student_id, st.student_number, st.first_name, st.last_name, y.name AS academic_year_name,
+            COALESCE(lines.total, 0)::text AS total,
+            COALESCE(alloc.paid, 0)::text AS paid,
+            GREATEST(COALESCE(lines.total, 0) - COALESCE(alloc.paid, 0), 0)::text AS balance
+          FROM fee_invoices fi
+          JOIN students st ON st.school_id = fi.school_id AND st.id = fi.student_id
+          JOIN academic_years y ON y.school_id = fi.school_id AND y.id = fi.academic_year_id
+          LEFT JOIN LATERAL (SELECT SUM(line_amount) AS total FROM fee_invoice_lines l WHERE l.school_id = fi.school_id AND l.invoice_id = fi.id) lines ON true
+          LEFT JOIN LATERAL (SELECT SUM(pa.amount) AS paid FROM payment_allocations pa JOIN payments p ON p.school_id = pa.school_id AND p.id = pa.payment_id AND p.status IN ('SUCCEEDED','PARTIALLY_REVERSED') WHERE pa.school_id = fi.school_id AND pa.invoice_id = fi.id) alloc ON true
+          WHERE fi.school_id = $1 AND fi.status <> 'VOID'
+          ORDER BY fi.issued_on DESC, fi.created_at DESC LIMIT 250`, [schoolId]),
+        req.auth.client.query(`SELECT p.id, p.receipt_number, p.currency, p.amount::text, p.channel, p.status, p.received_at,
+            p.payer_reference, st.student_number, st.first_name, st.last_name, fi.invoice_number
+          FROM payments p JOIN students st ON st.school_id = p.school_id AND st.id = p.student_id
+          LEFT JOIN payment_allocations pa ON pa.school_id = p.school_id AND pa.payment_id = p.id
+          LEFT JOIN fee_invoices fi ON fi.school_id = pa.school_id AND fi.id = pa.invoice_id
+          WHERE p.school_id = $1 ORDER BY p.created_at DESC LIMIT 100`, [schoolId]),
+        req.auth.client.query(`SELECT id, student_number, first_name, last_name FROM students WHERE school_id = $1 AND status = 'ACTIVE' ORDER BY last_name, first_name`, [schoolId]),
+        req.auth.client.query(`SELECT id, name FROM academic_years WHERE school_id = $1 ORDER BY starts_on DESC`, [schoolId]),
+      ]);
+      await close(req, true);
+      return res.json({ invoices: invoices.rows, payments: payments.rows, students: students.rows, years: years.rows,
+        canWrite: req.auth.account.permissions.includes('finance.write') });
+    } catch (error) { return fail(req, res, error); }
+  });
+
+  router.post('/finance/invoices', needsPermission('finance.write'), csrf, async (req, res) => {
+    const studentId = text(req.body?.studentId, 50); const academicYearId = text(req.body?.academicYearId, 50);
+    const invoiceNumber = text(req.body?.invoiceNumber, 40).toUpperCase(); const currency = text(req.body?.currency, 3).toUpperCase();
+    const dueOn = req.body?.dueOn || null; const description = text(req.body?.description, 180);
+    const amount = Number(req.body?.amount);
+    if (!studentId || !academicYearId || !/^[A-Z0-9_-]{3,40}$/.test(invoiceNumber) || !['LRD','USD'].includes(currency) ||
+        !description || !Number.isFinite(amount) || amount <= 0 || amount > 999999999 || (dueOn && !validDate(dueOn))) {
+      await close(req, false); return res.status(400).json({ error: 'Enter a student, academic year, invoice number, LRD or USD currency, description, positive amount, and valid optional due date.' });
+    }
+    try {
+      const schoolId = req.auth.claims.schoolId;
+      const inserted = await req.auth.client.query(`INSERT INTO fee_invoices
+        (school_id, student_id, academic_year_id, invoice_number, currency, due_on, status, created_by)
+        SELECT $1, st.id, y.id, $4, $5, $6, 'ISSUED', $7 FROM students st CROSS JOIN academic_years y
+        WHERE st.school_id = $1 AND st.id = $2 AND st.status = 'ACTIVE' AND y.school_id = $1 AND y.id = $3
+        RETURNING id, invoice_number, currency, status, due_on`,
+      [schoolId, studentId, academicYearId, invoiceNumber, currency, dueOn, req.auth.claims.userId]);
+      if (!inserted.rowCount) { await close(req, false); return res.status(400).json({ error: 'Choose an active student and academic year from this school.' }); }
+      await req.auth.client.query(`INSERT INTO fee_invoice_lines (school_id, invoice_id, description, quantity, unit_amount)
+        VALUES ($1, $2, $3, 1, $4)`, [schoolId, inserted.rows[0].id, description, amount.toFixed(2)]);
+      await audit(req, 'FEE_INVOICE_ISSUED', 'FEE_INVOICE', inserted.rows[0].id, { invoiceNumber, studentId, currency, amount: amount.toFixed(2) });
+      return done(req, res, 201, { invoice: inserted.rows[0] });
+    } catch (error) { return fail(req, res, error); }
+  });
+
+  router.post('/finance/payments', needsPermission('finance.write'), csrf, async (req, res) => {
+    const invoiceId = text(req.body?.invoiceId, 50); const channel = text(req.body?.channel, 20).toUpperCase();
+    const amount = Number(req.body?.amount); const payerReference = text(req.body?.payerReference, 100);
+    const note = text(req.body?.note, 500);
+    if (!invoiceId || !['CASH','BANK','OTHER'].includes(channel) || !Number.isFinite(amount) || amount <= 0 || amount > 999999999) {
+      await close(req, false); return res.status(400).json({ error: 'Choose an outstanding invoice, a verified cash/bank/other payment channel, and a positive amount. MTN MoMo is not enabled in this workflow yet.' });
+    }
+    try {
+      const schoolId = req.auth.claims.schoolId;
+      const invoice = await req.auth.client.query(`SELECT fi.id, fi.student_id, fi.currency, fi.invoice_number, fi.status,
+          COALESCE(lines.total, 0) AS total, COALESCE(alloc.paid, 0) AS paid
+        FROM fee_invoices fi
+        LEFT JOIN LATERAL (SELECT SUM(line_amount) AS total FROM fee_invoice_lines l WHERE l.school_id = fi.school_id AND l.invoice_id = fi.id) lines ON true
+        LEFT JOIN LATERAL (SELECT SUM(pa.amount) AS paid FROM payment_allocations pa JOIN payments p ON p.school_id = pa.school_id AND p.id = pa.payment_id AND p.status IN ('SUCCEEDED','PARTIALLY_REVERSED') WHERE pa.school_id = fi.school_id AND pa.invoice_id = fi.id) alloc ON true
+        WHERE fi.school_id = $1 AND fi.id = $2 AND fi.status IN ('ISSUED','PARTIALLY_PAID','OVERDUE') FOR UPDATE OF fi`, [schoolId, invoiceId]);
+      if (!invoice.rowCount) { await close(req, false); return res.status(404).json({ error: 'That invoice is not open in this school.' }); }
+      const row = invoice.rows[0];
+      const paymentCents = Math.round(amount * 100);
+      const balanceCents = Math.round((Number(row.total) - Number(row.paid)) * 100);
+      if (paymentCents > balanceCents) { await close(req, false); return res.status(400).json({ error: 'The payment cannot be greater than the remaining invoice balance.' }); }
+      const receipt = `RIA-${new Date().toISOString().slice(0,10).replaceAll('-','')}-${randomBytes(3).toString('hex').toUpperCase()}`;
+      const payment = await req.auth.client.query(`INSERT INTO payments
+        (school_id, student_id, currency, amount, channel, status, payer_reference, receipt_number, cashier_user_id, received_at, note)
+        VALUES ($1, $2, $3, $4, $5, 'SUCCEEDED', NULLIF($6,''), $7, $8, now(), NULLIF($9,''))
+        RETURNING id, receipt_number, amount::text, currency, channel, status, received_at`,
+      [schoolId, row.student_id, row.currency, (paymentCents / 100).toFixed(2), channel, payerReference, receipt, req.auth.claims.userId, note]);
+      await req.auth.client.query(`INSERT INTO payment_allocations (school_id, payment_id, invoice_id, amount) VALUES ($1,$2,$3,$4)`,
+        [schoolId, payment.rows[0].id, invoiceId, (paymentCents / 100).toFixed(2)]);
+      const nextStatus = paymentCents === balanceCents ? 'PAID' : 'PARTIALLY_PAID';
+      await req.auth.client.query('UPDATE fee_invoices SET status = $3 WHERE school_id = $1 AND id = $2', [schoolId, invoiceId, nextStatus]);
+      await audit(req, 'FEE_PAYMENT_RECORDED', 'PAYMENT', payment.rows[0].id, { invoiceId, invoiceNumber: row.invoice_number, currency: row.currency, amount: payment.rows[0].amount, channel, receipt });
+      return done(req, res, 201, { payment: payment.rows[0], invoiceStatus: nextStatus });
+    } catch (error) { return fail(req, res, error); }
+  });
+
+  router.get('/reports', needsAnyPermission(['reports.read', 'emis.export']), async (req, res) => {
+    try {
+      const schoolId = req.auth.claims.schoolId; const permissions = req.auth.account.permissions;
+      const reports = {};
+      if (permissions.includes('students.read')) {
+        const [counts, classes] = await Promise.all([
+          req.auth.client.query(`SELECT count(*) FILTER (WHERE status = 'ACTIVE')::int AS active_students,
+              count(*) FILTER (WHERE status <> 'ACTIVE')::int AS inactive_students FROM students WHERE school_id = $1`, [schoolId]),
+          req.auth.client.query(`SELECT c.name AS class_name, count(ce.student_id)::int AS students FROM class_groups c LEFT JOIN class_enrollments ce
+            ON ce.school_id = c.school_id AND ce.class_group_id = c.id AND ce.status = 'ACTIVE' WHERE c.school_id = $1 GROUP BY c.id, c.name ORDER BY c.name`, [schoolId]),
+        ]);
+        reports.students = { ...counts.rows[0], classes: classes.rows };
+      }
+      if (permissions.includes('attendance.read')) {
+        const attendance = await req.auth.client.query(`SELECT sa.status, count(*)::int AS count FROM student_attendance sa
+          JOIN class_sessions cs ON cs.school_id = sa.school_id AND cs.id = sa.class_session_id
+          WHERE sa.school_id = $1 AND cs.scheduled_at >= date_trunc('month', CURRENT_DATE) GROUP BY sa.status ORDER BY sa.status`, [schoolId]);
+        reports.attendance = attendance.rows;
+      }
+      if (permissions.includes('finance.read')) {
+        const finance = await req.auth.client.query(`SELECT fi.currency, count(*) FILTER (WHERE fi.status NOT IN ('PAID','VOID'))::int AS open_invoices,
+            COALESCE(SUM(lines.total) FILTER (WHERE fi.status NOT IN ('PAID','VOID')),0)::text AS billed,
+            COALESCE(SUM(alloc.paid),0)::text AS collected
+          FROM fee_invoices fi
+          LEFT JOIN LATERAL (SELECT SUM(line_amount) AS total FROM fee_invoice_lines l WHERE l.school_id = fi.school_id AND l.invoice_id = fi.id) lines ON true
+          LEFT JOIN LATERAL (SELECT SUM(pa.amount) AS paid FROM payment_allocations pa JOIN payments p ON p.school_id = pa.school_id AND p.id = pa.payment_id AND p.status IN ('SUCCEEDED','PARTIALLY_REVERSED') WHERE pa.school_id = fi.school_id AND pa.invoice_id = fi.id) alloc ON true
+          WHERE fi.school_id = $1 AND fi.status <> 'VOID' GROUP BY fi.currency ORDER BY fi.currency`, [schoolId]);
+        reports.finance = finance.rows;
+      }
+      if (permissions.includes('staff.read')) {
+        const staff = await req.auth.client.query(`SELECT employment_status, count(*)::int AS count FROM staff_records WHERE school_id = $1 GROUP BY employment_status ORDER BY employment_status`, [schoolId]);
+        reports.staff = staff.rows;
+      }
+      await close(req, true);
+      return res.json({ reports });
+    } catch (error) { return fail(req, res, error); }
+  });
+
   router.get('/setup', async (req, res, next) => {
     const canConfigure = req.auth.account.permissions.includes('academics.configure');
-    const teacherRead = req.auth.account.roles.includes('TEACHER') && req.auth.account.permissions.includes('attendance.read');
-    if (canConfigure || teacherRead) return next();
+    const canViewTeaching = ['attendance.read', 'grades.enter', 'grades.moderate', 'grades.publish'].some(permission => req.auth.account.permissions.includes(permission));
+    if (canConfigure || canViewTeaching) return next();
     await close(req, false);
     return res.status(403).json({ error: 'You do not have permission to view school setup.' });
   }, async (req, res) => {
