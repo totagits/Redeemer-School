@@ -92,4 +92,16 @@ BEGIN
 
   INSERT INTO public.audit_events (school_id, actor_user_id, action, entity_type, entity_id, details)
   VALUES (invitation.school_id, invitation.user_id, 'ACCOUNT_INVITATION_REDEEMED', 'USER_ACCOUNT', invitation.user_id,
-          jsonb_build_object('role', invitation.
+          jsonb_build_object('role', invitation.role));
+
+  RETURN QUERY SELECT invitation.school_id, invitation.user_id;
+END;
+$$;
+
+ALTER FUNCTION app.consume_account_invitation(text, text) OWNER TO redeemer_invite_redeemer;
+REVOKE CREATE ON SCHEMA app FROM redeemer_invite_redeemer;
+REVOKE ALL ON FUNCTION app.consume_account_invitation(text, text) FROM PUBLIC;
+GRANT EXECUTE ON FUNCTION app.consume_account_invitation(text, text) TO redeemer_runtime;
+
+COMMENT ON TABLE account_invitations IS
+  'Single-use, expiring initial account setup links; only SHA-256 token hashes are stored.';

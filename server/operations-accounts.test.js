@@ -69,4 +69,39 @@ test('school administrator can create a staff login and send its one-time setup 
   assert.equal(inviteInsert.params[2].length, 64);
   assert.notEqual(inviteInsert.params[2], invitations[0].token);
   assert.ok(clients[0].statements.some(item => item.sql.startsWith('INSERT INTO user_role_assignments')));
-  assert.ok(clients[0].statements.some(item
+  assert.ok(clients[0].statements.some(item => item.sql.startsWith('INSERT INTO staff_records')));
+  assert.ok(clients[0].statements.some(item => item.sql.startsWith('INSERT INTO audit_events')));
+  assert.equal(clients[0].statements.at(-1).sql, 'COMMIT');
+});
+
+test('a failed invitation send rolls back account creation', async t => {
+  const { url, clients } = await startServer(t, admin, { sendInvitation: async () => { throw new Error('provider unavailable'); } });
+  const response = await fetch(`${url}/api/operations/staff-accounts`, { method: 'POST', headers, body: JSON.stringify(body) });
+  const result = await response.json();
+  assert.equal(response.status, 500);
+  assert.match(result.error, /could not be completed/i);
+  assert.equal(clients[0].statements.at(-1).sql, 'ROLLBACK');
+});
+test('staff login provisioning requires users.manage', async t => {
+  const account = { id: adminId, roles: ['FINANCE'], permissions: ['finance.read'] };
+  const { url, clients } = await startServer(t, account);
+  const response = await fetch(`${url}/api/operations/staff-accounts`, { method: 'POST', headers, body: JSON.stringify(body) });
+  assert.equal(response.status, 403);
+  assert.equal(clients[0].statements.some(item => item.sql.startsWith('INSERT INTO user_accounts')), false);
+  assert.equal(clients[0].statements.at(-1).sql, 'ROLLBACK');
+});
+
+test('generic staff provisioning rejects school administrator roles', async t => {
+  const { url, clients } = await startServer(t, admin);
+  const response = await fetch(`${url}/api/operations/staff-accounts`, { method: 'POST', headers, body: JSON.stringify({ ...body, role: 'SCHOOL_ADMIN' }) });
+  assert.equal(response.status, 400);
+  assert.equal(clients[0].statements.some(item => item.sql.startsWith('INSERT INTO user_accounts')), false);
+  assert.equal(clients[0].statements.at(-1).sql, 'ROLLBACK');
+});
+
+test('staff provisioning fails safely if the selected school role is missing', async t => {
+  const { url, clients } = await startServer(t, admin, { roleAvailable: false });
+  const response = await fetch(`${url}/api/operations/staff-accounts`, { method: 'POST', headers, body: JSON.stringify(body) });
+  assert.equal(response.status, 400);
+  assert.equal(clients[0].statements.at(-1).sql, 'ROLLBACK');
+});

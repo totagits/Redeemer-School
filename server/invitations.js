@@ -68,4 +68,23 @@ export async function sendAccountInvitation({ email, fullName, role, token }) {
   const controller = new AbortController();
   const timeout = setTimeout(() => controller.abort(), 10_000);
   try {
-    co
+    const response = await fetch('https://api.resend.com/emails', {
+      method: 'POST',
+      headers: { Authorization: `Bearer ${apiKey}`, 'Content-Type': 'application/json' },
+      body: JSON.stringify({ from, to: [email], subject: 'Set up your Redeemer ERP account', html, text }),
+      signal: controller.signal,
+    });
+    if (!response.ok) {
+      // Do not return Resend's body: it can contain provider details and is not
+      // needed by the user to resolve a delivery failure.
+      throw new InvitationDeliveryError('The invitation email could not be sent. Check the Resend sender and API key configuration, then try again.');
+    }
+  } catch (error) {
+    if (error instanceof InvitationDeliveryError) throw error;
+    throw new InvitationDeliveryError('The invitation email service could not be reached. Please try again.');
+  } finally {
+    clearTimeout(timeout);
+  }
+}
+
+export const invitationTtlHours = INVITATION_TTL_HOURS;
