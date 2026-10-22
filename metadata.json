@@ -1,0 +1,6 @@
+{
+  "name": "The Redeemer School ERP - Operations, Finance, Students & MoE EMIS",
+  "description": "Enterprise operations and resource planning platform for The Redeemer School, Monrovia, Liberia. Comprehensive student admissions, dual-currency finance, academic faculty, campus store inventory, and MoE EMIS compatibility.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
