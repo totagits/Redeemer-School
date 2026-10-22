@@ -10,11 +10,14 @@ const adminId = '721ddf68-1c98-4faa-9dc7-9161daa79870';
 const newUserId = '32f8f4d3-5d2a-4f36-bd4e-fc0f38a44f07';
 
 class FakeClient {
-  constructor({ roleAvailable = true } = {}) { this.roleAvailable = roleAvailable; this.statements = []; this.released = false; }
+  constructor({ roleAvailable = true, existingAccount = null } = {}) { this.roleAvailable = roleAvailable; this.existingAccount = existingAccount; this.statements = []; this.released = false; }
   async query(sql, params = []) {
     const normalized = sql.replace(/\s+/g, ' ').trim();
     this.statements.push({ sql: normalized, params });
     if (['BEGIN', 'COMMIT', 'ROLLBACK'].includes(normalized)) return { rows: [], rowCount: 0 };
+    if (normalized.startsWith('SELECT id, email, full_name, role, status, must_reset_password FROM user_accounts')) return this.existingAccount
+      ? { rows: [this.existingAccount], rowCount: 1 }
+      : { rows: [], rowCount: 0 };
     if (normalized.startsWith('INSERT INTO user_accounts')) return this.roleAvailable
       ? { rows: [{ id: newUserId, email: params[1], full_name: params[3], role: params[4] }], rowCount: 1 }
       : { rows: [], rowCount: 0 };
@@ -104,4 +107,20 @@ test('staff provisioning fails safely if the selected school role is missing', a
   const response = await fetch(`${url}/api/operations/staff-accounts`, { method: 'POST', headers, body: JSON.stringify(body) });
   assert.equal(response.status, 400);
   assert.equal(clients[0].statements.at(-1).sql, 'ROLLBACK');
+});
+
+
+test('an administrator can resend a setup link for an existing pending staff account', async t => {
+  const existingAccount = { id: newUserId, email: body.email, full_name: body.fullName, role: 'PRINCIPAL', status: 'ACTIVE', must_reset_password: true };
+  const { url, clients, invitations } = await startServer(t, admin, { existingAccount });
+  const response = await fetch(`${url}/api/operations/staff-accounts`, { method: 'POST', headers, body: JSON.stringify(body) });
+  const result = await response.json();
+  assert.equal(response.status, 200);
+  assert.match(result.notice, /new setup link was sent/i);
+  assert.equal(invitations.length, 1);
+  assert.equal(invitations[0].role, 'PRINCIPAL');
+  assert.equal(clients[0].statements.some(item => item.sql.startsWith('INSERT INTO user_accounts')), false);
+  assert.equal(clients[0].statements.some(item => item.sql.startsWith('INSERT INTO staff_records')), false);
+  assert.equal(clients[0].statements.some(item => item.sql.startsWith('UPDATE account_invitations')), true);
+  assert.equal(clients[0].statements.at(-1).sql, 'COMMIT');
 });
