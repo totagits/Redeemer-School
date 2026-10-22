@@ -7,6 +7,7 @@ type Row = Record<string, string | null | undefined>;
 type Assessment = Row & { id: string; teacher_assignment_id: string; title: string; assessment_type: string; max_score: string; status: string; class_name: string; subject_name: string; teacher_name: string; scored_students: number };
 type Setup = { school: Row; years: Row[]; subjects: Row[]; classes: Row[]; teachers: Row[]; students: Row[]; assignments: Row[]; educationLevels: Row[]; gradeLevels: Row[]; terms: Row[]; curriculum: Row[]; resources: Row[]; periods: Row[]; timetable: Row[]; assessments: Assessment[] };
 type Portal = { role: string; linked?: boolean; message?: string; student?: Row; subjects?: Row[]; timetable?: Row[]; attendance?: Row[]; grades?: Row[]; resources?: Row[]; children?: Array<Row & { subjects: Row[]; timetable: Row[]; attendance: Row[]; grades: Row[]; resources: Row[] }> };
+type Dashboard = { school: Row | null; cards: Array<{ label: string; value: number }>; permissions: string[] };
 type RosterEntry = { id: string; student_number: string; first_name: string; last_name: string; attendance_status: string | null; note: string | null };
 const today = () => new Date().toLocaleDateString('en-CA');
 const inputClass = 'mt-1 block w-full rounded-lg border border-slate-300 bg-white px-3 py-2.5 text-sm font-normal text-slate-900 outline-none focus:border-blue-600 focus:ring-2 focus:ring-blue-100';
@@ -19,6 +20,7 @@ interface Props { account: SchoolAccount; csrfToken: string; busy: boolean; erro
 export const OperationsWorkspace: React.FC<Props> = ({ account, csrfToken, busy: signOutBusy, error: authError, onSignOut, onPasswordChanged }) => {
   const [setup, setSetup] = useState<Setup | null>(null);
   const [portal, setPortal] = useState<Portal | null>(null);
+  const [dashboard, setDashboard] = useState<Dashboard | null>(null);
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [notice, setNotice] = useState('');
@@ -39,11 +41,14 @@ export const OperationsWorkspace: React.FC<Props> = ({ account, csrfToken, busy:
     setLoading(true); setError('');
     try {
       const isPortalUser = account.roles.includes('STUDENT') || account.roles.includes('PARENT');
-      const response = await fetch(isPortalUser ? '/api/operations/portal' : '/api/operations/setup', { credentials: 'same-origin' });
+      const canViewSetup = account.permissions.includes('academics.configure') || (account.roles.includes('TEACHER') && account.permissions.includes('attendance.read'));
+      const response = await fetch(isPortalUser ? '/api/operations/portal' : canViewSetup ? '/api/operations/setup' : '/api/operations/dashboard', { credentials: 'same-origin' });
       const result = await response.json();
       if (!response.ok) throw new Error(result.error || 'Could not load school setup.');
+      setDashboard(null);
       if (isPortalUser) { setPortal(result as Portal); setSetup(null); }
-      else { setSetup(result as Setup); setPortal(null); }
+      else if (canViewSetup) { setSetup(result as Setup); setPortal(null); }
+      else { setDashboard(result as Dashboard); setSetup(null); setPortal(null); }
     } catch (cause) { setError(cause instanceof Error ? cause.message : 'Could not load school setup.'); }
     finally { setLoading(false); }
   }, [account.roles]);
@@ -131,7 +136,16 @@ export const OperationsWorkspace: React.FC<Props> = ({ account, csrfToken, busy:
       {(error || authError) && <div role="alert" className="mb-4 rounded-xl border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-800">{error || authError}</div>}
       {notice && <div role="status" className="mb-4 rounded-xl border border-emerald-200 bg-emerald-50 px-4 py-3 text-sm text-emerald-900">{notice}</div>}
       {temporaryPassword && <div className="mb-4 rounded-xl border border-amber-300 bg-amber-50 p-4 text-sm text-amber-950"><p className="font-bold">Account created. Copy this temporary password now.</p><div className="mt-2 flex flex-wrap items-center gap-2"><code className="rounded bg-white px-3 py-2 font-mono text-base">{temporaryPassword}</code><button onClick={() => void navigator.clipboard?.writeText(temporaryPassword)} className="inline-flex items-center gap-1 rounded border border-amber-400 px-3 py-2 font-semibold"><Clipboard className="h-4 w-4" /> Copy</button></div><p className="mt-2 text-xs">Share it securely. The person must change it after signing in.</p></div>}
-      {loading ? <div className="grid min-h-48 place-items-center text-slate-600"><LoaderCircle className="h-5 w-5 animate-spin" /></div> : portal ? <PortalDashboard portal={portal} /> : !setup ? <p>School data could not be loaded.</p> : <>
+      {loading ? <div className="grid min-h-48 place-items-center text-slate-600"><LoaderCircle className="h-5 w-5 animate-spin" /></div> : portal ? <PortalDashboard portal={portal} /> : dashboard ? <>
+        <section className="mb-6 rounded-2xl border border-slate-200 bg-white p-6 shadow-sm">
+          <p className="text-xs font-bold uppercase tracking-[0.16em] text-blue-700">Your school dashboard</p>
+          <h2 className="mt-2 text-2xl font-extrabold text-slate-950">{dashboard.school?.name || account.schoolName}</h2>
+          <p className="mt-2 text-sm text-slate-600">This view shows aggregate information and the access granted to your account. Personal records remain restricted to the authorized workflows.</p>
+          {dashboard.cards.length ? <div className="mt-5 grid gap-3 sm:grid-cols-2 lg:grid-cols-3">{dashboard.cards.map(card => <div key={card.label} className="rounded-xl border border-slate-200 bg-slate-50 p-4"><p className="text-sm text-slate-500">{card.label}</p><p className="mt-1 text-2xl font-extrabold text-slate-950">{card.value}</p></div>)}</div> : <p className="mt-5 rounded-lg bg-slate-50 p-4 text-sm text-slate-600">No summary metrics are available for this account yet.</p>}
+          <div className="mt-6"><h3 className="font-bold text-slate-900">Granted permissions</h3><div className="mt-2 flex flex-wrap gap-2">{dashboard.permissions.map(permission => <span key={permission} className="rounded-full bg-blue-50 px-3 py-1 text-xs font-semibold text-blue-800">{permission}</span>)}</div></div>
+          <p className="mt-5 border-t border-slate-100 pt-4 text-sm text-slate-500">More role-specific workspaces—such as admissions processing, finance transactions, and staff administration—will be connected in the next development steps.</p>
+        </section>
+      </> : !setup ? <p>School data could not be loaded.</p> : <>
         <div className="mb-6 grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
           {[['Academic years', setup.years.length], ['Classes', setup.classes.length], ['Teachers', setup.teachers.length], ['Enrolled students', setup.students.length]].map(([label, count]) => <div key={label} className="rounded-xl border border-slate-200 bg-white p-4"><p className="text-sm text-slate-500">{label}</p><p className="mt-1 text-2xl font-extrabold text-slate-950">{count}</p></div>)}
         </div>
@@ -176,6 +190,17 @@ export const OperationsWorkspace: React.FC<Props> = ({ account, csrfToken, busy:
           {canManageStaff && <section className={sectionClass}><div className="mb-4 flex items-center gap-2"><Users className="h-5 w-5 text-blue-700"/><h2 className="text-lg font-extrabold text-slate-950">Teacher records</h2></div>
             <form className="grid gap-3 sm:grid-cols-2" onSubmit={submit(async form => { const data = new FormData(form); const result = await post('teachers', { fullName: data.get('fullName'), email: data.get('email'), employeeNumber: data.get('employeeNumber') }); setTemporaryPassword(result.temporaryPassword); })}>
               <label className={labelClass}>Full name<input required name="fullName" autoComplete="name" className={inputClass}/></label><label className={labelClass}>Employee number<input required name="employeeNumber" className={inputClass}/></label><label className={`${labelClass} sm:col-span-2`}>Teacher email<input required type="email" name="email" autoComplete="email" className={inputClass}/></label><button disabled={saving} className={buttonClass}><Plus className="h-4 w-4"/> Create teacher login</button>
+            </form>
+          </section>}
+          {account.permissions.includes('users.manage') && <section className={sectionClass}><div className="mb-4 flex items-center gap-2"><Users className="h-5 w-5 text-blue-700"/><h2 className="text-lg font-extrabold text-slate-950">Staff accounts & test roles</h2></div>
+            <p className="mb-4 text-sm leading-6 text-slate-600">Create fictional staging users for school leadership and operations. Each account gets only the permissions configured for its school role and must change its one-time password at first sign-in.</p>
+            <form className="grid gap-3 sm:grid-cols-2" onSubmit={submit(async form => { const d = new FormData(form); const result = await post('staff-accounts', { role: d.get('role'), fullName: d.get('fullName'), email: d.get('email'), employeeNumber: d.get('employeeNumber'), jobTitle: d.get('jobTitle') }); setTemporaryPassword(result.temporaryPassword); })}>
+              <label className={labelClass}>School role<select required name="role" className={inputClass}><option value="">Choose role</option><option value="PRINCIPAL">Principal</option><option value="REGISTRAR">Registrar</option><option value="FINANCE">Finance / bursar</option><option value="HR_MANAGER">HR manager</option><option value="INVENTORY_MANAGER">Inventory manager</option><option value="DEPARTMENT_HEAD">Department head</option><option value="AUDITOR">Auditor (read-only)</option></select></label>
+              <label className={labelClass}>Employee number<input required name="employeeNumber" className={inputClass}/></label>
+              <label className={labelClass}>Full name<input required name="fullName" autoComplete="name" className={inputClass}/></label>
+              <label className={labelClass}>Job title<input required name="jobTitle" className={inputClass}/></label>
+              <label className={`${labelClass} sm:col-span-2`}>Login email<input required type="email" name="email" autoComplete="email" className={inputClass}/></label>
+              <button disabled={saving} className={buttonClass}><Plus className="h-4 w-4"/> Create staff login</button>
             </form>
           </section>}
           {canConfigure && <section className={sectionClass}><div className="mb-4 flex items-center gap-2"><BookOpen className="h-5 w-5 text-blue-700"/><h2 className="text-lg font-extrabold text-slate-950">Assign teaching responsibility</h2></div>

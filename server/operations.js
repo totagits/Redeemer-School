@@ -83,6 +83,30 @@ export function createOperationsRouter({ authenticate }) {
   router.use(authenticate);
   router.use((_req, res, next) => { res.setHeader('Cache-Control', 'no-store'); next(); });
 
+  router.get('/dashboard', async (req, res) => {
+    const permissions = new Set(req.auth.account.permissions);
+    const schoolId = req.auth.claims.schoolId;
+    const cards = [];
+    const countCard = async (permission, label, sql, params = [schoolId]) => {
+      if (!permissions.has(permission)) return;
+      const result = await req.auth.client.query(sql, params);
+      cards.push({ label, value: Number(result.rows[0]?.count || 0) });
+    };
+    try {
+      const school = await req.auth.client.query('SELECT id, code, name FROM schools WHERE id = $1', [schoolId]);
+      await Promise.all([
+        countCard('students.read', 'Active students', "SELECT count(*)::int AS count FROM students WHERE school_id = $1 AND status = 'ACTIVE'"),
+        countCard('admissions.read', 'Applications in review', "SELECT count(*)::int AS count FROM admission_applications WHERE school_id = $1 AND status IN ('RECEIVED', 'UNDER_REVIEW', 'INTERVIEW_SCHEDULED', 'OFFERED', 'ACCEPTED', 'WAITLISTED')"),
+        countCard('attendance.read', "Today's attendance records", 'SELECT count(*)::int AS count FROM student_attendance sa JOIN class_sessions cs ON cs.school_id = sa.school_id AND cs.id = sa.class_session_id WHERE sa.school_id = $1 AND cs.scheduled_at::date = CURRENT_DATE'),
+        countCard('grades.moderate', 'Assessments awaiting review', "SELECT count(*)::int AS count FROM assessments WHERE school_id = $1 AND status = 'SUBMITTED_FOR_REVIEW'"),
+        countCard('finance.read', 'Open fee invoices', "SELECT count(*)::int AS count FROM fee_invoices WHERE school_id = $1 AND status IN ('ISSUED', 'PARTIALLY_PAID', 'OVERDUE')"),
+        countCard('staff.read', 'Active staff records', "SELECT count(*)::int AS count FROM staff_records WHERE school_id = $1 AND employment_status = 'ACTIVE'"),
+      ]);
+      await close(req, true);
+      return res.json({ school: school.rows[0] || null, cards, permissions: [...permissions] });
+    } catch (error) { return fail(req, res, error); }
+  });
+
   router.get('/setup', async (req, res, next) => {
     const canConfigure = req.auth.account.permissions.includes('academics.configure');
     const teacherRead = req.auth.account.roles.includes('TEACHER') && req.auth.account.permissions.includes('attendance.read');
@@ -245,6 +269,39 @@ export function createOperationsRouter({ authenticate }) {
         await req.auth.client.query(`INSERT INTO student_guardians (school_id, student_id, guardian_id, relationship, can_view_results, can_view_finance, communication_consent) VALUES ($1, $2, $3, $4, $5, $6, $7)`, [schoolId, studentId, guardian.rows[0].id, relationship, req.body?.canViewResults !== false, Boolean(req.body?.canViewFinance), Boolean(req.body?.communicationConsent)]);
       }
       await audit(req, 'PORTAL_ACCOUNT_CREATED', `${type}_PORTAL`, account.rows[0].id, { studentId });
+      return done(req, res, 201, { account: account.rows[0], temporaryPassword, notice: 'Copy this temporary password and share it securely. It is shown only once.' });
+    } catch (error) { return fail(req, res, error); }
+  });
+
+  router.post('/staff-accounts', needsPermission('users.manage'), csrf, async (req, res) => {
+    const allowedRoles = new Set(['PRINCIPAL', 'REGISTRAR', 'FINANCE', 'HR_MANAGER', 'INVENTORY_MANAGER', 'AUDITOR', 'DEPARTMENT_HEAD']);
+    const role = text(req.body?.role, 40).toUpperCase();
+    const fullName = text(req.body?.fullName);
+    const email = text(req.body?.email, 254).toLowerCase();
+    const employeeNumber = text(req.body?.employeeNumber, 40).toUpperCase();
+    const jobTitle = text(req.body?.jobTitle, 100);
+    if (!allowedRoles.has(role) || !fullName || !EMAIL_RE.test(email) || !employeeNumber || !jobTitle) {
+      await close(req, false);
+      return res.status(400).json({ error: 'Choose an allowed school role and enter the staff member name, email, employee number, and job title.' });
+    }
+    try {
+      const schoolId = req.auth.claims.schoolId;
+      const temporaryPassword = randomBytes(18).toString('base64url');
+      const passwordHash = await hashPassword(temporaryPassword);
+      const account = await req.auth.client.query(`INSERT INTO user_accounts
+        (school_id, email, password_hash, full_name, role, status, must_reset_password)
+        SELECT $1, $2, $3, $4, r.code, 'ACTIVE', true
+        FROM school_roles r WHERE r.school_id = $1 AND r.code = $5 AND r.active
+        RETURNING id, email, full_name, role`, [schoolId, email, passwordHash, fullName, role]);
+      if (!account.rowCount) { await close(req, false); return res.status(400).json({ error: 'That role is not configured for this school. Run the latest school database migration.' }); }
+      const userId = account.rows[0].id;
+      const assigned = await req.auth.client.query(`INSERT INTO user_role_assignments (school_id, user_id, role_id, assigned_by)
+        SELECT $1, $2, id, $3 FROM school_roles WHERE school_id = $1 AND code = $4 AND active RETURNING id`, [schoolId, userId, req.auth.claims.userId, role]);
+      if (!assigned.rowCount) throw new Error('Configured school role could not be assigned.');
+      const nameParts = fullName.split(/\s+/);
+      await req.auth.client.query(`INSERT INTO staff_records (school_id, user_id, employee_number, first_name, last_name, email, job_title)
+        VALUES ($1, $2, $3, $4, $5, $6, $7)`, [schoolId, userId, employeeNumber, nameParts[0], nameParts.slice(1).join(' ') || nameParts[0], email, jobTitle]);
+      await audit(req, 'STAFF_ACCOUNT_CREATED', 'STAFF_ACCOUNT', userId, { role, employeeNumber, jobTitle });
       return done(req, res, 201, { account: account.rows[0], temporaryPassword, notice: 'Copy this temporary password and share it securely. It is shown only once.' });
     } catch (error) { return fail(req, res, error); }
   });
