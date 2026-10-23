@@ -133,6 +133,55 @@ export function createOperationsRouter({ authenticate, sendInvitation = sendAcco
     } catch (error) { return fail(req, res, error); }
   });
 
+  router.get('/accounts', needsPermission('users.manage'), async (req, res) => {
+    try {
+      const schoolId = req.auth.claims.schoolId;
+      const result = await req.auth.client.query(`
+        SELECT u.id, u.email, u.full_name, u.role, u.status, u.must_reset_password,
+               u.created_at, u.last_login_at,
+               EXISTS (
+                 SELECT 1 FROM account_invitations i
+                 WHERE i.school_id=u.school_id AND i.user_id=u.id
+                   AND i.redeemed_at IS NULL AND i.revoked_at IS NULL AND i.expires_at > now()
+               ) AS invitation_pending
+        FROM user_accounts u
+        WHERE u.school_id=$1
+        ORDER BY CASE WHEN u.status='ACTIVE' THEN 0 ELSE 1 END, lower(u.full_name), lower(u.email)
+      `, [schoolId]);
+      return done(req, res, 200, { accounts: result.rows, currentUserId: req.auth.claims.userId });
+    } catch (error) { return fail(req, res, error); }
+  });
+
+  router.post('/accounts/:accountId/status', needsPermission('users.manage'), csrf, async (req, res) => {
+    const accountId = text(req.params.accountId, 50);
+    const status = text(req.body?.status, 20).toUpperCase();
+    const reason = text(req.body?.reason, 500);
+    if (!accountId || !['ACTIVE', 'SUSPENDED'].includes(status) || (status === 'SUSPENDED' && !reason)) {
+      await close(req, false);
+      return res.status(400).json({ error: 'Choose Active or Suspended. A reason is required when suspending an account.' });
+    }
+    if (accountId === req.auth.claims.userId && status === 'SUSPENDED') {
+      await close(req, false);
+      return res.status(400).json({ error: 'You cannot suspend your own account.' });
+    }
+    try {
+      const schoolId = req.auth.claims.schoolId;
+      const target = await req.auth.client.query(`SELECT id, role, status FROM user_accounts WHERE school_id=$1 AND id=$2 FOR UPDATE`, [schoolId, accountId]);
+      if (!target.rowCount) { await close(req, false); return res.status(404).json({ error: 'The account was not found in this school.' }); }
+      if (status === 'SUSPENDED' && target.rows[0].role === 'SCHOOL_ADMIN') {
+        const admins = await req.auth.client.query(`SELECT count(*)::int AS active_count FROM user_accounts WHERE school_id=$1 AND role='SCHOOL_ADMIN' AND status='ACTIVE'`, [schoolId]);
+        if (Number(admins.rows[0]?.active_count || 0) <= 1) {
+          await close(req, false);
+          return res.status(409).json({ error: 'The school must keep at least one active administrator.' });
+        }
+      }
+      const updated = await req.auth.client.query(`UPDATE user_accounts SET status=$3, updated_at=now() WHERE school_id=$1 AND id=$2 RETURNING id, email, full_name, role, status`, [schoolId, accountId, status]);
+      if (status === 'SUSPENDED') await req.auth.client.query(`DELETE FROM auth_sessions WHERE school_id=$1 AND user_id=$2`, [schoolId, accountId]);
+      await audit(req, status === 'SUSPENDED' ? 'ACCOUNT_SUSPENDED' : 'ACCOUNT_REACTIVATED', 'USER_ACCOUNT', accountId, { reason: status === 'SUSPENDED' ? reason : undefined });
+      return done(req, res, 200, { account: updated.rows[0] });
+    } catch (error) { return fail(req, res, error); }
+  });
+
   router.get('/students', needsPermission('students.read'), async (req, res) => {
     try {
       if (req.auth.account.roles.some(role => ['STUDENT', 'PARENT'].includes(role))) {
