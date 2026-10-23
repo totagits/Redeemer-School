@@ -90,6 +90,16 @@ test('sandbox request rejection surfaces only the provider HTTP code and safe er
   );
 });
 
+test('sandbox request rejection extracts plain text from MTN HTML gateway responses', async () => {
+  const client = createMomoClient({ env: configuredEnv, fetchImpl: async url => url.endsWith('/collection/token/')
+    ? { ok: true, status: 200, json: async () => ({ access_token: 'test-token', expires_in: 3600 }) }
+    : { ok: true, status: 200, text: async () => '<html><body>The requested URL was rejected. Support ID: 12345</body></html>' } });
+  await assert.rejects(
+    () => client.requestToPay({ amount: 1, currency: 'EUR', msisdn: '123456789012' }),
+    error => error instanceof MomoProviderError && error.status === 200 && /HTTP 200: The requested URL was rejected\. Support ID: 12345/.test(error.message) && !/<[^>]+>/.test(error.message),
+  );
+});
+
 test('status lookup reads MTN result but does not equate request acceptance with success', async () => {
   let calls = 0;
   const fetchImpl = async url => {

@@ -120,10 +120,16 @@ export function createMomoClient({ env = process.env, fetchImpl = fetch } = {}) 
     if (response.status !== 202) {
       let providerDetail = '';
       try {
-        const body = await response.json();
+        const rawBody = typeof response.text === 'function'
+          ? await response.text()
+          : JSON.stringify(await response.json().catch(() => ({})));
+        let body;
+        try { body = JSON.parse(rawBody); } catch { body = null; }
         const code = [body?.code, body?.errorCode].find(value => typeof value === 'string' && value.trim());
         const description = [body?.message, body?.error, body?.description].find(value => typeof value === 'string' && value.trim());
-        const detail = [code, description].filter(Boolean).join(': ');
+        const htmlText = rawBody.replace(/<script\b[^>]*>[\s\S]*?<\/script>/gi, ' ').replace(/<style\b[^>]*>[\s\S]*?<\/style>/gi, ' ').replace(/<[^>]*>/g, ' ');
+        const plainText = htmlText.replace(/&nbsp;/gi, ' ').replace(/&amp;/gi, '&').replace(/&lt;/gi, '<').replace(/&gt;/gi, '>').replace(/&quot;/gi, '"').replace(/&#39;/gi, "'").replace(/\s+/g, ' ').trim();
+        const detail = [code, description].filter(Boolean).join(': ') || plainText;
         if (detail) providerDetail = String(detail).replace(/[\r\n\t]+/g, ' ').slice(0, 180);
       } catch {}
       const message = config.environment === 'SANDBOX'
