@@ -82,7 +82,7 @@ const authRouter = createAuthRouter({
   sessionTtlMs: Number(process.env.AUTH_SESSION_TTL_MS || 8 * 60 * 60 * 1000),
 });
 app.use('/api/auth', authRouter);
-app.use('/api/operations', createOperationsRouter({ authenticate: authRouter.requireAuth }));
+app.use('/api/operations', createOperationsRouter({ authenticate: authRouter.requireAuth, pool: runtimePool }));
 
 app.use('/api', (_req, res) => {
   res.status(404).json({ error: 'API route not found' });

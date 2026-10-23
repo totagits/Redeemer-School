@@ -1,7 +1,8 @@
-import { randomBytes, timingSafeEqual } from 'node:crypto';
+import { randomBytes, randomUUID, timingSafeEqual } from 'node:crypto';
 import express from 'express';
 import { hashPassword } from './authCrypto.js';
 import { createInvitationSecret, InvitationDeliveryError, sendAccountInvitation } from './invitations.js';
+import { createMomoClient, MomoProviderError } from './mtnMomo.js';
 
 const NAME_LIMIT = 120;
 const EMAIL_RE = /^\S+@\S+\.\S+$/;
@@ -80,6 +81,20 @@ async function done(req, res, status, body) {
 }
 function requireFields(values) { return values.every(Boolean); }
 
+async function withTenantTransaction(pool, schoolId, action) {
+  const client = await pool.connect();
+  try {
+    await client.query('BEGIN');
+    await client.query("SELECT set_config('app.current_school_id', $1, true)", [schoolId]);
+    const result = await action(client);
+    await client.query('COMMIT');
+    return result;
+  } catch (error) {
+    try { await client.query('ROLLBACK'); } catch {}
+    throw error;
+  } finally { client.release(); }
+}
+
 async function createAndSendInvitation(client, { schoolId, userId, email, fullName, role, createdBy }, sendInvitation) {
   const { token, tokenHash } = createInvitationSecret();
   await client.query(`UPDATE account_invitations SET revoked_at = now()
@@ -89,7 +104,7 @@ async function createAndSendInvitation(client, { schoolId, userId, email, fullNa
   await sendInvitation({ email, fullName, role, token });
 }
 
-export function createOperationsRouter({ authenticate, sendInvitation = sendAccountInvitation }) {
+export function createOperationsRouter({ authenticate, sendInvitation = sendAccountInvitation, pool = null, momoClient = createMomoClient() }) {
   const router = express.Router();
   router.use(authenticate);
   router.use((_req, res, next) => { res.setHeader('Cache-Control', 'no-store'); next(); });
@@ -149,7 +164,7 @@ export function createOperationsRouter({ authenticate, sendInvitation = sendAcco
   router.get('/finance', needsPermission('finance.read'), async (req, res) => {
     try {
       const schoolId = req.auth.claims.schoolId;
-      const [invoices, payments, students, years] = await Promise.all([
+      const [invoices, payments, students, years, momoIntents] = await Promise.all([
         req.auth.client.query(`SELECT fi.id, fi.invoice_number, fi.currency, fi.issued_on, fi.due_on, fi.status,
             st.id AS student_id, st.student_number, st.first_name, st.last_name, y.name AS academic_year_name,
             COALESCE(lines.total, 0)::text AS total,
@@ -162,7 +177,7 @@ export function createOperationsRouter({ authenticate, sendInvitation = sendAcco
           LEFT JOIN LATERAL (SELECT SUM(pa.amount) AS paid FROM payment_allocations pa JOIN payments p ON p.school_id = pa.school_id AND p.id = pa.payment_id AND p.status IN ('SUCCEEDED','PARTIALLY_REVERSED') WHERE pa.school_id = fi.school_id AND pa.invoice_id = fi.id) alloc ON true
           WHERE fi.school_id = $1 AND fi.status <> 'VOID'
           ORDER BY fi.issued_on DESC, fi.created_at DESC LIMIT 250`, [schoolId]),
-        req.auth.client.query(`SELECT p.id, p.receipt_number, p.currency, p.amount::text, p.channel, p.status, p.received_at,
+        req.auth.client.query(`SELECT p.id, p.receipt_number, p.currency, p.amount::text, p.provider_fee_amount::text, p.provider_fee_rate_bps, p.channel, p.status, p.received_at,
             p.payer_reference, st.student_number, st.first_name, st.last_name, fi.invoice_number
           FROM payments p JOIN students st ON st.school_id = p.school_id AND st.id = p.student_id
           LEFT JOIN payment_allocations pa ON pa.school_id = p.school_id AND pa.payment_id = p.id
@@ -170,9 +185,16 @@ export function createOperationsRouter({ authenticate, sendInvitation = sendAcco
           WHERE p.school_id = $1 ORDER BY p.created_at DESC LIMIT 100`, [schoolId]),
         req.auth.client.query(`SELECT id, student_number, first_name, last_name FROM students WHERE school_id = $1 AND status = 'ACTIVE' ORDER BY last_name, first_name`, [schoolId]),
         req.auth.client.query(`SELECT id, name FROM academic_years WHERE school_id = $1 ORDER BY starts_on DESC`, [schoolId]),
+        req.auth.client.query(`SELECT pi.id, pi.invoice_id, pi.amount::text, pi.currency, pi.status, pi.provider_status, pi.initiated_at, pi.completed_at,
+            fi.invoice_number, st.first_name, st.last_name, pi.payer_msisdn_last4
+          FROM payment_intents pi JOIN fee_invoices fi ON fi.school_id = pi.school_id AND fi.id = pi.invoice_id
+          JOIN students st ON st.school_id = fi.school_id AND st.id = fi.student_id
+          WHERE pi.school_id = $1 ORDER BY pi.initiated_at DESC LIMIT 50`, [schoolId]),
       ]);
       await close(req, true);
       return res.json({ invoices: invoices.rows, payments: payments.rows, students: students.rows, years: years.rows,
+        momoIntents: momoIntents.rows,
+        momo: { enabled: momoClient.config.enabled, currency: momoClient.config.currency, feeRateBps: momoClient.config.feeRateBps, reason: momoClient.config.reason },
         canWrite: req.auth.account.permissions.includes('finance.write') });
     } catch (error) { return fail(req, res, error); }
   });
@@ -235,6 +257,167 @@ export function createOperationsRouter({ authenticate, sendInvitation = sendAcco
       await audit(req, 'FEE_PAYMENT_RECORDED', 'PAYMENT', payment.rows[0].id, { invoiceId, invoiceNumber: row.invoice_number, currency: row.currency, amount: payment.rows[0].amount, channel, receipt });
       return done(req, res, 201, { payment: payment.rows[0], invoiceStatus: nextStatus });
     } catch (error) { return fail(req, res, error); }
+  });
+
+  router.post('/finance/momo/intents', needsPermission('finance.write'), csrf, async (req, res) => {
+    if (!pool || !momoClient.config.enabled) {
+      await close(req, false);
+      return res.status(503).json({ error: momoClient.config.reason || 'MTN MoMo is not configured in this environment yet.' });
+    }
+    const invoiceId = text(req.body?.invoiceId, 50);
+    const payerPhone = text(req.body?.payerPhone, 20).replace(/[\s()+-]/g, '');
+    const amount = Number(req.body?.amount);
+    if (!invoiceId || !/^231\d{9}$/.test(payerPhone) || !Number.isFinite(amount) || amount <= 0 || amount > 999999999 || Math.abs(amount * 100 - Math.round(amount * 100)) > 1e-6) {
+      await close(req, false);
+      return res.status(400).json({ error: 'Choose an LRD invoice, enter a valid amount, and provide the payer number in Liberia international format (231 followed by 9 digits).' });
+    }
+    const amountCents = Math.round(amount * 100);
+    const schoolId = req.auth.claims.schoolId;
+    const userId = req.auth.claims.userId;
+    const intentId = randomUUID();
+    const referenceId = randomUUID();
+    let invoiceNumber;
+    try {
+      const invoice = await req.auth.client.query(`SELECT fi.id, fi.student_id, fi.currency, fi.invoice_number, fi.status,
+          COALESCE(lines.total, 0) AS total, COALESCE(alloc.paid, 0) AS paid
+        FROM fee_invoices fi
+        LEFT JOIN LATERAL (SELECT SUM(line_amount) AS total FROM fee_invoice_lines l WHERE l.school_id = fi.school_id AND l.invoice_id = fi.id) lines ON true
+        LEFT JOIN LATERAL (SELECT SUM(pa.amount) AS paid FROM payment_allocations pa JOIN payments p ON p.school_id = pa.school_id AND p.id = pa.payment_id AND p.status IN ('SUCCEEDED','PARTIALLY_REVERSED') WHERE pa.school_id = fi.school_id AND pa.invoice_id = fi.id) alloc ON true
+        WHERE fi.school_id = $1 AND fi.id = $2 AND fi.status IN ('ISSUED','PARTIALLY_PAID','OVERDUE') FOR UPDATE OF fi`, [schoolId, invoiceId]);
+      if (!invoice.rowCount) { await close(req, false); return res.status(404).json({ error: 'That invoice is not open in this school.' }); }
+      const row = invoice.rows[0];
+      if (row.currency !== momoClient.config.currency) { await close(req, false); return res.status(400).json({ error: `MTN MoMo is currently enabled for ${momoClient.config.currency} invoices only.` }); }
+      const balanceCents = Math.max(0, Math.round((Number(row.total) - Number(row.paid)) * 100));
+      if (amountCents > balanceCents) { await close(req, false); return res.status(400).json({ error: 'The requested amount cannot be greater than the remaining invoice balance.' }); }
+      const pending = await req.auth.client.query(`SELECT 1 FROM payment_intents WHERE school_id = $1 AND invoice_id = $2 AND status IN ('CREATED','PENDING') LIMIT 1`, [schoolId, invoiceId]);
+      if (pending.rowCount) { await close(req, false); return res.status(409).json({ error: 'This invoice already has an MTN MoMo payment request awaiting confirmation. Check its status before starting another.' }); }
+      const profile = await req.auth.client.query(`INSERT INTO payment_provider_profiles
+          (school_id, provider, product, country_code, environment, credential_secret_ref, enabled, config)
+        VALUES ($1, 'MTN_MOMO', 'COLLECTIONS', 'LR', $2, 'coolify:MTN_MOMO_API_USER,MTN_MOMO_API_KEY,MTN_MOMO_SUBSCRIPTION_KEY', true, $3::jsonb)
+        ON CONFLICT (school_id, provider, environment) DO UPDATE SET enabled = true, updated_at = now(), config = EXCLUDED.config
+        RETURNING id`, [schoolId, momoClient.config.environment, JSON.stringify({ currency: momoClient.config.currency, feeRateBps: momoClient.config.feeRateBps })]);
+      const inserted = await req.auth.client.query(`INSERT INTO payment_intents
+          (id, school_id, invoice_id, provider_profile_id, payment_id, idempotency_key, provider_reference, amount, currency, payer_msisdn_last4, status, expires_at)
+        VALUES ($1,$2,$3,$4,NULL,$5,$6,$7,$8,$9,'CREATED',now() + interval '15 minutes')
+        RETURNING id`, [intentId, schoolId, invoiceId, profile.rows[0].id, randomUUID(), referenceId, (amountCents / 100).toFixed(2), row.currency, payerPhone.slice(-4)]);
+      invoiceNumber = row.invoice_number;
+      await audit(req, 'MTN_MOMO_PAYMENT_REQUEST_CREATED', 'PAYMENT_INTENT', inserted.rows[0].id,
+        { invoiceId, invoiceNumber, amount: (amountCents / 100).toFixed(2), currency: row.currency, msisdnLast4: payerPhone.slice(-4) });
+      await close(req, true);
+    } catch (error) { return fail(req, res, error); }
+
+    try {
+      await momoClient.requestToPay({ referenceId, externalId: intentId, amount: (amountCents / 100).toFixed(2), currency: momoClient.config.currency, msisdn: payerPhone,
+        payerMessage: `Redeemer fees ${invoiceNumber}`, payeeNote: `Invoice ${invoiceNumber}` });
+      await withTenantTransaction(pool, schoolId, async client => {
+        await client.query(`UPDATE payment_intents SET status = 'PENDING', provider_status = 'ACCEPTED' WHERE school_id = $1 AND id = $2 AND status = 'CREATED'`, [schoolId, intentId]);
+        await client.query(`INSERT INTO audit_events (school_id, actor_user_id, action, entity_type, entity_id, details)
+          VALUES ($1,$2,'MTN_MOMO_PAYMENT_REQUEST_ACCEPTED','PAYMENT_INTENT',$3,$4::jsonb)`, [schoolId, userId, intentId, JSON.stringify({ providerReference: referenceId })]);
+      });
+      return res.status(202).json({ intent: { id: intentId, invoiceId, amount: (amountCents / 100).toFixed(2), currency: momoClient.config.currency, status: 'PENDING' },
+        message: 'The payment request was accepted by MTN. The payer must approve it on their phone; check status before recording it as paid.' });
+    } catch (error) {
+      const unknown = error instanceof MomoProviderError && error.outcomeUnknown;
+      const intentStatus = unknown ? 'PENDING' : 'FAILED';
+      const providerStatus = unknown ? 'SUBMISSION_UNKNOWN' : (error instanceof MomoProviderError ? `REJECTED_${error.status || 'ERROR'}` : 'REJECTED_ERROR');
+      await withTenantTransaction(pool, schoolId, async client => {
+        await client.query(`UPDATE payment_intents SET status = $3, provider_status = $4 WHERE school_id = $1 AND id = $2 AND status = 'CREATED'`, [schoolId, intentId, intentStatus, providerStatus]);
+        await client.query(`INSERT INTO audit_events (school_id, actor_user_id, action, entity_type, entity_id, details)
+          VALUES ($1,$2,$3,'PAYMENT_INTENT',$4,$5::jsonb)`, [schoolId, userId, unknown ? 'MTN_MOMO_PAYMENT_REQUEST_OUTCOME_UNKNOWN' : 'MTN_MOMO_PAYMENT_REQUEST_REJECTED', intentId, JSON.stringify({ providerReference: referenceId, providerStatus })]);
+      });
+      if (unknown) return res.status(202).json({ intent: { id: intentId, invoiceId, amount: (amountCents / 100).toFixed(2), currency: momoClient.config.currency, status: 'PENDING' }, message: 'MTN could not confirm whether the request was accepted. Check status before trying again.' });
+      return res.status(502).json({ error: error instanceof MomoProviderError ? error.message : 'MTN MoMo could not start the payment request.' });
+    }
+  });
+
+  router.post('/finance/momo/intents/:intentId/check', needsPermission('finance.write'), csrf, async (req, res) => {
+    if (!pool || !momoClient.config.enabled) {
+      await close(req, false);
+      return res.status(503).json({ error: momoClient.config.reason || 'MTN MoMo is not configured in this environment yet.' });
+    }
+    const schoolId = req.auth.claims.schoolId;
+    const userId = req.auth.claims.userId;
+    const intentId = text(req.params.intentId, 50);
+    try {
+      const intentResult = await req.auth.client.query(`SELECT pi.id, pi.invoice_id, pi.payment_id, pi.provider_reference, pi.amount::text, pi.currency, pi.status,
+          fi.invoice_number, st.id AS student_id
+        FROM payment_intents pi JOIN fee_invoices fi ON fi.school_id = pi.school_id AND fi.id = pi.invoice_id
+        JOIN students st ON st.school_id = fi.school_id AND st.id = fi.student_id
+        WHERE pi.school_id = $1 AND pi.id = $2`, [schoolId, intentId]);
+      await close(req, true);
+      if (!intentResult.rowCount) return res.status(404).json({ error: 'Payment request not found for this school.' });
+      const intent = intentResult.rows[0];
+      if (intent.status === 'SUCCEEDED' || intent.status === 'REVIEW') return res.json({ status: intent.status, message: intent.status === 'SUCCEEDED' ? 'MTN confirmed the payment and it is recorded on the invoice.' : 'MTN confirmed the transfer, but it needs finance review before it can be allocated to this invoice.' });
+      if (['FAILED','EXPIRED','CANCELLED'].includes(intent.status)) return res.json({ status: intent.status, message: `This MTN payment request is ${intent.status.toLowerCase()}.` });
+      const provider = await momoClient.getRequestStatus(intent.provider_reference);
+      const terminalFailure = ['FAILED','REJECTED','EXPIRED','CANCELLED'].includes(provider.status);
+      if (terminalFailure) {
+        await withTenantTransaction(pool, schoolId, async client => {
+          await client.query(`UPDATE payment_intents SET status = $3, provider_status = $4, completed_at = now() WHERE school_id = $1 AND id = $2 AND status IN ('CREATED','PENDING')`, [schoolId, intentId, provider.status === 'EXPIRED' ? 'EXPIRED' : provider.status === 'CANCELLED' ? 'CANCELLED' : 'FAILED', provider.status]);
+          await client.query(`INSERT INTO audit_events (school_id, actor_user_id, action, entity_type, entity_id, details) VALUES ($1,$2,'MTN_MOMO_PAYMENT_STATUS_CONFIRMED','PAYMENT_INTENT',$3,$4::jsonb)`, [schoolId, userId, intentId, JSON.stringify({ providerReference: intent.provider_reference, providerStatus: provider.status })]);
+        });
+        return res.json({ status: provider.status, message: `MTN reported this payment request as ${provider.status.toLowerCase()}.` });
+      }
+      if (provider.status !== 'SUCCESSFUL') {
+        await withTenantTransaction(pool, schoolId, async client => {
+          await client.query(`UPDATE payment_intents SET status = 'PENDING', provider_status = $3 WHERE school_id = $1 AND id = $2 AND status IN ('CREATED','PENDING')`, [schoolId, intentId, provider.status]);
+        });
+        return res.json({ status: 'PENDING', message: 'MTN has not confirmed payment yet. Ask the payer to approve the prompt, then check again.' });
+      }
+
+      const amountMatches = provider.amount !== null && Math.round(Number(provider.amount) * 100) === Math.round(Number(intent.amount) * 100);
+      const detailsMatch = amountMatches && provider.currency === intent.currency && provider.externalId === intent.id;
+      const saved = await withTenantTransaction(pool, schoolId, async client => {
+        const locked = await client.query(`SELECT pi.id, pi.invoice_id, pi.payment_id, pi.provider_reference, pi.amount::text, pi.currency, pi.status,
+            fi.invoice_number, fi.status AS invoice_status, fi.student_id,
+            COALESCE(lines.total,0) AS total, COALESCE(alloc.paid,0) AS paid
+          FROM payment_intents pi JOIN fee_invoices fi ON fi.school_id = pi.school_id AND fi.id = pi.invoice_id
+          LEFT JOIN LATERAL (SELECT SUM(line_amount) AS total FROM fee_invoice_lines l WHERE l.school_id = fi.school_id AND l.invoice_id = fi.id) lines ON true
+          LEFT JOIN LATERAL (SELECT SUM(pa.amount) AS paid FROM payment_allocations pa JOIN payments p ON p.school_id = pa.school_id AND p.id = pa.payment_id AND p.status IN ('SUCCEEDED','PARTIALLY_REVERSED') WHERE pa.school_id = fi.school_id AND pa.invoice_id = fi.id) alloc ON true
+          WHERE pi.school_id = $1 AND pi.id = $2 FOR UPDATE OF pi, fi`, [schoolId, intentId]);
+        if (!locked.rowCount) throw new Error('Payment request no longer exists.');
+        const row = locked.rows[0];
+        if (row.payment_id) return { status: row.status, receipt: null };
+        if (row.status === 'SUCCEEDED' || row.status === 'REVIEW') return { status: row.status, receipt: null };
+        if (!detailsMatch) {
+          await client.query(`UPDATE payment_intents SET status = 'REVIEW', provider_status = 'SUCCESSFUL_PROVIDER_DETAILS_MISMATCH', completed_at = now() WHERE school_id = $1 AND id = $2`, [schoolId, intentId]);
+          await client.query(`INSERT INTO audit_events (school_id, actor_user_id, action, entity_type, entity_id, details)
+            VALUES ($1,$2,'MTN_MOMO_SUCCESS_REQUIRES_REVIEW','PAYMENT_INTENT',$3,$4::jsonb)`, [schoolId, userId, intentId,
+            JSON.stringify({ providerReference: row.provider_reference, requestedAmount: row.amount, providerAmount: provider.amount, requestedCurrency: row.currency, providerCurrency: provider.currency, externalIdMatches: provider.externalId === intentId })]);
+          return { status: 'REVIEW', receipt: null, fee: null };
+        }
+        const receivedCents = Math.round(Number(row.amount) * 100);
+        const balanceCents = Math.max(0, Math.round((Number(row.total) - Number(row.paid)) * 100));
+        const canAllocate = receivedCents <= balanceCents;
+        const receipt = `RIA-${new Date().toISOString().slice(0,10).replaceAll('-','')}-${randomBytes(3).toString('hex').toUpperCase()}`;
+        const feeCents = Math.round(receivedCents * momoClient.config.feeRateBps / 10_000);
+        const payment = await client.query(`INSERT INTO payments
+            (school_id, student_id, currency, amount, channel, status, provider_transaction_id, receipt_number, cashier_user_id, received_at, note, provider_fee_amount, provider_fee_rate_bps)
+          VALUES ($1,$2,$3,$4,'MTN_MOMO','SUCCEEDED',$5,$6,$7,now(),$8,$9,$10)
+          RETURNING id, receipt_number, amount::text, currency, channel, status, provider_fee_amount::text`,
+        [schoolId, row.student_id, row.currency, (receivedCents / 100).toFixed(2), provider.financialTransactionId || row.provider_reference, receipt, userId,
+          `MTN Collections payment · ${row.invoice_number}`, (feeCents / 100).toFixed(2), momoClient.config.feeRateBps]);
+        if (canAllocate) {
+          await client.query(`INSERT INTO payment_allocations (school_id, payment_id, invoice_id, amount) VALUES ($1,$2,$3,$4)`, [schoolId, payment.rows[0].id, row.invoice_id, (receivedCents / 100).toFixed(2)]);
+          const nextStatus = receivedCents === balanceCents ? 'PAID' : 'PARTIALLY_PAID';
+          await client.query(`UPDATE fee_invoices SET status = $3 WHERE school_id = $1 AND id = $2`, [schoolId, row.invoice_id, nextStatus]);
+        }
+        const nextIntentStatus = canAllocate ? 'SUCCEEDED' : 'REVIEW';
+        const reviewCode = 'INVOICE_BALANCE_CHANGED';
+        await client.query(`UPDATE payment_intents SET status = $3, provider_status = $4, payment_id = $5, completed_at = now() WHERE school_id = $1 AND id = $2`,
+          [schoolId, intentId, nextIntentStatus, canAllocate ? 'SUCCESSFUL' : `SUCCESSFUL_${reviewCode}`, payment.rows[0].id]);
+        await client.query(`INSERT INTO audit_events (school_id, actor_user_id, action, entity_type, entity_id, details)
+          VALUES ($1,$2,$3,'PAYMENT',$4,$5::jsonb)`, [schoolId, userId, canAllocate ? 'MTN_MOMO_PAYMENT_ALLOCATED' : 'MTN_MOMO_PAYMENT_REQUIRES_REVIEW', payment.rows[0].id,
+          JSON.stringify({ intentId, invoiceId: row.invoice_id, providerReference: row.provider_reference, receipt, grossAmount: (receivedCents / 100).toFixed(2), feeAmount: (feeCents / 100).toFixed(2), feeRateBps: momoClient.config.feeRateBps })]);
+        return { status: nextIntentStatus, receipt: payment.rows[0].receipt_number, fee: payment.rows[0].provider_fee_amount };
+      });
+      const message = saved.status === 'SUCCEEDED' ? `Payment confirmed and allocated. Receipt ${saved.receipt}; MTN fee LRD ${saved.fee}.`
+        : 'MTN confirmed the transfer, but its details or the invoice balance changed. The payment was recorded as unallocated for finance review.';
+      return res.json({ status: saved.status, receipt: saved.receipt, providerFee: saved.fee, message });
+    } catch (error) {
+      if (error instanceof MomoProviderError) return res.status(502).json({ error: error.message });
+      return res.status(500).json({ error: 'The MTN payment status could not be reconciled. Try again or review the request with finance support.' });
+    }
   });
 
   router.get('/reports', needsAnyPermission(['reports.read', 'emis.export']), async (req, res) => {

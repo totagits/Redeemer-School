@@ -69,16 +69,19 @@ Platform-operator authorization is not a school role. It needs a separate privil
 
 ## MTN MoMo integration plan
 
-The current database separates a payment intent from the resulting school payment. The intended flow is:
+The selected product is MTN MoMo **Collections API**. The school has confirmed a **2.5% transaction fee**. Migration 009 stores the fee amount and rate on the payment; the student's invoice is credited with the gross amount, while finance sees the fee and calculated net settlement separately.
 
-1. Finance staff or a guardian selects an issued invoice, amount, currency, and a school-enabled MoMo profile.
-2. The server validates the invoice balance and creates an idempotent payment intent.
-3. A server-only adapter calls the MTN product/API using secrets stored in Coolify; the app never sees those secrets.
-4. The user sees a pending state while the server confirms status by authenticated callback and/or provider status lookup, according to the exact MTN API supported by the account.
-5. Only a confirmed success creates/marks the payment as succeeded; allocation to the invoice and ledger posting happen atomically and create an audit event/receipt.
-6. Duplicate callbacks are harmless because provider event IDs and intent idempotency keys are unique. Failed, expired, reversed, and disputed outcomes stay visible for reconciliation.
+The request and reconciliation flow now works as follows:
 
-Before coding the adapter, use the MTN API documentation and credentials you already have to confirm the exact Liberia product/subscription, supported transaction type, currency/amount limits, sandbox URL, callback signature or polling method, and production enablement. First implement and test sandbox collection; do not enable real collections until a school finance acceptance test passes. We do not need the API key in this review or in Git.
+1. Finance staff selects an outstanding LRD invoice, amount, and payer's Liberia mobile number.
+2. The server creates a payment intent before calling MTN, then sends a Request to Pay using the server-side credentials.
+3. MTN's asynchronous acceptance is shown as pending; the school app does not post a payment based on HTTP 202 alone.
+4. Finance staff checks status. Only a provider-confirmed success with matching amount, currency, and external reference posts and allocates the payment atomically, with a receipt and audit event.
+5. A confirmed transfer whose data does not match is flagged for review without automatic ledger posting. Failed/expired/cancelled results remain visible in reconciliation.
+
+The code uses sandbox by default and keeps MTN credentials server-side in Coolify. Set `MTN_MOMO_API_USER`, `MTN_MOMO_API_KEY`, and `MTN_MOMO_SUBSCRIPTION_KEY`; configure `MTN_MOMO_ENVIRONMENT=SANDBOX` for initial tests. Do not switch to production until MTN has enabled the account and a school finance owner has passed sandbox acceptance testing. Never paste or commit the credentials. Status polling is used; callbacks are not configured.
+
+Apply migration `009_mtn_collection_fees.sql` to the staging database before deploying this release, because the finance API reads the new provider-fee columns. After the migration, deploy the application and configure the sandbox secrets in Coolify. The workspace does not have access to the remote staging database, so SQL migration execution and a live MTN sandbox request still need to be verified in staging.
 
 ## Delivery backlog
 
@@ -93,7 +96,7 @@ Before coding the adapter, use the MTN API documentation and credentials you alr
 1. Apply migration 002 to **staging only**, after a current database backup; inspect the migration output and verify tenant RLS and role seed counts. Do not run it against production as part of a code deploy.
 2. Implement login/session security and transaction-scoped tenant/campus context; add API permission and object-scope middleware. Do not expose CRUD before this gate.
 3. Build one complete academic vertical slice: academic setup → teacher/class/subject assignment → class session → attendance roll call → assessment and score entry → moderation/approval → publication. Add database-backed UI and tenant-isolation tests.
-4. Build fee schedule/invoice/payment allocation/receipt/reversal workflows; use provider adapter in MTN sandbox and add idempotency/reconciliation tests.
+4. Build remaining fee schedule and reversal workflows; run the MTN sandbox finance acceptance test and add provider reconciliation monitoring.
 5. Add secure private file storage, imports, guardian accounts/portal, staff/HR, inventory/procurement, accounting and communications workflow-by-workflow.
 6. Implement EMIS export/import against an approved template; retain preview, row errors, template/mapping version, and audit history. Do not claim live MoE submission without an approved integration and receipt.
 7. Complete backups/restores, monitoring, security review, accessibility and low-bandwidth checks, training, and a limited school pilot before production use.
@@ -107,5 +110,5 @@ Use synthetic student and payment data in staging. Before a real pilot, have the
 - Migration 002 has not been applied or executed against a PostgreSQL server in this workspace; the local environment has no `DATABASE_URL` or `psql` executable. Static review and repository build/tests can verify code shape but cannot prove SQL runtime success.
 - The reported success of migration 001 and staging database readiness comes from the prior staging work, not a fresh live connection in this review.
 - Ministry-approved report templates and direct integration credentials/specifications were not supplied here; EMIS remains file-first and unverified.
-- MTN API access has been confirmed by you, but provider documentation, sandbox response, and credentials have not been inspected or tested in this repository.
+- MTN MoMo Collections request/status behavior is covered by mocked adapter and route tests. A live Liberia sandbox account, response, settlement report, and production approval have not been verified from this workspace.
 - No module should be advertised as production-ready until its API, authorization, persistent UI workflow, audit behavior, and tests are implemented and validated.
