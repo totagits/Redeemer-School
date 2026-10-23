@@ -659,6 +659,150 @@ export function createOperationsRouter({ authenticate, sendInvitation = sendAcco
     } catch (error) { return fail(req, res, error); }
   });
 
+  // Admissions, HR, stock control, and school announcements use the same
+  // tenant-scoped transaction and audit trail as the academic workspaces.
+  router.get('/admissions', needsPermission('admissions.read'), async (req, res) => {
+    try {
+      const schoolId = req.auth.claims.schoolId;
+      const applications = await req.auth.client.query(`SELECT a.id, a.application_number, a.first_name, a.middle_name, a.last_name,
+          a.date_of_birth, a.sex, a.application_date, a.status, a.decision, a.decision_reason, a.notes,
+          el.name AS requested_level, cg.name AS requested_class,
+          COALESCE(json_agg(json_build_object('firstName', ag.first_name, 'lastName', ag.last_name, 'relationship', ag.relationship, 'phone', ag.phone, 'email', ag.email, 'primary', ag.is_primary)) FILTER (WHERE ag.application_id IS NOT NULL), '[]') AS guardians
+        FROM admission_applications a
+        LEFT JOIN education_levels el ON el.school_id = a.school_id AND el.id = a.requested_level_id
+        LEFT JOIN class_groups cg ON cg.school_id = a.school_id AND cg.id = a.requested_class_group_id
+        LEFT JOIN admission_guardians ag ON ag.school_id = a.school_id AND ag.application_id = a.id
+        WHERE a.school_id = $1 GROUP BY a.id, el.name, cg.name ORDER BY a.application_date DESC, a.created_at DESC LIMIT 500`, [schoolId]);
+      const options = await req.auth.client.query(`SELECT id, code, name FROM education_levels WHERE school_id = $1 AND active ORDER BY sort_order, name`, [schoolId]);
+      const classes = await req.auth.client.query(`SELECT id, name, grade_level FROM class_groups WHERE school_id = $1 ORDER BY grade_level, name`, [schoolId]);
+      await close(req, true);
+      return res.json({ applications: applications.rows, levels: options.rows, classes: classes.rows, canWrite: req.auth.account.permissions.includes('admissions.write') });
+    } catch (error) { return fail(req, res, error); }
+  });
+
+  router.post('/admissions', needsPermission('admissions.write'), csrf, async (req, res) => {
+    const firstName = text(req.body?.firstName); const lastName = text(req.body?.lastName);
+    const applicationNumber = text(req.body?.applicationNumber, 40).toUpperCase();
+    const guardianFirst = text(req.body?.guardianFirstName); const guardianLast = text(req.body?.guardianLastName);
+    const relationship = text(req.body?.relationship, 50); const phone = text(req.body?.phone, 40); const email = text(req.body?.email, 254).toLowerCase();
+    const dateOfBirth = req.body?.dateOfBirth || null; const levelId = text(req.body?.requestedLevelId, 50) || null;
+    const classId = text(req.body?.requestedClassGroupId, 50) || null;
+    if (!firstName || !lastName || !applicationNumber || !guardianFirst || !guardianLast || !relationship || (!phone && !email) || (dateOfBirth && !validDate(dateOfBirth))) {
+      await close(req, false); return res.status(400).json({ error: 'Enter the applicant name, unique application number, guardian name and relationship, and at least one guardian contact.' });
+    }
+    try {
+      const schoolId = req.auth.claims.schoolId;
+      const application = await req.auth.client.query(`INSERT INTO admission_applications
+        (school_id, application_number, first_name, last_name, date_of_birth, requested_level_id, requested_class_group_id, created_by)
+        SELECT $1, $2, $3, $4, $5, el.id, cg.id, $8 FROM (SELECT 1) seed
+        LEFT JOIN education_levels el ON el.school_id = $1 AND el.id = $6 AND el.active
+        LEFT JOIN class_groups cg ON cg.school_id = $1 AND cg.id = $7
+        WHERE ($6::uuid IS NULL OR el.id IS NOT NULL) AND ($7::uuid IS NULL OR cg.id IS NOT NULL)
+        RETURNING id, application_number, first_name, last_name, application_date, status`, [schoolId, applicationNumber, firstName, lastName, dateOfBirth, levelId, classId, req.auth.claims.userId]);
+      if (!application.rowCount) { await close(req, false); return res.status(400).json({ error: 'Choose an education level and class belonging to this school.' }); }
+      await req.auth.client.query(`INSERT INTO admission_guardians (school_id, application_id, first_name, last_name, relationship, phone, email, is_primary)
+        VALUES ($1,$2,$3,$4,$5,NULLIF($6,''),NULLIF($7,''),true)`, [schoolId, application.rows[0].id, guardianFirst, guardianLast, relationship, phone, email]);
+      await req.auth.client.query(`INSERT INTO admission_events (school_id, application_id, event_type, actor_user_id, details) VALUES ($1,$2,'APPLICATION_RECEIVED',$3,$4::jsonb)`, [schoolId, application.rows[0].id, req.auth.claims.userId, JSON.stringify({ status: 'RECEIVED' })]);
+      await audit(req, 'ADMISSION_APPLICATION_CREATED', 'ADMISSION_APPLICATION', application.rows[0].id, { applicationNumber });
+      return done(req, res, 201, { application: application.rows[0] });
+    } catch (error) { return fail(req, res, error); }
+  });
+
+  router.post('/admissions/:applicationId/status', needsPermission('admissions.write'), csrf, async (req, res) => {
+    const status = text(req.body?.status, 30).toUpperCase(); const reason = text(req.body?.reason, 500);
+    const allowed = new Set(['UNDER_REVIEW','INTERVIEW_SCHEDULED','OFFERED','ACCEPTED','WAITLISTED','REJECTED','WITHDRAWN']);
+    if (!allowed.has(status) || (['REJECTED','WAITLISTED'].includes(status) && !reason)) { await close(req, false); return res.status(400).json({ error: 'Choose a valid next status and provide a reason for rejection or waitlisting.' }); }
+    try {
+      const id = req.params.applicationId; const schoolId = req.auth.claims.schoolId;
+      const result = await req.auth.client.query(`UPDATE admission_applications SET status = $3, decision = CASE WHEN $3 IN ('OFFERED','ACCEPTED','REJECTED','WAITLISTED') THEN $3 ELSE decision END, decision_reason = NULLIF($4,''), updated_at = now()
+        WHERE school_id = $1 AND id = $2 AND status NOT IN ('ENROLLED','WITHDRAWN') RETURNING id, application_number, status`, [schoolId, id, status, reason]);
+      if (!result.rowCount) { await close(req, false); return res.status(404).json({ error: 'Application not found or already closed.' }); }
+      await req.auth.client.query(`INSERT INTO admission_events (school_id, application_id, event_type, actor_user_id, details) VALUES ($1,$2,$3,$4,$5::jsonb)`, [schoolId, id, `STATUS_${status}`, req.auth.claims.userId, JSON.stringify({ reason })]);
+      await audit(req, 'ADMISSION_STATUS_CHANGED', 'ADMISSION_APPLICATION', id, { status });
+      return done(req, res, 200, { application: result.rows[0] });
+    } catch (error) { return fail(req, res, error); }
+  });
+
+  router.get('/staff', needsPermission('staff.read'), async (req, res) => {
+    try {
+      const schoolId = req.auth.claims.schoolId; const isHr = req.auth.account.permissions.includes('staff.time.review');
+      const staff = await req.auth.client.query(`SELECT s.id, s.employee_number, s.first_name, s.last_name, s.email, s.phone, s.job_title, s.department, s.hired_on, s.employment_status, u.id AS user_id, u.role,
+          (SELECT json_build_object('id', t.id, 'clockedInAt', t.clocked_in_at, 'clockedOutAt', t.clocked_out_at, 'status', t.status) FROM staff_attendance_sessions t WHERE t.school_id=s.school_id AND t.staff_record_id=s.id ORDER BY t.clocked_in_at DESC LIMIT 1) AS last_time_entry
+        FROM staff_records s LEFT JOIN user_accounts u ON u.school_id=s.school_id AND u.id=s.user_id WHERE s.school_id=$1 ORDER BY s.employment_status, s.last_name, s.first_name`, [schoolId]);
+      const leaves = isHr ? await req.auth.client.query(`SELECT l.id, l.leave_type, l.starts_on, l.ends_on, l.reason, l.status, s.employee_number, s.first_name, s.last_name FROM staff_leave_requests l JOIN staff_records s ON s.school_id=l.school_id AND s.id=l.staff_record_id WHERE l.school_id=$1 ORDER BY l.requested_at DESC LIMIT 200`, [schoolId]) : { rows: [] };
+      const timeEntries = isHr ? await req.auth.client.query(`SELECT t.id, t.clocked_in_at, t.clocked_out_at, t.status, s.employee_number, s.first_name, s.last_name FROM staff_attendance_sessions t JOIN staff_records s ON s.school_id=t.school_id AND s.id=t.staff_record_id WHERE t.school_id=$1 ORDER BY t.clocked_in_at DESC LIMIT 200`, [schoolId]) : { rows: [] };
+      const self = await req.auth.client.query(`SELECT id FROM staff_records WHERE school_id=$1 AND user_id=$2 AND employment_status IN ('ACTIVE','ON_LEAVE')`, [schoolId, req.auth.claims.userId]);
+      const open = self.rowCount ? await req.auth.client.query(`SELECT id, clocked_in_at FROM staff_attendance_sessions WHERE school_id=$1 AND staff_record_id=$2 AND status='OPEN' ORDER BY clocked_in_at DESC LIMIT 1`, [schoolId, self.rows[0].id]) : { rows: [] };
+      await close(req, true); return res.json({ staff: staff.rows, leaveRequests: leaves.rows, timeEntries: timeEntries.rows, canManage: req.auth.account.permissions.includes('staff.write'), canReviewTime: isHr, canClock: self.rowCount > 0, staffId: self.rows[0]?.id || null, openTimeEntry: open.rows[0] || null });
+    } catch (error) { return fail(req, res, error); }
+  });
+
+  router.post('/staff/clock', needsAnyPermission(['staff.read','staff.write']), csrf, async (req, res) => {
+    const action = text(req.body?.action, 12).toUpperCase();
+    if (!['IN','OUT'].includes(action)) { await close(req, false); return res.status(400).json({ error: 'Choose clock in or clock out.' }); }
+    try {
+      const schoolId = req.auth.claims.schoolId; const staff = await req.auth.client.query(`SELECT id FROM staff_records WHERE school_id=$1 AND user_id=$2 AND employment_status='ACTIVE'`, [schoolId, req.auth.claims.userId]);
+      if (!staff.rowCount) { await close(req, false); return res.status(403).json({ error: 'Your login is not linked to an active staff record. Ask HR to link it before clocking time.' }); }
+      let result;
+      if (action === 'IN') result = await req.auth.client.query(`INSERT INTO staff_attendance_sessions (school_id, staff_record_id, clocked_in_at) SELECT $1,$2,now() WHERE NOT EXISTS (SELECT 1 FROM staff_attendance_sessions WHERE school_id=$1 AND staff_record_id=$2 AND status='OPEN') RETURNING id, clocked_in_at, clocked_out_at`, [schoolId, staff.rows[0].id]);
+      else result = await req.auth.client.query(`UPDATE staff_attendance_sessions SET clocked_out_at=now(), status='CLOSED' WHERE school_id=$1 AND staff_record_id=$2 AND status='OPEN' RETURNING id, clocked_in_at, clocked_out_at`, [schoolId, staff.rows[0].id]);
+      if (!result.rowCount) { await close(req, false); return res.status(409).json({ error: action === 'IN' ? 'You already have an open shift.' : 'There is no open shift to clock out.' }); }
+      await audit(req, `STAFF_CLOCK_${action}`, 'STAFF_TIME_ENTRY', result.rows[0].id);
+      return done(req,res,200,{entry:result.rows[0]});
+    } catch (error) { return fail(req,res,error); }
+  });
+
+  router.get('/inventory', needsPermission('inventory.read'), async (req, res) => {
+    try {
+      const schoolId=req.auth.claims.schoolId;
+      const [items,locations,movements,requests,orders]=await Promise.all([
+        req.auth.client.query(`SELECT i.id,i.sku,i.name,i.category,i.unit,i.reorder_level,i.active,COALESCE(sum(CASE WHEN m.movement_type IN ('RECEIPT','TRANSFER_IN') THEN m.quantity WHEN m.movement_type IN ('ISSUE','TRANSFER_OUT') THEN -m.quantity WHEN m.movement_type='ADJUSTMENT' THEN m.quantity ELSE 0 END),0)::numeric AS on_hand FROM inventory_items i LEFT JOIN stock_movements m ON m.school_id=i.school_id AND m.item_id=i.id WHERE i.school_id=$1 GROUP BY i.id ORDER BY i.name`,[schoolId]),
+        req.auth.client.query(`SELECT id,code,name FROM inventory_locations WHERE school_id=$1 AND active ORDER BY name`,[schoolId]),
+        req.auth.client.query(`SELECT m.id,m.movement_type,m.quantity,m.movement_date,m.reference,m.reason,i.name AS item_name,l.name AS location_name,u.full_name AS recorded_by FROM stock_movements m JOIN inventory_items i ON i.school_id=m.school_id AND i.id=m.item_id JOIN inventory_locations l ON l.school_id=m.school_id AND l.id=m.location_id JOIN user_accounts u ON u.school_id=m.school_id AND u.id=m.recorded_by WHERE m.school_id=$1 ORDER BY m.movement_date DESC LIMIT 200`,[schoolId]),
+        req.auth.client.query(`SELECT id,request_number,status,justification,created_at FROM procurement_requests WHERE school_id=$1 ORDER BY created_at DESC LIMIT 100`,[schoolId]),
+        req.auth.client.query(`SELECT id,purchase_order_number,vendor_name,currency,status,ordered_at FROM purchase_orders WHERE school_id=$1 ORDER BY ordered_at DESC NULLS LAST LIMIT 100`,[schoolId])
+      ]);
+      await close(req,true); return res.json({items:items.rows,locations:locations.rows,movements:movements.rows,requests:requests.rows,orders:orders.rows,canWrite:req.auth.account.permissions.includes('inventory.write')});
+    } catch(error){return fail(req,res,error);}
+  });
+
+  router.post('/inventory/items', needsPermission('inventory.write'), csrf, async(req,res)=>{
+    const sku=text(req.body?.sku,40).toUpperCase(); const name=text(req.body?.name); const category=text(req.body?.category,80); const unit=text(req.body?.unit,30); const reorder=Number(req.body?.reorderLevel||0);
+    if(!sku||!name||!category||!unit||!Number.isFinite(reorder)||reorder<0){await close(req,false);return res.status(400).json({error:'Enter SKU, item name, category, unit, and a non-negative reorder level.'});}
+    try{const schoolId=req.auth.claims.schoolId; const r=await req.auth.client.query(`INSERT INTO inventory_items(school_id,sku,name,category,unit,reorder_level) VALUES($1,$2,$3,$4,$5,$6) RETURNING id,sku,name,category,unit,reorder_level`,[schoolId,sku,name,category,unit,reorder]); await audit(req,'INVENTORY_ITEM_CREATED','INVENTORY_ITEM',r.rows[0].id,{sku});return done(req,res,201,{item:r.rows[0]});}catch(error){return fail(req,res,error);}
+  });
+
+  router.post('/inventory/locations', needsPermission('inventory.write'), csrf, async(req,res)=>{
+    const code=text(req.body?.code,30).toUpperCase();const name=text(req.body?.name);
+    if(!code||!name){await close(req,false);return res.status(400).json({error:'Enter a location code and name.'});}
+    try{const r=await req.auth.client.query(`INSERT INTO inventory_locations(school_id,code,name) VALUES($1,$2,$3) RETURNING id,code,name`,[req.auth.claims.schoolId,code,name]);await audit(req,'INVENTORY_LOCATION_CREATED','INVENTORY_LOCATION',r.rows[0].id,{code});return done(req,res,201,{location:r.rows[0]});}catch(error){return fail(req,res,error);}
+  });
+
+  router.post('/inventory/movements', needsPermission('inventory.write'), csrf, async(req,res)=>{
+    const itemId=text(req.body?.itemId,50); const locationId=text(req.body?.locationId,50); const quantity=Number(req.body?.quantity); const type=text(req.body?.type,20).toUpperCase(); const reason=text(req.body?.reason,500); const reference=text(req.body?.reference,100);
+    if(!itemId||!locationId||!Number.isFinite(quantity)||quantity<=0||!['RECEIPT','ISSUE','ADJUSTMENT'].includes(type)||!reason){await close(req,false);return res.status(400).json({error:'Enter a valid item, location, positive quantity, movement type, and reason.'});}
+    try{const schoolId=req.auth.claims.schoolId; if(type==='ISSUE'){const stock=await req.auth.client.query(`SELECT COALESCE(sum(CASE WHEN movement_type IN ('RECEIPT','TRANSFER_IN') THEN quantity WHEN movement_type IN ('ISSUE','TRANSFER_OUT') THEN -quantity WHEN movement_type='ADJUSTMENT' THEN quantity ELSE 0 END),0) AS on_hand FROM stock_movements WHERE school_id=$1 AND item_id=$2 AND location_id=$3`,[schoolId,itemId,locationId]);if(Number(stock.rows[0].on_hand)<quantity){await close(req,false);return res.status(409).json({error:'Not enough stock is available at this location.'});}}
+      const r=await req.auth.client.query(`INSERT INTO stock_movements(school_id,item_id,location_id,movement_type,quantity,reference,reason,recorded_by) SELECT $1,i.id,l.id,$4,$5,NULLIF($6,''),$7,$8 FROM inventory_items i JOIN inventory_locations l ON l.school_id=i.school_id WHERE i.school_id=$1 AND i.id=$2 AND l.id=$3 AND i.active AND l.active RETURNING id,movement_type,quantity,reference,reason,movement_date`,[schoolId,itemId,locationId,type,quantity,reference,reason,req.auth.claims.userId]);if(!r.rowCount){await close(req,false);return res.status(400).json({error:'Choose an active item and location belonging to this school.'});}await audit(req,'INVENTORY_MOVEMENT_RECORDED','STOCK_MOVEMENT',r.rows[0].id,{type,quantity});return done(req,res,201,{movement:r.rows[0]});}catch(error){return fail(req,res,error);}
+  });
+
+  router.get('/communications', needsPermission('communications.read'), async(req,res)=>{
+    try{const schoolId=req.auth.claims.schoolId;const [announcements,deliveries,classes]=await Promise.all([
+      req.auth.client.query(`SELECT a.id,a.title,a.body,a.audience,a.status,a.created_at,a.published_at,u.full_name AS author FROM announcements a JOIN user_accounts u ON u.school_id=a.school_id AND u.id=a.created_by WHERE a.school_id=$1 ORDER BY a.created_at DESC LIMIT 200`,[schoolId]),
+      req.auth.client.query(`SELECT id,channel,status,count(*) OVER(PARTITION BY announcement_id) AS audience_count,queued_at,sent_at FROM notification_deliveries WHERE school_id=$1 ORDER BY queued_at DESC LIMIT 100`,[schoolId]),
+      req.auth.client.query(`SELECT id,name,grade_level FROM class_groups WHERE school_id=$1 ORDER BY grade_level,name`,[schoolId])
+    ]);await close(req,true);return res.json({announcements:announcements.rows,deliveries:deliveries.rows,classes:classes.rows,canWrite:req.auth.account.permissions.includes('communications.write')});}catch(error){return fail(req,res,error);}
+  });
+
+  router.post('/communications', needsPermission('communications.write'), csrf, async(req,res)=>{
+    const title=text(req.body?.title,160);const body=text(req.body?.body,5000);const audience=text(req.body?.audience,30).toUpperCase();const classId=text(req.body?.classGroupId,50)||null;
+    if(!title||!body||!['ALL_GUARDIANS','CAMPUS','CLASS','STAFF','LEARNERS'].includes(audience)||(audience==='CLASS'&&!classId)){await close(req,false);return res.status(400).json({error:'Enter a title and message, choose an audience, and select a class for class messages.'});}
+    try{const schoolId=req.auth.claims.schoolId;const status=req.auth.account.roles.some(role=>['SCHOOL_ADMIN','PRINCIPAL'].includes(role))?'PUBLISHED':'DRAFT';const r=await req.auth.client.query(`INSERT INTO announcements(school_id,class_group_id,title,body,audience,status,created_by,published_at) SELECT $1,c.id,$3,$4,$5,$6,$7,CASE WHEN $6='PUBLISHED' THEN now() ELSE NULL END FROM (SELECT 1) seed LEFT JOIN class_groups c ON c.school_id=$1 AND c.id=$2 WHERE ($5<>'CLASS' OR c.id IS NOT NULL) RETURNING id,title,body,audience,status,created_at,published_at`,[schoolId,classId,title,body,audience,status,req.auth.claims.userId]);if(!r.rowCount){await close(req,false);return res.status(400).json({error:'Choose a class belonging to this school.'});}await audit(req,'ANNOUNCEMENT_CREATED','ANNOUNCEMENT',r.rows[0].id,{audience,status});return done(req,res,201,{announcement:r.rows[0],notice:status==='PUBLISHED'?'Announcement published in the school system. External email/SMS delivery is not configured.':'Announcement saved as a draft for review.'});}catch(error){return fail(req,res,error);}
+  });
+
+  router.post('/communications/:announcementId/publish', needsPermission('communications.write'), csrf, async(req,res)=>{
+    try{const r=await req.auth.client.query(`UPDATE announcements SET status='PUBLISHED',approved_by=$3,published_at=now() WHERE school_id=$1 AND id=$2 AND status='DRAFT' RETURNING id,title,status,published_at`,[req.auth.claims.schoolId,req.params.announcementId,req.auth.claims.userId]);if(!r.rowCount){await close(req,false);return res.status(404).json({error:'Draft announcement not found.'});}await audit(req,'ANNOUNCEMENT_PUBLISHED','ANNOUNCEMENT',r.rows[0].id);return done(req,res,200,{announcement:r.rows[0],notice:'Published in the school system. Email/SMS delivery is not configured.'});}catch(error){return fail(req,res,error);}
+  });
+
   router.get('/setup', async (req, res, next) => {
     const canConfigure = req.auth.account.permissions.includes('academics.configure');
     const canViewTeaching = ['attendance.read', 'grades.enter', 'grades.moderate', 'grades.publish'].some(permission => req.auth.account.permissions.includes(permission));
