@@ -715,6 +715,7 @@ export function createOperationsRouter({ authenticate, sendInvitation = sendAcco
       const schoolId = req.auth.claims.schoolId;
       const applications = await req.auth.client.query(`SELECT a.id, a.application_number, a.first_name, a.middle_name, a.last_name,
           a.date_of_birth, a.sex, a.application_date, a.status, a.decision, a.decision_reason, a.notes,
+          a.requested_class_group_id, a.converted_student_id,
           el.name AS requested_level, cg.name AS requested_class,
           COALESCE(json_agg(json_build_object('firstName', ag.first_name, 'lastName', ag.last_name, 'relationship', ag.relationship, 'phone', ag.phone, 'email', ag.email, 'primary', ag.is_primary)) FILTER (WHERE ag.application_id IS NOT NULL), '[]') AS guardians
         FROM admission_applications a
@@ -769,6 +770,70 @@ export function createOperationsRouter({ authenticate, sendInvitation = sendAcco
       await req.auth.client.query(`INSERT INTO admission_events (school_id, application_id, event_type, actor_user_id, details) VALUES ($1,$2,$3,$4,$5::jsonb)`, [schoolId, id, `STATUS_${status}`, req.auth.claims.userId, JSON.stringify({ reason })]);
       await audit(req, 'ADMISSION_STATUS_CHANGED', 'ADMISSION_APPLICATION', id, { status });
       return done(req, res, 200, { application: result.rows[0] });
+    } catch (error) { return fail(req, res, error); }
+  });
+
+  router.post('/admissions/:applicationId/enroll', needsPermission('admissions.write'), csrf, async (req, res) => {
+    const studentNumber = text(req.body?.studentNumber, 40).toUpperCase();
+    const classGroupId = text(req.body?.classGroupId, 50);
+    if (!/^[A-Z0-9_-]{2,40}$/.test(studentNumber) || !classGroupId) {
+      await close(req, false);
+      return res.status(400).json({ error: 'Enter a valid student number and select a class before enrolling this applicant.' });
+    }
+    try {
+      const schoolId = req.auth.claims.schoolId;
+      const application = await req.auth.client.query(`SELECT id, application_number, first_name, middle_name, last_name,
+          date_of_birth, sex, campus_id, status, converted_student_id
+        FROM admission_applications WHERE school_id = $1 AND id = $2 FOR UPDATE`, [schoolId, req.params.applicationId]);
+      if (!application.rowCount) { await close(req, false); return res.status(404).json({ error: 'Application not found in this school.' }); }
+      const applicant = application.rows[0];
+      if (applicant.status !== 'ACCEPTED' || applicant.converted_student_id) {
+        await close(req, false);
+        return res.status(409).json({ error: 'Only an accepted applicant who has not already been enrolled can be converted.' });
+      }
+      const selectedClass = await req.auth.client.query(`SELECT id, academic_year_id, campus_id, name
+        FROM class_groups WHERE school_id = $1 AND id = $2 FOR UPDATE`, [schoolId, classGroupId]);
+      if (!selectedClass.rowCount) { await close(req, false); return res.status(400).json({ error: 'Choose a class belonging to this school.' }); }
+      const schoolClass = selectedClass.rows[0];
+      const student = await req.auth.client.query(`INSERT INTO students
+          (school_id, campus_id, student_number, first_name, middle_name, last_name, date_of_birth, sex)
+        VALUES ($1,$2,$3,$4,$5,$6,$7,$8)
+        RETURNING id, student_number, first_name, middle_name, last_name, date_of_birth, sex`,
+      [schoolId, applicant.campus_id || schoolClass.campus_id || null, studentNumber, applicant.first_name, applicant.middle_name || null, applicant.last_name, applicant.date_of_birth || null, applicant.sex || null]);
+      const enrolledStudent = student.rows[0];
+      await req.auth.client.query(`INSERT INTO class_enrollments (school_id, student_id, class_group_id)
+        VALUES ($1,$2,$3)`, [schoolId, enrolledStudent.id, schoolClass.id]);
+      await req.auth.client.query(`INSERT INTO student_enrollment_history
+          (school_id, student_id, academic_year_id, campus_id, class_group_id, status, effective_on, recorded_by)
+        VALUES ($1,$2,$3,$4,$5,'ENROLLED',CURRENT_DATE,$6)`,
+      [schoolId, enrolledStudent.id, schoolClass.academic_year_id, applicant.campus_id || schoolClass.campus_id || null, schoolClass.id, req.auth.claims.userId]);
+
+      const guardians = await req.auth.client.query(`SELECT first_name, last_name, relationship, phone, email, is_primary
+        FROM admission_guardians WHERE school_id = $1 AND application_id = $2 ORDER BY is_primary DESC, last_name, first_name`, [schoolId, applicant.id]);
+      let primaryLinked = false;
+      for (const guardian of guardians.rows) {
+        const existing = await req.auth.client.query(`SELECT id FROM guardians
+          WHERE school_id = $1 AND (($2 <> '' AND lower(email) = lower($2)) OR ($3 <> '' AND phone = $3))
+          ORDER BY CASE WHEN $2 <> '' AND lower(email) = lower($2) THEN 0 ELSE 1 END LIMIT 1 FOR UPDATE`,
+        [schoolId, guardian.email || '', guardian.phone || '']);
+        const linked = existing.rowCount ? existing.rows[0] : (await req.auth.client.query(`INSERT INTO guardians
+          (school_id, first_name, last_name, email, phone)
+          VALUES ($1,$2,$3,NULLIF($4,''),NULLIF($5,'')) RETURNING id`,
+        [schoolId, guardian.first_name, guardian.last_name, guardian.email || '', guardian.phone || ''])).rows[0];
+        await req.auth.client.query(`INSERT INTO student_guardians
+            (school_id, student_id, guardian_id, relationship, is_primary, can_view_results, can_view_finance, communication_consent)
+          VALUES ($1,$2,$3,$4,$5,true,false,false)
+          ON CONFLICT (school_id, student_id, guardian_id) DO NOTHING`,
+        [schoolId, enrolledStudent.id, linked.id, guardian.relationship, Boolean(guardian.is_primary && !primaryLinked)]);
+        if (guardian.is_primary) primaryLinked = true;
+      }
+      await req.auth.client.query(`UPDATE admission_applications SET status='ENROLLED', converted_student_id=$3,
+          converted_at=now(), updated_at=now() WHERE school_id=$1 AND id=$2`, [schoolId, applicant.id, enrolledStudent.id]);
+      await req.auth.client.query(`INSERT INTO admission_events (school_id, application_id, event_type, actor_user_id, details)
+        VALUES ($1,$2,'APPLICANT_ENROLLED',$3,$4::jsonb)`,
+      [schoolId, applicant.id, req.auth.claims.userId, JSON.stringify({ studentId: enrolledStudent.id, studentNumber, classGroupId: schoolClass.id })]);
+      await audit(req, 'ADMISSION_APPLICANT_ENROLLED', 'STUDENT', enrolledStudent.id, { applicationId: applicant.id, applicationNumber: applicant.application_number, studentNumber, classGroupId: schoolClass.id });
+      return done(req, res, 201, { student: enrolledStudent, className: schoolClass.name, guardianCount: guardians.rowCount });
     } catch (error) { return fail(req, res, error); }
   });
 
