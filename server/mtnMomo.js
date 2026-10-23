@@ -118,7 +118,18 @@ export function createMomoClient({ env = process.env, fetchImpl = fetch } = {}) 
       throw new MomoProviderError('The payment request outcome is unknown. Check its status before retrying.', { outcomeUnknown: true });
     }
     if (response.status !== 202) {
-      throw new MomoProviderError('MTN MoMo did not accept the payment request. Verify the payer number and MTN account configuration.', {
+      let providerDetail = '';
+      try {
+        const body = await response.json();
+        const code = [body?.code, body?.errorCode].find(value => typeof value === 'string' && value.trim());
+        const description = [body?.message, body?.error, body?.description].find(value => typeof value === 'string' && value.trim());
+        const detail = [code, description].filter(Boolean).join(': ');
+        if (detail) providerDetail = String(detail).replace(/[\r\n\t]+/g, ' ').slice(0, 180);
+      } catch {}
+      const message = config.environment === 'SANDBOX'
+        ? `MTN sandbox rejected the request (HTTP ${response.status}${providerDetail ? `: ${providerDetail}` : ''}). Check the request details and Collections subscription key.`
+        : 'MTN MoMo did not accept the payment request. Verify the payer number and MTN account configuration.';
+      throw new MomoProviderError(message, {
         status: response.status,
         outcomeUnknown: response.status >= 500,
       });

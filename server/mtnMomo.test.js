@@ -80,6 +80,16 @@ test('sandbox accepts a synthetic MTN test number but production only accepts Li
   await assert.rejects(() => production.requestToPay({ amount: 1, currency: 'LRD', msisdn: '123456789012' }), /Liberia mobile number/i);
 });
 
+test('sandbox request rejection surfaces only the provider HTTP code and safe error detail', async () => {
+  const client = createMomoClient({ env: configuredEnv, fetchImpl: async url => url.endsWith('/collection/token/')
+    ? { ok: true, status: 200, json: async () => ({ access_token: 'test-token', expires_in: 3600 }) }
+    : { ok: false, status: 400, json: async () => ({ code: 'INVALID_REQUEST', message: 'Request validation failed' }) } });
+  await assert.rejects(
+    () => client.requestToPay({ amount: 1, currency: 'EUR', msisdn: '123456789012' }),
+    error => error instanceof MomoProviderError && error.status === 400 && /HTTP 400: INVALID_REQUEST/.test(error.message) && /Request validation failed/.test(error.message),
+  );
+});
+
 test('status lookup reads MTN result but does not equate request acceptance with success', async () => {
   let calls = 0;
   const fetchImpl = async url => {
