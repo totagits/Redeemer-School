@@ -10,10 +10,11 @@ const userId = '721ddf68-1c98-4faa-9dc7-9161daa79870';
 const invoiceId = '32f8f4d3-5d2a-4f36-bd4e-fc0f38a44f07';
 
 class FakeClient {
-  constructor({ invoice = null } = {}) { this.invoice=invoice; this.statements=[]; }
+  constructor({ invoice = null, voidInvoice = null } = {}) { this.invoice=invoice; this.voidInvoice=voidInvoice; this.statements=[]; }
   async query(sql, params=[]) {
     const normalized=sql.replace(/\s+/g,' ').trim(); this.statements.push({sql:normalized,params});
     if(['BEGIN','COMMIT','ROLLBACK'].includes(normalized)) return {rows:[],rowCount:0};
+    if(normalized.includes('FROM fee_invoices fi') && normalized.endsWith('FOR UPDATE')) return this.voidInvoice ? {rows:[this.voidInvoice],rowCount:1}:{rows:[],rowCount:0};
     if(normalized.includes('FROM fee_invoices fi') && normalized.includes('FOR UPDATE OF fi')) return this.invoice ? {rows:[this.invoice],rowCount:1}:{rows:[],rowCount:0};
     if(normalized.startsWith('INSERT INTO payments')) return {rows:[{id:'payment-id',receipt_number:params[6],amount:params[3],currency:params[2],channel:params[4],status:'SUCCEEDED',received_at:'2026-10-22T00:00:00.000Z'}],rowCount:1};
     if(normalized.startsWith('INSERT INTO payment_allocations') || normalized.startsWith('UPDATE fee_invoices') || normalized.startsWith('INSERT INTO audit_events')) return {rows:[{id:'event-id'}],rowCount:1};
@@ -67,4 +68,21 @@ test('a valid partial payment creates a receipt and commits an audit entry',asyn
   assert.ok(clients[0].statements.some(item=>item.sql.startsWith('INSERT INTO payment_allocations')));
   assert.ok(clients[0].statements.some(item=>item.sql.startsWith('INSERT INTO audit_events')));
   assert.equal(clients[0].statements.at(-1).sql,'COMMIT');
+});
+
+test('an unpaid invoice can be voided with a reason and audit trail',async t=>{
+  const {url,clients}=await startServer(t,{id:userId,roles:['FINANCE'],permissions:['finance.write']},{voidInvoice:{id:invoiceId,invoice_number:'INV-VOID',status:'ISSUED',allocated:'0'}});
+  const response=await fetch(`${url}/api/operations/finance/invoices/${invoiceId}/void`,{method:'POST',headers,body:JSON.stringify({reason:'Duplicate invoice'})});
+  assert.equal(response.status,200);
+  assert.equal((await response.json()).status,'VOID');
+  assert.ok(clients[0].statements.some(item=>item.sql.startsWith('UPDATE fee_invoices SET status=\'VOID\'')));
+  assert.ok(clients[0].statements.some(item=>item.sql.startsWith('INSERT INTO audit_events')));
+  assert.equal(clients[0].statements.at(-1).sql,'COMMIT');
+});
+
+test('an invoice with any payment allocation cannot be voided',async t=>{
+  const {url,clients}=await startServer(t,{id:userId,roles:['FINANCE'],permissions:['finance.write']},{voidInvoice:{id:invoiceId,invoice_number:'INV-PAID',status:'PARTIALLY_PAID',allocated:'25'}});
+  const response=await fetch(`${url}/api/operations/finance/invoices/${invoiceId}/void`,{method:'POST',headers,body:JSON.stringify({reason:'Duplicate invoice'})});
+  assert.equal(response.status,409);
+  assert.equal(clients[0].statements.some(item=>item.sql.startsWith('UPDATE fee_invoices SET status=\'VOID\'')),false);
 });
