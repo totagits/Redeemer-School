@@ -54,7 +54,7 @@ async function start(t) {
   const pool = new RuntimePool();
   const providerCalls = [];
   const momoClient = {
-    config: { enabled: true, environment: 'SANDBOX', currency: 'LRD', feeRateBps: 250, reason: '' },
+    config: { enabled: true, environment: 'PRODUCTION', currency: 'LRD', feeRateBps: 250, reason: '' },
     async requestToPay(input) { providerCalls.push({ method: 'requestToPay', input }); return { accepted: true, status: 'PENDING', referenceId }; },
     async getRequestStatus(input) { providerCalls.push({ method: 'getRequestStatus', input }); return { status: 'SUCCESSFUL', amount: '1000.00', currency: 'LRD', externalId: intentId, financialTransactionId: 'MTN-TRANSACTION-123', referenceId }; },
   };

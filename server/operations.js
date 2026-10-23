@@ -196,7 +196,7 @@ export function createOperationsRouter({ authenticate, sendInvitation = sendAcco
       await close(req, true);
       return res.json({ invoices: invoices.rows, payments: payments.rows, students: students.rows, years: years.rows,
         momoIntents: momoIntents.rows,
-        momo: { enabled: momoClient.config.enabled, currency: momoClient.config.currency, feeRateBps: momoClient.config.feeRateBps, reason: momoClient.config.reason },
+        momo: { enabled: momoClient.config.enabled, environment: momoClient.config.environment, currency: momoClient.config.currency, feeRateBps: momoClient.config.feeRateBps, reason: momoClient.config.reason },
         canWrite: req.auth.account.permissions.includes('finance.write') });
     } catch (error) { return fail(req, res, error); }
   });
@@ -261,10 +261,29 @@ export function createOperationsRouter({ authenticate, sendInvitation = sendAcco
     } catch (error) { return fail(req, res, error); }
   });
 
+  router.post('/finance/momo/test-connection', needsPermission('finance.write'), csrf, async (req, res) => {
+    if (!momoClient.config.enabled || momoClient.config.environment !== 'SANDBOX') {
+      await close(req, false);
+      return res.status(503).json({ error: momoClient.config.reason || 'The credential check is available only with valid sandbox MTN credentials.' });
+    }
+    try {
+      await close(req, false);
+      const result = await momoClient.testConnection();
+      return res.json({ connected: result.connected, environment: result.environment, currency: result.currency, message: 'MTN sandbox credentials were accepted. This check did not create a payment.' });
+    } catch (error) {
+      await close(req, false).catch(() => {});
+      return res.status(502).json({ error: error instanceof MomoProviderError ? error.message : 'MTN sandbox credentials could not be verified.' });
+    }
+  });
+
   router.post('/finance/momo/intents', needsPermission('finance.write'), csrf, async (req, res) => {
     if (!pool || !momoClient.config.enabled) {
       await close(req, false);
       return res.status(503).json({ error: momoClient.config.reason || 'MTN MoMo is not configured in this environment yet.' });
+    }
+    if (momoClient.config.environment !== 'PRODUCTION') {
+      await close(req, false);
+      return res.status(403).json({ error: 'MTN sandbox uses EUR test transactions. Do not post sandbox test payments against school fee invoices; use the sandbox credential check instead.' });
     }
     const invoiceId = text(req.body?.invoiceId, 50);
     const payerPhone = text(req.body?.payerPhone, 20).replace(/[\s()+-]/g, '');

@@ -24,12 +24,13 @@ export function readMomoConfig(env = process.env) {
     validBase = parsed.protocol === 'https:' && parsed.origin === expectedBaseUrl;
   } catch {}
   const validEnvironment = ['SANDBOX', 'PRODUCTION'].includes(environment);
-  const currency = String(env.MTN_MOMO_CURRENCY || 'LRD').toUpperCase();
+  const currency = String(env.MTN_MOMO_CURRENCY || (environment === 'PRODUCTION' ? 'LRD' : 'EUR')).toUpperCase();
   const apiUser = env.MTN_MOMO_API_USER || '';
   const apiKey = env.MTN_MOMO_API_KEY || '';
   const subscriptionKey = env.MTN_MOMO_SUBSCRIPTION_KEY || '';
   const liveEnabled = String(env.MTN_MOMO_ENABLE_LIVE_COLLECTIONS || '').toLowerCase() === 'true';
-  const configured = validEnvironment && validBase && Boolean(apiUser && apiKey && subscriptionKey) && currency === 'LRD' && (environment !== 'PRODUCTION' || liveEnabled);
+  const currencyValid = environment === 'SANDBOX' ? currency === 'EUR' : currency === 'LRD';
+  const configured = validEnvironment && validBase && Boolean(apiUser && apiKey && subscriptionKey) && currencyValid && (environment !== 'PRODUCTION' || liveEnabled);
   return {
     enabled: configured,
     environment,
@@ -38,7 +39,7 @@ export function readMomoConfig(env = process.env) {
     currency,
     feeRateBps: 250,
     reason: !validEnvironment || !validBase ? 'MTN MoMo endpoint configuration is invalid.'
-      : currency !== 'LRD' ? 'MTN MoMo is configured for LRD collections only.'
+      : !currencyValid ? (environment === 'SANDBOX' ? 'MTN MoMo sandbox uses EUR for test transactions.' : 'MTN MoMo Liberia production collections use LRD.')
         : environment === 'PRODUCTION' && !liveEnabled ? 'Live MTN collections are disabled. Complete sandbox acceptance and explicitly enable live collections before switching this environment.'
           : !configured ? 'MTN MoMo Collection API credentials are not configured.' : '',
   };
@@ -88,7 +89,7 @@ export function createMomoClient({ env = process.env, fetchImpl = fetch } = {}) 
 
   async function requestToPay({ referenceId = randomUUID(), externalId, amount, currency = config.currency, msisdn, payerMessage, payeeNote }) {
     assertConfigured(config);
-    if (currency !== config.currency || currency !== 'LRD') throw new MomoProviderError('MTN MoMo collections are currently enabled for LRD invoices only.');
+    if (currency !== config.currency) throw new MomoProviderError(`MTN MoMo is configured for ${config.currency} transactions in ${config.environment.toLowerCase()}.`);
     if (!/^231\d{9}$/.test(msisdn || '')) throw new MomoProviderError('Enter the payer’s Liberia mobile number in international format, for example 231XXXXXXXXX.');
     const token = await getToken();
     let response;
@@ -148,5 +149,11 @@ export function createMomoClient({ env = process.env, fetchImpl = fetch } = {}) 
     };
   }
 
-  return { config, requestToPay, getRequestStatus };
+  async function testConnection() {
+    assertConfigured(config);
+    await getToken();
+    return { connected: true, environment: config.environment, currency: config.currency };
+  }
+
+  return { config, requestToPay, getRequestStatus, testConnection };
 }
