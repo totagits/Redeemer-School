@@ -49,14 +49,15 @@ class RuntimePool {
   release() {}
 }
 
-async function start(t) {
+async function start(t, environment = 'PRODUCTION') {
   const authClient = new AuthClient();
   const pool = new RuntimePool();
   const providerCalls = [];
+  const currency = environment === 'SANDBOX' ? 'EUR' : 'LRD';
   const momoClient = {
-    config: { enabled: true, environment: 'PRODUCTION', currency: 'LRD', feeRateBps: 250, reason: '' },
-    async requestToPay(input) { providerCalls.push({ method: 'requestToPay', input }); return { accepted: true, status: 'PENDING', referenceId }; },
-    async getRequestStatus(input) { providerCalls.push({ method: 'getRequestStatus', input }); return { status: 'SUCCESSFUL', amount: '1000.00', currency: 'LRD', externalId: intentId, financialTransactionId: 'MTN-TRANSACTION-123', referenceId }; },
+    config: { enabled: true, environment, currency, feeRateBps: 250, reason: '' },
+    async requestToPay(input) { providerCalls.push({ method: 'requestToPay', input }); return { accepted: true, status: 'PENDING', referenceId: input.referenceId || referenceId }; },
+    async getRequestStatus(input) { providerCalls.push({ method: 'getRequestStatus', input }); return { status: 'SUCCESSFUL', amount: environment === 'SANDBOX' ? '1.00' : '1000.00', currency, externalId: intentId, financialTransactionId: 'MTN-TRANSACTION-123', referenceId: input }; },
   };
   const app = express(); app.use(express.json());
   app.use('/api/operations', createOperationsRouter({
@@ -97,4 +98,37 @@ test('Collections request stays pending until status confirms success, then post
   assert.equal(paymentInsert.params[8], '25.00');
   assert.equal(paymentInsert.params[9], 250);
   assert.ok(pool.statements.some(item => item.sql.startsWith('INSERT INTO payment_allocations')));
+});
+
+test('sandbox test request and status check never write a payment or invoice allocation', async t => {
+  const { url, authClient, pool, providerCalls } = await start(t, 'SANDBOX');
+  const createResponse = await fetch(`${url}/api/operations/finance/momo/sandbox-test`, {
+    method: 'POST', headers, body: JSON.stringify({ amount: 1, msisdn: '123456789012' }),
+  });
+  assert.equal(createResponse.status, 202);
+  const created = await createResponse.json();
+  assert.equal(created.status, 'PENDING');
+  assert.ok(created.referenceId);
+  assert.equal(providerCalls[0].method, 'requestToPay');
+  assert.equal(providerCalls[0].input.currency, 'EUR');
+  assert.equal(providerCalls[0].input.msisdn, '123456789012');
+  assert.equal(authClient.statements.some(item => /INSERT INTO (payments|payment_allocations|payment_intents)/i.test(item.sql)), false);
+
+  const checkResponse = await fetch(`${url}/api/operations/finance/momo/sandbox-test/${created.referenceId}/check`, { method: 'POST', headers, body: '{}' });
+  assert.equal(checkResponse.status, 200);
+  const checked = await checkResponse.json();
+  assert.equal(checked.status, 'SUCCESSFUL');
+  assert.equal(checked.currency, 'EUR');
+  assert.equal(providerCalls[1].method, 'getRequestStatus');
+  assert.equal(providerCalls[1].input, created.referenceId);
+  assert.equal(pool.statements.some(item => /INSERT INTO (payments|payment_allocations|payment_intents)|UPDATE fee_invoices/i.test(item.sql)), false);
+});
+
+test('sandbox test rejects real Liberia phone format and amounts above the test cap', async t => {
+  const { url, providerCalls } = await start(t, 'SANDBOX');
+  const realPhone = await fetch(`${url}/api/operations/finance/momo/sandbox-test`, { method: 'POST', headers, body: JSON.stringify({ amount: 1, msisdn: '231770123456' }) });
+  assert.equal(realPhone.status, 400);
+  const excessiveAmount = await fetch(`${url}/api/operations/finance/momo/sandbox-test`, { method: 'POST', headers, body: JSON.stringify({ amount: 101, msisdn: '123456789012' }) });
+  assert.equal(excessiveAmount.status, 400);
+  assert.equal(providerCalls.length, 0);
 });

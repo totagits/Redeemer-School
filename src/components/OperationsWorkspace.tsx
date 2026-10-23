@@ -313,6 +313,9 @@ const FinanceWorkspace: React.FC<{ data: FinanceWorkspaceData; post: PostOperati
   const [working, setWorking] = useState(false); const [error, setError] = useState(''); const [notice, setNotice] = useState('');
   const [checkingIntent, setCheckingIntent] = useState('');
   const [testingMomo, setTestingMomo] = useState(false);
+  const [sendingSandboxTest, setSendingSandboxTest] = useState(false);
+  const [checkingSandboxTest, setCheckingSandboxTest] = useState(false);
+  const [sandboxTest, setSandboxTest] = useState<{ referenceId: string; status: string; message: string } | null>(null);
   const save = (kind: 'invoice' | 'payment') => async (event: React.FormEvent<HTMLFormElement>) => {
     event.preventDefault(); setWorking(true); setError(''); setNotice('');
     const form = event.currentTarget; const values = new FormData(form);
@@ -357,6 +360,25 @@ const FinanceWorkspace: React.FC<{ data: FinanceWorkspaceData; post: PostOperati
     } catch (cause) { setError(cause instanceof Error ? cause.message : 'Could not verify MTN sandbox credentials.'); }
     finally { setTestingMomo(false); }
   };
+  const startSandboxTest = async (event: React.FormEvent<HTMLFormElement>) => {
+    event.preventDefault(); setSendingSandboxTest(true); setError(''); setNotice('');
+    const form = event.currentTarget; const values = new FormData(form);
+    try {
+      const result = await post('finance/momo/sandbox-test', { amount: Number(values.get('amount')), msisdn: values.get('msisdn') });
+      setSandboxTest({ referenceId: String(result.referenceId), status: String(result.status || 'PENDING'), message: String(result.message || 'Sandbox request accepted. Check its status before another test.') });
+      form.reset();
+    } catch (cause) { setError(cause instanceof Error ? cause.message : 'Could not send the MTN sandbox test request.'); }
+    finally { setSendingSandboxTest(false); }
+  };
+  const checkSandboxTest = async () => {
+    if (!sandboxTest) return;
+    setCheckingSandboxTest(true); setError(''); setNotice('');
+    try {
+      const result = await post(`finance/momo/sandbox-test/${encodeURIComponent(sandboxTest.referenceId)}/check`, {});
+      setSandboxTest({ referenceId: sandboxTest.referenceId, status: String(result.status || 'PENDING'), message: String(result.message || `MTN sandbox status: ${result.status || 'PENDING'}.`) });
+    } catch (cause) { setError(cause instanceof Error ? cause.message : 'Could not check the sandbox request status.'); }
+    finally { setCheckingSandboxTest(false); }
+  };
   const outstanding = data.invoices.filter(invoice => ['ISSUED','PARTIALLY_PAID','OVERDUE'].includes(String(invoice.status)) && Number(invoice.balance) > 0);
   return <div className="space-y-6">
     <section className={sectionClass}><div className="mb-4"><p className="text-xs font-bold uppercase tracking-[0.14em] text-blue-700">Finance workspace</p><h2 className="mt-1 text-xl font-extrabold text-slate-950">Fees, invoices & payments</h2><p className="mt-1 text-sm text-slate-600">Balances stay separated by currency. Every issued invoice and payment is recorded against the selected learner.</p></div>
@@ -368,7 +390,7 @@ const FinanceWorkspace: React.FC<{ data: FinanceWorkspaceData; post: PostOperati
       </div>}
       {data.canWrite && <section className="mt-5 rounded-xl border border-amber-200 bg-amber-50 p-4">
         <div className="flex flex-wrap items-start justify-between gap-3"><div><h3 className="font-bold text-slate-950">MTN MoMo Collections</h3><p className="mt-1 max-w-3xl text-sm leading-6 text-slate-700">The payer approves a request on their phone. The school invoice is credited only after MTN confirms success. The confirmed transaction fee is 2.5% of the gross payment; it is tracked as a settlement cost and does not increase the student’s invoice.</p></div><span className={`rounded-full px-3 py-1 text-xs font-bold ${data.momo.enabled ? data.momo.environment === 'SANDBOX' ? 'bg-blue-100 text-blue-800' : 'bg-emerald-100 text-emerald-800' : 'bg-white text-amber-900'}`}>{data.momo.enabled ? data.momo.environment === 'SANDBOX' ? 'Sandbox' : 'Connected' : 'Not configured'}</span></div>
-        {!data.momo.enabled ? <p className="mt-3 text-sm text-amber-900">{data.momo.reason || 'Add the MTN Collections credentials as server-side Coolify secrets to enable this payment method.'} Cash, bank, and manually verified payments remain available.</p> : data.momo.environment === 'SANDBOX' ? <div className="mt-4 rounded-lg border border-blue-200 bg-white p-4"><p className="text-sm leading-6 text-slate-700">MTN sandbox uses <b>EUR test currency</b>. It is separate from school invoices in LRD and USD, so the app will not post sandbox requests to student accounts. Verify the credentials here; this check only requests an authentication token and creates no payment.</p><button type="button" onClick={() => void testMomoConnection()} disabled={testingMomo} className={`${buttonClass} mt-3`}>{testingMomo ? <LoaderCircle className="h-4 w-4 animate-spin"/> : <Check className="h-4 w-4"/>} Test sandbox credentials</button></div> : <form className="mt-4 grid gap-3 sm:grid-cols-2 xl:grid-cols-4" onSubmit={startMomoPayment}>
+        {!data.momo.enabled ? <p className="mt-3 text-sm text-amber-900">{data.momo.reason || 'Add the MTN Collections credentials as server-side Coolify secrets to enable this payment method.'} Cash, bank, and manually verified payments remain available.</p> : data.momo.environment === 'SANDBOX' ? <div className="mt-4 rounded-lg border border-blue-200 bg-white p-4"><p className="text-sm leading-6 text-slate-700">MTN sandbox uses <b>EUR test currency</b>. Sandbox transactions are separate from school invoices in LRD and USD; these tests never create student payments, receipts, or invoice allocations.</p><div className="mt-3 flex flex-wrap gap-2"><button type="button" onClick={() => void testMomoConnection()} disabled={testingMomo} className={buttonClass}>{testingMomo ? <LoaderCircle className="h-4 w-4 animate-spin"/> : <Check className="h-4 w-4"/>} Test sandbox credentials</button></div><form className="mt-4 grid gap-3 sm:grid-cols-3" onSubmit={startSandboxTest}><label className={labelClass}>Test amount (EUR)<input required name="amount" type="number" min="0.01" max="100" step="0.01" defaultValue="1.00" className={inputClass}/></label><label className={labelClass}>Sandbox test number<input required name="msisdn" inputMode="numeric" autoComplete="off" pattern="[0-9]{10,15}" defaultValue="123456789012" className={inputClass}/><span className="mt-1 block text-xs font-normal text-slate-500">Use a sandbox number only. Do not enter a real parent’s phone number.</span></label><div className="flex items-end"><button disabled={sendingSandboxTest || Boolean(sandboxTest && ['PENDING','UNKNOWN'].includes(sandboxTest.status))} className={buttonClass}>{sendingSandboxTest ? <LoaderCircle className="h-4 w-4 animate-spin"/> : <Wallet className="h-4 w-4"/>} Send sandbox test</button></div></form>{sandboxTest && <div className="mt-4 rounded-lg border border-blue-200 bg-blue-50 p-3 text-sm text-blue-950"><p className="font-bold">Request status: {sandboxTest.status}</p><p className="mt-1">{sandboxTest.message}</p><p className="mt-1 break-all text-xs">Reference: {sandboxTest.referenceId}</p>{['PENDING','UNKNOWN'].includes(sandboxTest.status) && <button type="button" onClick={() => void checkSandboxTest()} disabled={checkingSandboxTest} className="mt-3 rounded-lg border border-blue-300 bg-white px-3 py-2 text-xs font-bold text-blue-800 disabled:opacity-60">{checkingSandboxTest ? 'Checking…' : 'Check sandbox status'}</button>}</div>}</div> : <form className="mt-4 grid gap-3 sm:grid-cols-2 xl:grid-cols-4" onSubmit={startMomoPayment}>
           <label className={labelClass}>Outstanding LRD invoice<select required name="invoiceId" className={inputClass}><option value="">Choose LRD invoice</option>{outstanding.filter(invoice => invoice.currency === data.momo.currency).map(invoice=><option key={invoice.id} value={invoice.id!}>{invoice.invoice_number} · {invoice.first_name} {invoice.last_name} · {invoice.currency} {Number(invoice.balance).toFixed(2)} due</option>)}</select></label>
           <label className={labelClass}>Amount to collect<input required name="amount" type="number" min="0.01" step="0.01" className={inputClass}/></label>
           <label className={labelClass}>Payer mobile number<input required name="payerPhone" inputMode="tel" autoComplete="tel" placeholder="231XXXXXXXXX" pattern="\\+?231[0-9]{9}" className={inputClass}/><span className="mt-1 block text-xs font-normal text-slate-500">Use the Liberia country code 231 followed by 9 digits. +231 format is accepted too.</span></label>

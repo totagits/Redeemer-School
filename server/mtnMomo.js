@@ -90,7 +90,10 @@ export function createMomoClient({ env = process.env, fetchImpl = fetch } = {}) 
   async function requestToPay({ referenceId = randomUUID(), externalId, amount, currency = config.currency, msisdn, payerMessage, payeeNote }) {
     assertConfigured(config);
     if (currency !== config.currency) throw new MomoProviderError(`MTN MoMo is configured for ${config.currency} transactions in ${config.environment.toLowerCase()}.`);
-    if (!/^231\d{9}$/.test(msisdn || '')) throw new MomoProviderError('Enter the payer’s Liberia mobile number in international format, for example 231XXXXXXXXX.');
+    const validMsisdn = config.environment === 'SANDBOX' ? /^\d{10,15}$/.test(msisdn || '') : /^231\d{9}$/.test(msisdn || '');
+    if (!validMsisdn) throw new MomoProviderError(config.environment === 'SANDBOX'
+      ? 'Enter a 10–15 digit MTN sandbox test number.'
+      : 'Enter the payer’s Liberia mobile number in international format, for example 231XXXXXXXXX.');
     const token = await getToken();
     let response;
     try {

@@ -69,6 +69,17 @@ test('sandbox request-to-pay uses the MTN test currency EUR and treats 202 as pe
   });
 });
 
+test('sandbox accepts a synthetic MTN test number but production only accepts Liberia MSISDNs', async () => {
+  const fetchImpl = async url => url.endsWith('/collection/token/')
+    ? { ok: true, status: 200, json: async () => ({ access_token: 'test-token', expires_in: 3600 }) }
+    : { ok: false, status: 202, json: async () => ({}) };
+  const sandbox = createMomoClient({ env: configuredEnv, fetchImpl });
+  const result = await sandbox.requestToPay({ amount: 1, currency: 'EUR', msisdn: '123456789012' });
+  assert.equal(result.accepted, true);
+  const production = createMomoClient({ env: { ...configuredEnv, MTN_MOMO_ENVIRONMENT: 'PRODUCTION', MTN_MOMO_CURRENCY: 'LRD', MTN_MOMO_ENABLE_LIVE_COLLECTIONS: 'true' }, fetchImpl: async () => { throw new Error('Should not call provider'); } });
+  await assert.rejects(() => production.requestToPay({ amount: 1, currency: 'LRD', msisdn: '123456789012' }), /Liberia mobile number/i);
+});
+
 test('status lookup reads MTN result but does not equate request acceptance with success', async () => {
   let calls = 0;
   const fetchImpl = async url => {
@@ -89,7 +100,7 @@ test('status lookup reads MTN result but does not equate request acceptance with
 test('request rejects non-Liberia phone and avoids making provider calls', async () => {
   let calls = 0;
   const client = createMomoClient({ env: configuredEnv, fetchImpl: async () => { calls += 1; } });
-  await assert.rejects(() => client.requestToPay({ amount: '10.00', currency: 'EUR', msisdn: '0770123456' }), /Liberia mobile number/i);
+  await assert.rejects(() => client.requestToPay({ amount: '10.00', currency: 'EUR', msisdn: '12345' }), /sandbox test number/i);
   assert.equal(calls, 0);
 });
 

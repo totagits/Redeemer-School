@@ -276,6 +276,50 @@ export function createOperationsRouter({ authenticate, sendInvitation = sendAcco
     }
   });
 
+  // Isolated MTN sandbox exercise: this never creates school payment or invoice records.
+  router.post('/finance/momo/sandbox-test', needsPermission('finance.write'), csrf, async (req, res) => {
+    if (!momoClient.config.enabled || momoClient.config.environment !== 'SANDBOX' || momoClient.config.currency !== 'EUR') {
+      await close(req, false);
+      return res.status(503).json({ error: 'The isolated payment test is available only with valid EUR sandbox credentials.' });
+    }
+    const amount = Number(req.body?.amount);
+    const msisdn = text(req.body?.msisdn, 20).replace(/\D/g, '');
+    if (!Number.isFinite(amount) || amount < 0.01 || amount > 100 || Math.abs(amount * 100 - Math.round(amount * 100)) > 1e-6 || !/^\d{10,15}$/.test(msisdn) || /^231\d{9}$/.test(msisdn)) {
+      await close(req, false);
+      return res.status(400).json({ error: 'Enter an amount from EUR 0.01 to EUR 100.00 and a 10–15 digit sandbox test number.' });
+    }
+    const referenceId = randomUUID();
+    try {
+      await close(req, false);
+      const result = await momoClient.requestToPay({
+        referenceId, externalId: `RIA-SANDBOX-${randomUUID()}`, amount, currency: 'EUR', msisdn,
+        payerMessage: 'Redeemer sandbox integration test', payeeNote: 'Test only; no school invoice',
+      });
+      return res.status(202).json({ referenceId: result.referenceId, status: result.status, message: 'MTN accepted the sandbox request. Check its status below; no student account or invoice was changed.' });
+    } catch (error) {
+      await close(req, false).catch(() => {});
+      if (error instanceof MomoProviderError && error.outcomeUnknown) {
+        return res.status(202).json({ referenceId, status: 'UNKNOWN', message: 'MTN did not confirm whether it received the request. Check this reference before trying again.' });
+      }
+      return res.status(502).json({ error: error instanceof MomoProviderError ? error.message : 'The MTN sandbox request could not be sent.' });
+    }
+  });
+
+  router.post('/finance/momo/sandbox-test/:referenceId/check', needsPermission('finance.write'), csrf, async (req, res) => {
+    if (!momoClient.config.enabled || momoClient.config.environment !== 'SANDBOX' || momoClient.config.currency !== 'EUR') {
+      await close(req, false);
+      return res.status(503).json({ error: 'The isolated payment test is available only with valid EUR sandbox credentials.' });
+    }
+    try {
+      await close(req, false);
+      const status = await momoClient.getRequestStatus(req.params.referenceId);
+      return res.json({ ...status, message: `MTN sandbox status: ${status.status}. No student account or invoice was changed.` });
+    } catch (error) {
+      await close(req, false).catch(() => {});
+      return res.status(502).json({ error: error instanceof MomoProviderError ? error.message : 'MTN sandbox status could not be checked.' });
+    }
+  });
+
   router.post('/finance/momo/intents', needsPermission('finance.write'), csrf, async (req, res) => {
     if (!pool || !momoClient.config.enabled) {
       await close(req, false);
