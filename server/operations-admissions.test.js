@@ -18,6 +18,9 @@ class FakeClient {
     const statement = sql.replace(/\s+/g, ' ').trim();
     this.statements.push({ statement, params });
     if (['BEGIN', 'COMMIT', 'ROLLBACK'].includes(statement)) return { rows: [], rowCount: 0 };
+    if (statement.startsWith('SELECT a.id, a.application_number, a.first_name')) return { rows: [{ id: applicationId, application_number: 'RIA-APP-001', first_name: 'Test', last_name: 'Learner', status: this.applicationStatus, guardians: [], events: [{ eventType: 'APPLICATION_RECEIVED', actor: 'School Admin', occurredAt: '2026-10-23T08:00:00Z' }], requested_class_group_id: null, converted_student_id: null }], rowCount: 1 };
+    if (statement.startsWith('SELECT id, code, name FROM education_levels')) return { rows: [], rowCount: 0 };
+    if (statement.startsWith('SELECT id, name, grade_level FROM class_groups')) return { rows: [{ id: classId, name: 'Grade 4A', grade_level: 'Grade 4' }], rowCount: 1 };
     if (statement.startsWith('SELECT id, application_number, first_name, middle_name, last_name, date_of_birth, sex, campus_id, status, converted_student_id')) {
       return { rows: [{ id: applicationId, application_number: 'RIA-APP-001', first_name: 'Test', middle_name: null, last_name: 'Learner', date_of_birth: '2016-05-11', sex: 'F', campus_id: null, status: this.applicationStatus, converted_student_id: this.convertedStudentId }], rowCount: 1 };
     }
@@ -73,4 +76,14 @@ test('applicant enrollment requires admissions write permission', async t => {
   const response = await fetch(`${url}/api/operations/admissions/${applicationId}/enroll`, { method: 'POST', headers, body: JSON.stringify({ studentNumber: 'RIA-2026-001', classGroupId: classId }) });
   assert.equal(response.status, 403);
   assert.equal(clients[0].statements.at(-1).statement, 'ROLLBACK');
+});
+
+test('admissions directory returns guardian contacts and status activity for each application', async t => {
+  const { url, clients } = await startServer(t, ['admissions.read']);
+  const response = await fetch(`${url}/api/operations/admissions`);
+  const result = await response.json();
+  assert.equal(response.status, 200);
+  assert.equal(result.applications[0].events[0].eventType, 'APPLICATION_RECEIVED');
+  assert.equal(result.applications[0].events[0].actor, 'School Admin');
+  assert.ok(clients[0].statements.some(item => item.statement.includes('event_rows')));
 });

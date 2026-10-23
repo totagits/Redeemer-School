@@ -717,12 +717,23 @@ export function createOperationsRouter({ authenticate, sendInvitation = sendAcco
           a.date_of_birth, a.sex, a.application_date, a.status, a.decision, a.decision_reason, a.notes,
           a.requested_class_group_id, a.converted_student_id,
           el.name AS requested_level, cg.name AS requested_class,
-          COALESCE(json_agg(json_build_object('firstName', ag.first_name, 'lastName', ag.last_name, 'relationship', ag.relationship, 'phone', ag.phone, 'email', ag.email, 'primary', ag.is_primary)) FILTER (WHERE ag.application_id IS NOT NULL), '[]') AS guardians
+          COALESCE(guardian_rows.items, '[]'::json) AS guardians,
+          COALESCE(event_rows.items, '[]'::json) AS events
         FROM admission_applications a
         LEFT JOIN education_levels el ON el.school_id = a.school_id AND el.id = a.requested_level_id
         LEFT JOIN class_groups cg ON cg.school_id = a.school_id AND cg.id = a.requested_class_group_id
-        LEFT JOIN admission_guardians ag ON ag.school_id = a.school_id AND ag.application_id = a.id
-        WHERE a.school_id = $1 GROUP BY a.id, el.name, cg.name ORDER BY a.application_date DESC, a.created_at DESC LIMIT 500`, [schoolId]);
+        LEFT JOIN LATERAL (
+          SELECT json_agg(json_build_object('firstName', ag.first_name, 'lastName', ag.last_name, 'relationship', ag.relationship,
+            'phone', ag.phone, 'email', ag.email, 'primary', ag.is_primary) ORDER BY ag.is_primary DESC, ag.last_name, ag.first_name) AS items
+          FROM admission_guardians ag WHERE ag.school_id = a.school_id AND ag.application_id = a.id
+        ) guardian_rows ON true
+        LEFT JOIN LATERAL (
+          SELECT json_agg(json_build_object('eventType', ae.event_type, 'occurredAt', ae.occurred_at,
+            'actor', actor.full_name, 'details', ae.details) ORDER BY ae.occurred_at DESC) AS items
+          FROM admission_events ae JOIN user_accounts actor ON actor.school_id = ae.school_id AND actor.id = ae.actor_user_id
+          WHERE ae.school_id = a.school_id AND ae.application_id = a.id
+        ) event_rows ON true
+        WHERE a.school_id = $1 ORDER BY a.application_date DESC, a.created_at DESC LIMIT 500`, [schoolId]);
       const options = await req.auth.client.query(`SELECT id, code, name FROM education_levels WHERE school_id = $1 AND active ORDER BY sort_order, name`, [schoolId]);
       const classes = await req.auth.client.query(`SELECT id, name, grade_level FROM class_groups WHERE school_id = $1 ORDER BY grade_level, name`, [schoolId]);
       await close(req, true);
