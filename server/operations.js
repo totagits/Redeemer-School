@@ -95,13 +95,26 @@ async function withTenantTransaction(pool, schoolId, action) {
   } finally { client.release(); }
 }
 
-async function createAndSendInvitation(client, { schoolId, userId, email, fullName, role, createdBy }, sendInvitation) {
+async function createAndSendInvitation(client, { schoolId, userId, email, fullName, role, createdBy }, sendInvitation, { manualLinkFallback = false } = {}) {
   const { token, tokenHash } = createInvitationSecret();
   await client.query(`UPDATE account_invitations SET revoked_at = now()
     WHERE school_id = $1 AND user_id = $2 AND redeemed_at IS NULL AND revoked_at IS NULL`, [schoolId, userId]);
   await client.query(`INSERT INTO account_invitations (school_id, user_id, token_hash, expires_at, created_by)
     VALUES ($1, $2, $3, now() + interval '48 hours', $4)`, [schoolId, userId, tokenHash, createdBy]);
-  await sendInvitation({ email, fullName, role, token });
+  try {
+    await sendInvitation({ email, fullName, role, token });
+    return { emailSent: true };
+  } catch (error) {
+    if (!manualLinkFallback || !(error instanceof InvitationDeliveryError)) throw error;
+    let appUrl;
+    try { appUrl = new URL(process.env.APP_PUBLIC_URL?.trim() || ''); }
+    catch { throw new InvitationDeliveryError('The account was not created because the school setup-link address is not configured correctly.'); }
+    if (appUrl.protocol !== 'https:' || appUrl.username || appUrl.password || appUrl.search || appUrl.hash) {
+      throw new InvitationDeliveryError('The account was not created because the school setup-link address must be a clean HTTPS URL.');
+    }
+    const invitationUrl = new URL(`/set-password?token=${encodeURIComponent(token)}`, `${appUrl.origin}/`).toString();
+    return { emailSent: false, invitationUrl };
+  }
 }
 
 export function createOperationsRouter({ authenticate, sendInvitation = sendAccountInvitation, pool = null, momoClient = createMomoClient() }) {
@@ -1195,9 +1208,11 @@ export function createOperationsRouter({ authenticate, sendInvitation = sendAcco
         const guardian = await req.auth.client.query(`INSERT INTO guardians (school_id, user_id, first_name, last_name, email) VALUES ($1, $2, $3, $4, $5) RETURNING id`, [schoolId, account.rows[0].id, firstName, lastName, email]);
         await req.auth.client.query(`INSERT INTO student_guardians (school_id, student_id, guardian_id, relationship, can_view_results, can_view_finance, communication_consent) VALUES ($1, $2, $3, $4, $5, $6, $7)`, [schoolId, studentId, guardian.rows[0].id, relationship, req.body?.canViewResults !== false, Boolean(req.body?.canViewFinance), Boolean(req.body?.communicationConsent)]);
       }
-      await createAndSendInvitation(req.auth.client, { schoolId, userId: account.rows[0].id, email, fullName, role: type, createdBy: req.auth.claims.userId }, sendInvitation);
+      const delivery = await createAndSendInvitation(req.auth.client, { schoolId, userId: account.rows[0].id, email, fullName, role: type, createdBy: req.auth.claims.userId }, sendInvitation, { manualLinkFallback: true });
       await audit(req, 'PORTAL_ACCOUNT_CREATED', `${type}_PORTAL`, account.rows[0].id, { studentId });
-      return done(req, res, 201, { account: account.rows[0], notice: `Invitation email sent to ${email}. The setup link expires in 48 hours.` });
+      return done(req, res, 201, delivery.emailSent
+        ? { account: account.rows[0], notice: `Invitation email sent to ${email}. The setup link expires in 48 hours.` }
+        : { account: account.rows[0], notice: `Portal account created. Email could not be sent from staging; copy the private setup link below and share it directly with ${email}. It expires in 48 hours and can only be used once.`, invitationUrl: delivery.invitationUrl });
     } catch (error) { return fail(req, res, error); }
   });
 

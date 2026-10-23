@@ -82,6 +82,7 @@ export const OperationsWorkspace: React.FC<Props> = ({ account, csrfToken, busy:
   const [activeWorkspace, setActiveWorkspace] = useState(() => defaultWorkspace(account, initialWorkspace));
   const [mobileNavOpen, setMobileNavOpen] = useState(false);
   const [portalAccountType, setPortalAccountType] = useState<'STUDENT' | 'PARENT'>('STUDENT');
+  const [portalInviteUrl, setPortalInviteUrl] = useState('');
 
   const refresh = useCallback(async () => {
     setLoading(true); setError('');
@@ -128,6 +129,21 @@ export const OperationsWorkspace: React.FC<Props> = ({ account, csrfToken, busy:
     event.preventDefault(); setSaving(true); setError(''); setNotice('');
     try { const successMessage = await action(form); await refresh(); await loadModule(activeWorkspace); setNotice(successMessage || 'Saved to the staging database.'); form.reset(); }
     catch (cause) { setError(cause instanceof Error ? cause.message : 'The request could not be completed.'); }
+    finally { setSaving(false); }
+  };
+
+  const createPortalAccount = async (event: React.FormEvent<HTMLFormElement>) => {
+    const form = event.currentTarget;
+    event.preventDefault(); setSaving(true); setError(''); setNotice(''); setPortalInviteUrl('');
+    try {
+      const data = new FormData(form);
+      const result = await post('portal-accounts', { type: data.get('type'), studentId: data.get('studentId'), fullName: data.get('fullName'), email: data.get('email'), relationship: data.get('relationship'), canViewResults: data.get('canViewResults') === 'on', canViewFinance: data.get('canViewFinance') === 'on', communicationConsent: data.get('communicationConsent') === 'on' });
+      await refresh();
+      setNotice(String(result.notice || 'Portal account created.'));
+      setPortalInviteUrl(typeof result.invitationUrl === 'string' ? result.invitationUrl : '');
+      form.reset(); setPortalAccountType('STUDENT');
+      await loadModule(activeWorkspace);
+    } catch (cause) { setError(cause instanceof Error ? cause.message : 'Could not create the portal account.'); }
     finally { setSaving(false); }
   };
 
@@ -329,9 +345,10 @@ export const OperationsWorkspace: React.FC<Props> = ({ account, csrfToken, busy:
             <p className="mt-3 text-xs leading-5 text-slate-500">This roster form saves the student ID and name with the class enrollment. Open the student profile afterward to add controlled learner and guardian details.</p>
           </section>}
           {activeWorkspace === 'people' && account.permissions.includes('users.manage') && <section className={sectionClass}><div className="mb-4 flex items-center gap-2"><Users className="h-5 w-5 text-blue-700"/><h2 className="text-lg font-extrabold text-slate-950">Student & guardian portal accounts</h2></div>
-            {setup.students.length ? <form className="grid gap-3 sm:grid-cols-2" onSubmit={submit(async form => { const d = new FormData(form); const result = await post('portal-accounts', { type: d.get('type'), studentId: d.get('studentId'), fullName: d.get('fullName'), email: d.get('email'), relationship: d.get('relationship'), canViewResults: d.get('canViewResults') === 'on', canViewFinance: d.get('canViewFinance') === 'on', communicationConsent: d.get('communicationConsent') === 'on' }); return result.notice as string; })}>
+            {setup.students.length ? <form className="grid gap-3 sm:grid-cols-2" onSubmit={createPortalAccount}>
               <label className={labelClass}>Create account for<select name="type" value={portalAccountType} onChange={event => setPortalAccountType(event.target.value as 'STUDENT' | 'PARENT')} className={inputClass}><option value="STUDENT">Student</option><option value="PARENT">Parent / guardian</option></select></label><label className={labelClass}>Link to student<select required name="studentId" defaultValue="" className={inputClass}><option value="">Choose student</option>{setup.students.map(x => <option key={x.id} value={x.id!}>{x.first_name} {x.last_name} · {x.student_number}</option>)}</select></label><label className={labelClass}>Full name<input required name="fullName" autoComplete="name" className={inputClass}/></label><label className={labelClass}>Login email<input required type="email" name="email" autoComplete="email" className={inputClass}/></label>{portalAccountType === 'PARENT' && <><label className={labelClass}>Relationship<input required name="relationship" placeholder="Parent, aunt, guardian" className={inputClass}/></label><div className="space-y-2 self-end text-sm text-slate-700"><label className="flex items-center gap-2"><input type="checkbox" name="canViewResults" defaultChecked/> Guardian may view published grades</label><label className="flex items-center gap-2"><input type="checkbox" name="canViewFinance"/> Guardian may view finance details</label><label className="flex items-center gap-2"><input type="checkbox" name="communicationConsent"/> Guardian consents to school communications</label></div></>}<button type="submit" disabled={saving} className={buttonClass}>{saving ? <LoaderCircle className="h-4 w-4 animate-spin"/> : <Plus className="h-4 w-4"/>} {saving ? 'Creating account…' : 'Create linked portal login'}</button>
             </form> : <div className="rounded-xl border border-blue-200 bg-blue-50 p-4"><p className="font-semibold text-slate-950">Create and enroll a student before creating a portal login.</p><p className="mt-1 text-sm leading-6 text-slate-700">The login must be linked to an existing student record so the portal only shows that learner’s information.</p><button type="button" onClick={() => { if (setup.classes.length && canEnroll) { const section = document.getElementById('student-enrollment-form'); section?.scrollIntoView({ behavior: 'smooth', block: 'center' }); } else if (canConfigure) { setActiveWorkspace('academics'); } else { setNotice('Ask the school administrator to create a class and enroll the student before creating a portal login.'); } }} className="mt-3 rounded-lg bg-blue-700 px-4 py-2.5 text-sm font-bold text-white hover:bg-blue-800">{setup.classes.length && canEnroll ? 'Go to student enrollment' : canConfigure ? 'Open academic setup' : 'Show next steps'}</button></div>}
+            {portalInviteUrl && <div className="mt-4 rounded-xl border border-amber-300 bg-amber-50 p-4 sm:col-span-2"><p className="font-bold text-amber-950">Email was blocked by the staging test-inbox rule.</p><p className="mt-1 text-sm leading-6 text-amber-900">The portal account is created. Copy this private, one-time setup link and send it directly to the user. It expires in 48 hours; don’t post it in a public message.</p><div className="mt-3 flex flex-col gap-2 sm:flex-row"><input aria-label="One-time account setup link" readOnly value={portalInviteUrl} onFocus={event => event.currentTarget.select()} className={`${inputClass} mt-0 min-w-0 flex-1`}/><button type="button" onClick={async () => { try { await navigator.clipboard.writeText(portalInviteUrl); setNotice('Setup link copied. Share it privately with the account holder.'); } catch { setNotice('Select the setup link above and copy it, then share it privately with the account holder.'); } }} className="rounded-lg bg-amber-800 px-4 py-2.5 text-sm font-bold text-white hover:bg-amber-900">Copy setup link</button></div></div>}
             <p className="mt-3 text-xs leading-5 text-slate-500">Student logins are linked to one learner. Guardian access is limited to the linked learner and the permissions selected here.</p>
           </section>}
           {activeWorkspace === 'teaching' && canTakeAttendance && <section className={`${sectionClass} xl:col-span-2`}><div className="mb-4 flex items-center gap-2"><Check className="h-5 w-5 text-blue-700"/><h2 className="text-lg font-extrabold text-slate-950">Teacher class roll call</h2></div>

@@ -4,6 +4,7 @@ import express from 'express';
 import { createServer } from 'node:http';
 import { once } from 'node:events';
 import { createOperationsRouter } from './operations.js';
+import { InvitationDeliveryError } from './invitations.js';
 
 const schoolId = 'b210b463-c02c-4be9-9003-8a9005e8dbe5';
 const adminId = '721ddf68-1c98-4faa-9dc7-9161daa79870';
@@ -23,6 +24,9 @@ class FakeClient {
       : { rows: [], rowCount: 0 };
     if (normalized.startsWith('INSERT INTO user_role_assignments')) return { rows: [{ id: 'role-assignment-id' }], rowCount: 1 };
     if (normalized.startsWith('INSERT INTO staff_records')) return { rows: [{ id: 'staff-record-id' }], rowCount: 1 };
+    if (normalized.startsWith('SELECT id FROM students WHERE school_id = $1 AND id = $2')) return { rows: [{ id: params[1] }], rowCount: 1 };
+    if (normalized.startsWith('SELECT 1 FROM student_portal_links')) return { rows: [], rowCount: 0 };
+    if (normalized.startsWith('INSERT INTO student_portal_links')) return { rows: [{ id: 'student-portal-link-id' }], rowCount: 1 };
     if (normalized.startsWith('UPDATE account_invitations')) return { rows: [], rowCount: 0 };
     if (normalized.startsWith('INSERT INTO account_invitations')) return { rows: [{ id: 'invitation-id' }], rowCount: 1 };
     if (normalized.startsWith('INSERT INTO audit_events')) return { rows: [], rowCount: 1 };
@@ -84,6 +88,24 @@ test('a failed invitation send rolls back account creation', async t => {
   assert.equal(response.status, 500);
   assert.match(result.error, /could not be completed/i);
   assert.equal(clients[0].statements.at(-1).sql, 'ROLLBACK');
+});
+
+test('student portal account is created with a private setup link when staging blocks its email', async t => {
+  const previousUrl = process.env.APP_PUBLIC_URL;
+  process.env.APP_PUBLIC_URL = 'https://redeemer-staging.totag.network';
+  t.after(() => { if (previousUrl === undefined) delete process.env.APP_PUBLIC_URL; else process.env.APP_PUBLIC_URL = previousUrl; });
+  const { url, clients } = await startServer(t, admin, { sendInvitation: async () => { throw new InvitationDeliveryError('Staging recipient not allowlisted.', 400); } });
+  const studentId = '8e28b784-4b78-4dfa-93d1-bec2de816bbe';
+  const response = await fetch(`${url}/api/operations/portal-accounts`, { method: 'POST', headers, body: JSON.stringify({ type: 'STUDENT', studentId, fullName: 'Test Learner', email: 'learner@example.test' }) });
+  const result = await response.json();
+  assert.equal(response.status, 201);
+  assert.equal(result.account.role, 'STUDENT');
+  assert.match(result.notice, /account created/i);
+  assert.match(result.invitationUrl, /^https:\/\/redeemer-staging\.totag\.network\/set-password\?token=/);
+  assert.equal(new URL(result.invitationUrl).searchParams.get('token').length, 43);
+  assert.ok(clients[0].statements.some(item => item.sql.startsWith('INSERT INTO student_portal_links')));
+  assert.ok(clients[0].statements.some(item => item.sql.startsWith('INSERT INTO audit_events')));
+  assert.equal(clients[0].statements.at(-1).sql, 'COMMIT');
 });
 test('staff login provisioning requires users.manage', async t => {
   const account = { id: adminId, roles: ['FINANCE'], permissions: ['finance.read'] };
