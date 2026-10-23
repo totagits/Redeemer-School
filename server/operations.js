@@ -314,9 +314,11 @@ export function createOperationsRouter({ authenticate, sendInvitation = sendAcco
       await close(req, true);
     } catch (error) { return fail(req, res, error); }
 
+    let providerAccepted = false;
     try {
       await momoClient.requestToPay({ referenceId, externalId: intentId, amount: (amountCents / 100).toFixed(2), currency: momoClient.config.currency, msisdn: payerPhone,
         payerMessage: `Redeemer fees ${invoiceNumber}`, payeeNote: `Invoice ${invoiceNumber}` });
+      providerAccepted = true;
       await withTenantTransaction(pool, schoolId, async client => {
         await client.query(`UPDATE payment_intents SET status = 'PENDING', provider_status = 'ACCEPTED' WHERE school_id = $1 AND id = $2 AND status = 'CREATED'`, [schoolId, intentId]);
         await client.query(`INSERT INTO audit_events (school_id, actor_user_id, action, entity_type, entity_id, details)
@@ -325,14 +327,19 @@ export function createOperationsRouter({ authenticate, sendInvitation = sendAcco
       return res.status(202).json({ intent: { id: intentId, invoiceId, amount: (amountCents / 100).toFixed(2), currency: momoClient.config.currency, status: 'PENDING' },
         message: 'The payment request was accepted by MTN. The payer must approve it on their phone; check status before recording it as paid.' });
     } catch (error) {
-      const unknown = error instanceof MomoProviderError && error.outcomeUnknown;
+      const unknown = providerAccepted || (error instanceof MomoProviderError && error.outcomeUnknown);
       const intentStatus = unknown ? 'PENDING' : 'FAILED';
-      const providerStatus = unknown ? 'SUBMISSION_UNKNOWN' : (error instanceof MomoProviderError ? `REJECTED_${error.status || 'ERROR'}` : 'REJECTED_ERROR');
-      await withTenantTransaction(pool, schoolId, async client => {
-        await client.query(`UPDATE payment_intents SET status = $3, provider_status = $4 WHERE school_id = $1 AND id = $2 AND status = 'CREATED'`, [schoolId, intentId, intentStatus, providerStatus]);
-        await client.query(`INSERT INTO audit_events (school_id, actor_user_id, action, entity_type, entity_id, details)
-          VALUES ($1,$2,$3,'PAYMENT_INTENT',$4,$5::jsonb)`, [schoolId, userId, unknown ? 'MTN_MOMO_PAYMENT_REQUEST_OUTCOME_UNKNOWN' : 'MTN_MOMO_PAYMENT_REQUEST_REJECTED', intentId, JSON.stringify({ providerReference: referenceId, providerStatus })]);
-      });
+      const providerStatus = providerAccepted ? 'ACCEPTED_NEEDS_RECONCILIATION' : unknown ? 'SUBMISSION_UNKNOWN' : (error instanceof MomoProviderError ? `REJECTED_${error.status || 'ERROR'}` : 'REJECTED_ERROR');
+      try {
+        await withTenantTransaction(pool, schoolId, async client => {
+          await client.query(`UPDATE payment_intents SET status = $3, provider_status = $4 WHERE school_id = $1 AND id = $2 AND status = 'CREATED'`, [schoolId, intentId, intentStatus, providerStatus]);
+          await client.query(`INSERT INTO audit_events (school_id, actor_user_id, action, entity_type, entity_id, details)
+            VALUES ($1,$2,$3,'PAYMENT_INTENT',$4,$5::jsonb)`, [schoolId, userId, unknown ? 'MTN_MOMO_PAYMENT_REQUEST_OUTCOME_UNKNOWN' : 'MTN_MOMO_PAYMENT_REQUEST_REJECTED', intentId, JSON.stringify({ providerReference: referenceId, providerStatus })]);
+        });
+      } catch {
+        if (unknown) return res.status(202).json({ intent: { id: intentId, invoiceId, amount: (amountCents / 100).toFixed(2), currency: momoClient.config.currency, status: 'PENDING' }, message: 'The request may have reached MTN, but its status could not be saved. Refresh the finance page and check the existing request before trying again.' });
+        return res.status(500).json({ error: 'The MTN request was rejected, but its result could not be saved. Refresh finance before trying again.' });
+      }
       if (unknown) return res.status(202).json({ intent: { id: intentId, invoiceId, amount: (amountCents / 100).toFixed(2), currency: momoClient.config.currency, status: 'PENDING' }, message: 'MTN could not confirm whether the request was accepted. Check status before trying again.' });
       return res.status(502).json({ error: error instanceof MomoProviderError ? error.message : 'MTN MoMo could not start the payment request.' });
     }
