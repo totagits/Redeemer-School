@@ -1234,9 +1234,11 @@ export function createOperationsRouter({ authenticate, sendInvitation = sendAcco
       if (existing.rowCount) {
         const pending = existing.rows[0];
         if (pending.role === role && pending.status === 'ACTIVE' && pending.must_reset_password) {
-          await createAndSendInvitation(req.auth.client, { schoolId, userId: pending.id, email: pending.email, fullName: pending.full_name, role, createdBy: req.auth.claims.userId }, sendInvitation);
+          const delivery = await createAndSendInvitation(req.auth.client, { schoolId, userId: pending.id, email: pending.email, fullName: pending.full_name, role, createdBy: req.auth.claims.userId }, sendInvitation, { manualLinkFallback: true });
           await audit(req, 'STAFF_INVITATION_RESENT', 'STAFF_ACCOUNT', pending.id, { role });
-          return done(req, res, 200, { account: pending, notice: `A new setup link was sent to ${email}. The previous link is no longer valid; the new link expires in 48 hours.` });
+          return done(req, res, 200, delivery.emailSent
+            ? { account: pending, notice: `A new setup link was sent to ${email}. The previous link is no longer valid; the new link expires in 48 hours.` }
+            : { account: pending, notice: `A new setup link was created for ${email}, but staging blocked the email. Copy the private setup link shown below and share it directly; the previous link is no longer valid.`, invitationUrl: delivery.invitationUrl });
         }
         await close(req, false);
         return res.status(409).json({ error: 'That email is already linked to a configured school account. Check the email address or contact the system administrator.' });
@@ -1255,9 +1257,11 @@ export function createOperationsRouter({ authenticate, sendInvitation = sendAcco
       const nameParts = fullName.split(/\s+/);
       await req.auth.client.query(`INSERT INTO staff_records (school_id, user_id, employee_number, first_name, last_name, email, job_title)
         VALUES ($1, $2, $3, $4, $5, $6, $7)`, [schoolId, userId, employeeNumber, nameParts[0], nameParts.slice(1).join(' ') || nameParts[0], email, jobTitle]);
-      await createAndSendInvitation(req.auth.client, { schoolId, userId, email, fullName, role, createdBy: req.auth.claims.userId }, sendInvitation);
+      const delivery = await createAndSendInvitation(req.auth.client, { schoolId, userId, email, fullName, role, createdBy: req.auth.claims.userId }, sendInvitation, { manualLinkFallback: true });
       await audit(req, 'STAFF_ACCOUNT_CREATED', 'STAFF_ACCOUNT', userId, { role, employeeNumber, jobTitle });
-      return done(req, res, 201, { account: account.rows[0], notice: `Invitation email sent to ${email}. The setup link expires in 48 hours.` });
+      return done(req, res, 201, delivery.emailSent
+        ? { account: account.rows[0], notice: `Invitation email sent to ${email}. The setup link expires in 48 hours.` }
+        : { account: account.rows[0], notice: `Staff account created. Staging blocked the email; copy the private setup link shown below and share it directly with ${email}. It expires in 48 hours.`, invitationUrl: delivery.invitationUrl });
     } catch (error) { return fail(req, res, error); }
   });
 
@@ -1280,9 +1284,11 @@ export function createOperationsRouter({ authenticate, sendInvitation = sendAcco
       [schoolId, teacherId, employeeNumber, fullName.split(/\s+/)[0], fullName.split(/\s+/).slice(1).join(' ') || fullName, email]);
       await req.auth.client.query(`INSERT INTO teacher_profiles (school_id, user_id, employee_number, employment_type, active, staff_record_id)
         VALUES ($1, $2, $3, 'FULL_TIME', true, $4)`, [schoolId, teacherId, employeeNumber, staff.rows[0].id]);
-      await createAndSendInvitation(req.auth.client, { schoolId, userId: teacherId, email, fullName, role: 'TEACHER', createdBy: req.auth.claims.userId }, sendInvitation);
+      const delivery = await createAndSendInvitation(req.auth.client, { schoolId, userId: teacherId, email, fullName, role: 'TEACHER', createdBy: req.auth.claims.userId }, sendInvitation, { manualLinkFallback: true });
       await audit(req, 'TEACHER_CREATED', 'TEACHER', teacherId, { employeeNumber });
-      return done(req, res, 201, { teacher: { ...account.rows[0], employee_number: employeeNumber }, notice: `Invitation email sent to ${email}. The setup link expires in 48 hours.` });
+      return done(req, res, 201, delivery.emailSent
+        ? { teacher: { ...account.rows[0], employee_number: employeeNumber }, notice: `Invitation email sent to ${email}. The setup link expires in 48 hours.` }
+        : { teacher: { ...account.rows[0], employee_number: employeeNumber }, notice: `Teacher account created. Staging blocked the email; copy the private setup link shown below and share it directly with ${email}. It expires in 48 hours.`, invitationUrl: delivery.invitationUrl });
     } catch (error) { return fail(req, res, error); }
   });
 

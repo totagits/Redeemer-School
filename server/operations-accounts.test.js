@@ -24,9 +24,13 @@ class FakeClient {
       : { rows: [], rowCount: 0 };
     if (normalized.startsWith('INSERT INTO user_role_assignments')) return { rows: [{ id: 'role-assignment-id' }], rowCount: 1 };
     if (normalized.startsWith('INSERT INTO staff_records')) return { rows: [{ id: 'staff-record-id' }], rowCount: 1 };
+    if (normalized.startsWith('INSERT INTO teacher_profiles')) return { rows: [{ id: 'teacher-profile-id' }], rowCount: 1 };
     if (normalized.startsWith('SELECT id FROM students WHERE school_id = $1 AND id = $2')) return { rows: [{ id: params[1] }], rowCount: 1 };
     if (normalized.startsWith('SELECT 1 FROM student_portal_links')) return { rows: [], rowCount: 0 };
+    if (normalized.startsWith('SELECT 1 FROM student_guardians')) return { rows: [], rowCount: 0 };
     if (normalized.startsWith('INSERT INTO student_portal_links')) return { rows: [{ id: 'student-portal-link-id' }], rowCount: 1 };
+    if (normalized.startsWith('INSERT INTO guardians')) return { rows: [{ id: 'guardian-id' }], rowCount: 1 };
+    if (normalized.startsWith('INSERT INTO student_guardians')) return { rows: [], rowCount: 1 };
     if (normalized.startsWith('UPDATE account_invitations')) return { rows: [], rowCount: 0 };
     if (normalized.startsWith('INSERT INTO account_invitations')) return { rows: [{ id: 'invitation-id' }], rowCount: 1 };
     if (normalized.startsWith('INSERT INTO audit_events')) return { rows: [], rowCount: 1 };
@@ -105,6 +109,37 @@ test('student portal account is created with a private setup link when staging b
   assert.equal(new URL(result.invitationUrl).searchParams.get('token').length, 43);
   assert.ok(clients[0].statements.some(item => item.sql.startsWith('INSERT INTO student_portal_links')));
   assert.ok(clients[0].statements.some(item => item.sql.startsWith('INSERT INTO audit_events')));
+  assert.equal(clients[0].statements.at(-1).sql, 'COMMIT');
+});
+
+test('guardian portal account is created with a private setup link when staging blocks its email', async t => {
+  const previousUrl = process.env.APP_PUBLIC_URL;
+  process.env.APP_PUBLIC_URL = 'https://redeemer-staging.totag.network';
+  t.after(() => { if (previousUrl === undefined) delete process.env.APP_PUBLIC_URL; else process.env.APP_PUBLIC_URL = previousUrl; });
+  const { url, clients } = await startServer(t, admin, { sendInvitation: async () => { throw new InvitationDeliveryError('Staging recipient not allowlisted.', 400); } });
+  const studentId = '8e28b784-4b78-4dfa-93d1-bec2de816bbe';
+  const response = await fetch(`${url}/api/operations/portal-accounts`, { method: 'POST', headers, body: JSON.stringify({ type: 'PARENT', studentId, fullName: 'Test Guardian', email: 'guardian@example.test', relationship: 'Parent' }) });
+  const result = await response.json();
+  assert.equal(response.status, 201);
+  assert.equal(result.account.role, 'PARENT');
+  assert.match(result.invitationUrl, /^https:\/\/redeemer-staging\.totag\.network\/set-password\?token=/);
+  assert.ok(clients[0].statements.some(item => item.sql.startsWith('INSERT INTO guardians')));
+  assert.ok(clients[0].statements.some(item => item.sql.startsWith('INSERT INTO student_guardians')));
+  assert.equal(clients[0].statements.at(-1).sql, 'COMMIT');
+});
+
+test('teacher login is created with a private setup link when staging blocks its email', async t => {
+  const previousUrl = process.env.APP_PUBLIC_URL;
+  process.env.APP_PUBLIC_URL = 'https://redeemer-staging.totag.network';
+  t.after(() => { if (previousUrl === undefined) delete process.env.APP_PUBLIC_URL; else process.env.APP_PUBLIC_URL = previousUrl; });
+  const teacherAdmin = { ...admin, permissions: ['staff.write'] };
+  const { url, clients } = await startServer(t, teacherAdmin, { sendInvitation: async () => { throw new InvitationDeliveryError('Staging recipient not allowlisted.', 400); } });
+  const response = await fetch(`${url}/api/operations/teachers`, { method: 'POST', headers, body: JSON.stringify({ fullName: 'Test Teacher', email: 'teacher@example.test', employeeNumber: 'TEST-T-001' }) });
+  const result = await response.json();
+  assert.equal(response.status, 201);
+  assert.equal(result.teacher.full_name, 'Test Teacher');
+  assert.match(result.invitationUrl, /^https:\/\/redeemer-staging\.totag\.network\/set-password\?token=/);
+  assert.ok(clients[0].statements.some(item => item.sql.startsWith('INSERT INTO teacher_profiles')));
   assert.equal(clients[0].statements.at(-1).sql, 'COMMIT');
 });
 test('staff login provisioning requires users.manage', async t => {
