@@ -14,7 +14,11 @@ type FinanceWorkspaceData = { invoices: Array<Row & { total: string; paid: strin
 type ReportsWorkspaceData = { reports: { students?: Row & { classes: Row[] }; attendance?: Row[]; finance?: Row[]; staff?: Row[] } };
 type AdmissionsWorkspaceData = { applications: Array<Row & { guardians?: Row[] }>; levels: Row[]; classes: Row[]; canWrite: boolean };
 type HrWorkspaceData = { staff: Array<Row & { last_time_entry?: Row | null }>; leaveRequests: Row[]; timeEntries: Row[]; canManage: boolean; canReviewTime: boolean; canClock: boolean; staffId: string | null; openTimeEntry: Row | null };
-type InventoryWorkspaceData = { items: Row[]; locations: Row[]; movements: Row[]; requests: Row[]; orders: Row[]; canWrite: boolean };
+type InventoryRequestLine = Row & { itemId: string; itemName: string; sku: string; unit: string; quantity: string; estimatedUnitCost: string };
+type InventoryRequest = Row & { id: string; request_number: string; status: string; justification: string; estimated_currency: string; purchase_order_id?: string | null; lines: InventoryRequestLine[] };
+type PurchaseOrderLine = Row & { itemId: string; itemName: string; sku: string; unit: string; quantity: string; receivedQuantity: string; unitPrice: string };
+type InventoryOrder = Row & { id: string; purchase_order_number: string; vendor_name: string; currency: string; status: string; lines: PurchaseOrderLine[] };
+type InventoryWorkspaceData = { items: Row[]; locations: Row[]; movements: Row[]; requests: InventoryRequest[]; orders: InventoryOrder[]; canWrite: boolean; canApprove: boolean };
 type CommunicationsWorkspaceData = { announcements: Row[]; deliveries: Row[]; classes: Row[]; canWrite: boolean };
 type OperationalWorkspaceData = StudentsWorkspaceData | FinanceWorkspaceData | ReportsWorkspaceData | AdmissionsWorkspaceData | HrWorkspaceData | InventoryWorkspaceData | CommunicationsWorkspaceData | null;
 const today = () => new Date().toLocaleDateString('en-CA');
@@ -171,7 +175,7 @@ export const OperationsWorkspace: React.FC<Props> = ({ account, csrfToken, busy:
     ...(account.permissions.includes('students.read') ? [{ id: 'students', label: 'Student records', icon: GraduationCap, status: 'partial' as const }] : []),
     ...(account.permissions.includes('finance.read') ? [{ id: 'finance', label: 'Finance', icon: Wallet, status: 'partial' as const }] : []),
     ...(account.permissions.includes('staff.read') ? [{ id: 'staff', label: 'Staff & HR', icon: Users, status: 'available' as const }] : []),
-    ...(account.permissions.includes('inventory.read') ? [{ id: 'inventory', label: 'Inventory & procurement', icon: Boxes, status: 'partial' as const }] : []),
+    ...(account.permissions.includes('inventory.read') ? [{ id: 'inventory', label: 'Inventory & procurement', icon: Boxes, status: 'available' as const }] : []),
     ...(account.permissions.includes('communications.read') ? [{ id: 'communications', label: 'Communications', icon: MessageSquareText, status: 'partial' as const }] : []),
     ...(account.permissions.includes('reports.read') || account.permissions.includes('emis.export') ? [{ id: 'reports', label: 'Reports & EMIS', icon: FileBarChart, status: 'partial' as const }] : []),
     ...(account.permissions.includes('users.manage') ? [{ id: 'accounts', label: 'User access', icon: Settings2, status: 'partial' as const }] : []),
@@ -358,9 +362,159 @@ const HrWorkspace: React.FC<{ data: HrWorkspaceData; post: PostOperation; onSave
 };
 
 const InventoryWorkspace: React.FC<{ data: InventoryWorkspaceData; post: PostOperation; onSaved: () => Promise<void> }> = ({ data, post, onSaved }) => {
-  const [error,setError]=useState('');const [notice,setNotice]=useState('');const [busy,setBusy]=useState(false);
-  const run=async(event:React.FormEvent<HTMLFormElement>,path:string,read:(data:FormData)=>Record<string,unknown>,message:string)=>{event.preventDefault();setBusy(true);setError('');setNotice('');const form=event.currentTarget;try{await post(path,read(new FormData(form)));setNotice(message);form.reset();await onSaved();}catch(e){setError(e instanceof Error?e.message:'Could not save.');}finally{setBusy(false);}};
-  return <div className="space-y-5"><WorkspaceFeedback error={error} notice={notice}/>{data.canWrite&&<div className="grid gap-4 xl:grid-cols-3"><form className={sectionClass} onSubmit={e=>void run(e,'inventory/locations',f=>({code:f.get('code'),name:f.get('name')}),'Location added.')}><h2 className="font-extrabold">Add stock location</h2><label className={`${labelClass} mt-3`}>Code<input required name="code" className={inputClass}/></label><label className={`${labelClass} mt-3`}>Location name<input required name="name" placeholder="Main storeroom" className={inputClass}/></label><button disabled={busy} className={`${buttonClass} mt-3`}>Add location</button></form><form className={sectionClass} onSubmit={e=>void run(e,'inventory/items',f=>({sku:f.get('sku'),name:f.get('name'),category:f.get('category'),unit:f.get('unit'),reorderLevel:f.get('reorderLevel')}),'Inventory item added.')}><h2 className="font-extrabold">Register item</h2><label className={`${labelClass} mt-3`}>SKU<input required name="sku" className={inputClass}/></label><label className={`${labelClass} mt-3`}>Name<input required name="name" className={inputClass}/></label><div className="grid grid-cols-2 gap-2"><label className={`${labelClass} mt-3`}>Category<input required name="category" className={inputClass}/></label><label className={`${labelClass} mt-3`}>Unit<input required name="unit" placeholder="each" className={inputClass}/></label></div><label className={`${labelClass} mt-3`}>Reorder level<input name="reorderLevel" type="number" min="0" step="0.01" defaultValue="0" className={inputClass}/></label><button disabled={busy} className={`${buttonClass} mt-3`}>Add item</button></form><form className={sectionClass} onSubmit={e=>void run(e,'inventory/movements',f=>({itemId:f.get('itemId'),locationId:f.get('locationId'),type:f.get('type'),quantity:f.get('quantity'),reference:f.get('reference'),reason:f.get('reason')}),'Stock movement recorded.')}><h2 className="font-extrabold">Record stock movement</h2><label className={`${labelClass} mt-3`}>Item<select required name="itemId" className={inputClass}><option value="">Select item</option>{data.items.map(x=><option key={x.id} value={x.id!}>{x.name} · {x.sku}</option>)}</select></label><label className={`${labelClass} mt-3`}>Location<select required name="locationId" className={inputClass}><option value="">Select location</option>{data.locations.map(x=><option key={x.id} value={x.id!}>{x.name}</option>)}</select></label><div className="grid grid-cols-2 gap-2"><label className={`${labelClass} mt-3`}>Type<select name="type" className={inputClass}><option value="RECEIPT">Receipt</option><option value="ISSUE">Issue</option><option value="ADJUSTMENT">Adjustment (increase)</option></select></label><label className={`${labelClass} mt-3`}>Quantity<input required name="quantity" type="number" min="0.01" step="0.01" className={inputClass}/></label></div><label className={`${labelClass} mt-3`}>Reference<input name="reference" className={inputClass}/></label><label className={`${labelClass} mt-3`}>Reason<input required name="reason" className={inputClass}/></label><button disabled={busy||!data.items.length||!data.locations.length} className={`${buttonClass} mt-3`}>Save movement</button></form></div>}<section className={sectionClass}><h2 className="text-lg font-extrabold">Stock on hand</h2>{!data.locations.length&&<p className="mt-2 rounded-lg bg-amber-50 p-3 text-sm text-amber-900">Add a location before recording receipts or issues.</p>}<div className="mt-3 overflow-x-auto"><table className="w-full min-w-[650px] text-left text-sm"><thead className="border-b text-xs uppercase text-slate-500"><tr><th className="py-2 pr-3">SKU</th><th className="py-2 pr-3">Item</th><th className="py-2 pr-3">Category</th><th className="py-2 pr-3">On hand</th><th className="py-2">Reorder at</th></tr></thead><tbody className="divide-y">{data.items.map(x=><tr key={x.id}><td className="py-3 pr-3 font-mono text-xs">{x.sku}</td><td className="py-3 pr-3 font-semibold">{x.name}</td><td className="py-3 pr-3">{x.category}</td><td className="py-3 pr-3 font-bold">{x.on_hand} {x.unit}</td><td className="py-3">{x.reorder_level}{Number(x.on_hand)<Number(x.reorder_level)&&<b className="ml-2 text-amber-700">Reorder</b>}</td></tr>)}</tbody></table></div></section><section className={sectionClass}><h2 className="font-extrabold">Recent movements</h2><div className="mt-3 divide-y">{data.movements.slice(0,30).map(m=><div key={m.id} className="flex flex-wrap justify-between gap-2 py-2 text-sm"><span><b>{m.item_name}</b> · {m.movement_type} {m.quantity} · {m.location_name}</span><span className="text-slate-500">{new Date(String(m.movement_date)).toLocaleString()} · {m.recorded_by}</span></div>)}{!data.movements.length&&<p className="py-3 text-sm text-slate-500">No stock movement recorded.</p>}</div></section></div>;
+  const [error, setError] = useState('');
+  const [notice, setNotice] = useState('');
+  const [busy, setBusy] = useState(false);
+  const [requestLines, setRequestLines] = useState([{ itemId: '', quantity: '', estimatedUnitCost: '0', note: '' }]);
+
+  const submitForm = async (event: React.FormEvent<HTMLFormElement>, action: (form: FormData) => Promise<string>) => {
+    event.preventDefault();
+    const form = event.currentTarget;
+    setBusy(true); setError(''); setNotice('');
+    try {
+      const message = await action(new FormData(form));
+      setNotice(message);
+      form.reset();
+      await onSaved();
+    } catch (cause) {
+      setError(cause instanceof Error ? cause.message : 'The inventory action could not be completed.');
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const decideRequest = async (requestId: string, decision: 'APPROVE' | 'REJECT') => {
+    const reason = decision === 'REJECT' ? window.prompt('Please enter a reason for rejecting this request:')?.trim() || '' : '';
+    if (decision === 'REJECT' && !reason) return;
+    setBusy(true); setError(''); setNotice('');
+    try {
+      await post(`inventory/requests/${requestId}/decision`, { decision, reason });
+      setNotice(decision === 'APPROVE' ? 'Procurement request approved.' : 'Procurement request rejected with a recorded reason.');
+      await onSaved();
+    } catch (cause) {
+      setError(cause instanceof Error ? cause.message : 'The request decision could not be saved.');
+    } finally { setBusy(false); }
+  };
+
+  return <div className="space-y-5">
+    <WorkspaceFeedback error={error} notice={notice}/>
+    {data.canWrite && <div className="grid gap-4 xl:grid-cols-3">
+      <form className={sectionClass} onSubmit={event => void submitForm(event, async form => {
+        await post('inventory/locations', { code: form.get('code'), name: form.get('name') });
+        return 'Stock location added.';
+      })}>
+        <h2 className="font-extrabold">Add stock location</h2>
+        <label className={`${labelClass} mt-3`}>Code<input required name="code" className={inputClass}/></label>
+        <label className={`${labelClass} mt-3`}>Location name<input required name="name" placeholder="Main storeroom" className={inputClass}/></label>
+        <button disabled={busy} className={`${buttonClass} mt-3`}>Add location</button>
+      </form>
+      <form className={sectionClass} onSubmit={event => void submitForm(event, async form => {
+        await post('inventory/items', { sku: form.get('sku'), name: form.get('name'), category: form.get('category'), unit: form.get('unit'), reorderLevel: form.get('reorderLevel') });
+        return 'Inventory item registered.';
+      })}>
+        <h2 className="font-extrabold">Register item</h2>
+        <label className={`${labelClass} mt-3`}>SKU<input required name="sku" className={inputClass}/></label>
+        <label className={`${labelClass} mt-3`}>Name<input required name="name" className={inputClass}/></label>
+        <div className="grid grid-cols-2 gap-2">
+          <label className={`${labelClass} mt-3`}>Category<input required name="category" className={inputClass}/></label>
+          <label className={`${labelClass} mt-3`}>Unit<input required name="unit" placeholder="each" className={inputClass}/></label>
+        </div>
+        <label className={`${labelClass} mt-3`}>Reorder level<input name="reorderLevel" type="number" min="0" step="0.01" defaultValue="0" className={inputClass}/></label>
+        <button disabled={busy} className={`${buttonClass} mt-3`}>Add item</button>
+      </form>
+      <form className={sectionClass} onSubmit={event => void submitForm(event, async form => {
+        await post('inventory/movements', { itemId: form.get('itemId'), locationId: form.get('locationId'), type: form.get('type'), quantity: form.get('quantity'), reference: form.get('reference'), reason: form.get('reason') });
+        return 'Stock movement recorded.';
+      })}>
+        <h2 className="font-extrabold">Record adjustment or issue</h2>
+        <label className={`${labelClass} mt-3`}>Item<select required name="itemId" className={inputClass}><option value="">Select item</option>{data.items.map(item=><option key={item.id} value={item.id!}>{item.name} · {item.sku}</option>)}</select></label>
+        <label className={`${labelClass} mt-3`}>Location<select required name="locationId" className={inputClass}><option value="">Select location</option>{data.locations.map(location=><option key={location.id} value={location.id!}>{location.name}</option>)}</select></label>
+        <div className="grid grid-cols-2 gap-2">
+          <label className={`${labelClass} mt-3`}>Type<select name="type" className={inputClass}><option value="ISSUE">Issue stock</option><option value="ADJUSTMENT">Positive adjustment</option><option value="RECEIPT">Direct receipt</option></select></label>
+          <label className={`${labelClass} mt-3`}>Quantity<input required name="quantity" type="number" min="0.01" step="0.01" className={inputClass}/></label>
+        </div>
+        <label className={`${labelClass} mt-3`}>Reference<input name="reference" className={inputClass}/></label>
+        <label className={`${labelClass} mt-3`}>Reason<input required name="reason" className={inputClass}/></label>
+        <button disabled={busy||!data.items.length||!data.locations.length} className={`${buttonClass} mt-3`}>Save stock movement</button>
+      </form>
+    </div>}
+
+    {data.canWrite && <form className={sectionClass} onSubmit={event => void submitForm(event, async form => {
+      await post('inventory/requests', {
+        justification: form.get('justification'),
+        currency: form.get('currency'),
+        lines: requestLines
+      });
+      setRequestLines([{ itemId: '', quantity: '', estimatedUnitCost: '0', note: '' }]);
+      return 'Procurement request submitted for approval.';
+    })}>
+      <h2 className="text-lg font-extrabold">Request stock purchase</h2>
+      <p className="mt-1 text-sm text-slate-600">Requests are sent to an authorized approver. Stock is not increased until goods are received against an approved purchase order.</p>
+      <label className={`${labelClass} mt-4 max-w-xs`}>Estimate currency<select name="currency" className={inputClass}><option value="LRD">LRD</option><option value="USD">USD</option></select></label>
+      <div className="mt-4 space-y-3">{requestLines.map((line,index)=><div key={index} className="grid gap-3 rounded-lg bg-slate-50 p-3 md:grid-cols-2 xl:grid-cols-4">
+        <label className={labelClass}>Item<select required value={line.itemId} onChange={event=>setRequestLines(current=>current.map((row,rowIndex)=>rowIndex===index?{...row,itemId:event.target.value}:row))} className={inputClass}><option value="">Select item</option>{data.items.filter(item=>!requestLines.some((row,rowIndex)=>rowIndex!==index&&row.itemId===item.id)).map(item=><option key={item.id} value={item.id!}>{item.name} · {item.sku}</option>)}</select></label>
+        <label className={labelClass}>Quantity<input required value={line.quantity} onChange={event=>setRequestLines(current=>current.map((row,rowIndex)=>rowIndex===index?{...row,quantity:event.target.value}:row))} type="number" min="0.01" step="0.01" className={inputClass}/></label>
+        <label className={labelClass}>Estimated unit cost<input required value={line.estimatedUnitCost} onChange={event=>setRequestLines(current=>current.map((row,rowIndex)=>rowIndex===index?{...row,estimatedUnitCost:event.target.value}:row))} type="number" min="0" step="0.01" className={inputClass}/></label>
+        <div className="flex items-end gap-2"><label className={`${labelClass} flex-1`}>Item note<input value={line.note} onChange={event=>setRequestLines(current=>current.map((row,rowIndex)=>rowIndex===index?{...row,note:event.target.value}:row))} maxLength={300} className={inputClass}/></label>{requestLines.length>1&&<button type="button" onClick={()=>setRequestLines(current=>current.filter((_,rowIndex)=>rowIndex!==index))} className="mb-1 rounded-lg border border-slate-300 px-3 py-2 text-sm font-bold">Remove</button>}</div>
+      </div>)}</div>
+      <button type="button" disabled={requestLines.length>=20} onClick={()=>setRequestLines(current=>[...current,{itemId:'',quantity:'',estimatedUnitCost:'0',note:''}])} className="mt-3 rounded-lg border border-blue-200 px-3 py-2 text-sm font-bold text-blue-800 disabled:opacity-50">Add another item</button>
+      <label className={`${labelClass} mt-3`}>Reason for purchase<textarea required name="justification" rows={2} maxLength={1000} className={inputClass}/></label>
+      <button disabled={busy||!data.items.length} className={`${buttonClass} mt-3`}>Submit purchase request</button>
+    </form>}
+
+    <section className={sectionClass}>
+      <h2 className="text-lg font-extrabold">Stock on hand</h2>
+      {!data.locations.length&&<p className="mt-2 rounded-lg bg-amber-50 p-3 text-sm text-amber-900">Add a location before recording receipts or issues.</p>}
+      <div className="mt-3 overflow-x-auto"><table className="w-full min-w-[650px] text-left text-sm"><thead className="border-b text-xs uppercase text-slate-500"><tr><th className="py-2 pr-3">SKU</th><th className="py-2 pr-3">Item</th><th className="py-2 pr-3">Category</th><th className="py-2 pr-3">On hand</th><th className="py-2">Reorder at</th></tr></thead><tbody className="divide-y">{data.items.map(item=><tr key={item.id}><td className="py-3 pr-3 font-mono text-xs">{item.sku}</td><td className="py-3 pr-3 font-semibold">{item.name}</td><td className="py-3 pr-3">{item.category}</td><td className="py-3 pr-3 font-bold">{item.on_hand} {item.unit}</td><td className="py-3">{item.reorder_level}{Number(item.on_hand)<Number(item.reorder_level)&&<b className="ml-2 text-amber-700">Reorder</b>}</td></tr>)}</tbody></table>{!data.items.length&&<p className="py-4 text-sm text-slate-500">No inventory items yet.</p>}</div>
+    </section>
+
+    <section className={sectionClass}>
+      <h2 className="text-lg font-extrabold">Procurement requests</h2>
+      <div className="mt-3 space-y-3">{data.requests.map(request=><article key={request.id} className="rounded-xl border border-slate-200 p-4">
+        <div className="flex flex-wrap items-start justify-between gap-3">
+          <div><h3 className="font-bold">{request.request_number} · {request.status}</h3><p className="mt-1 text-sm text-slate-600">{request.justification}</p><p className="mt-1 text-xs text-slate-500">Requested by {request.requested_by} · {new Date(String(request.created_at)).toLocaleString()}</p></div>
+          {data.canApprove&&request.status==='SUBMITTED'&&<div className="flex gap-2"><button disabled={busy} onClick={()=>void decideRequest(request.id,'APPROVE')} className="rounded-lg bg-emerald-700 px-3 py-2 text-xs font-bold text-white">Approve</button><button disabled={busy} onClick={()=>void decideRequest(request.id,'REJECT')} className="rounded-lg border border-red-200 px-3 py-2 text-xs font-bold text-red-700">Reject</button></div>}
+        </div>
+        <div className="mt-3 overflow-x-auto"><table className="w-full min-w-[420px] text-left text-sm"><thead className="border-b text-xs uppercase text-slate-500"><tr><th className="py-2 pr-3">Item</th><th className="py-2 pr-3">Quantity</th><th className="py-2">Estimated unit cost</th></tr></thead><tbody className="divide-y">{request.lines.map(line=><tr key={line.itemId}><td className="py-2 pr-3">{line.itemName} · {line.sku}</td><td className="py-2 pr-3">{line.quantity} {line.unit}</td><td className="py-2">{request.estimated_currency} {line.estimatedUnitCost}</td></tr>)}</tbody></table></div>
+        {request.decision_reason&&<p className="mt-2 text-sm text-red-700">Decision reason: {request.decision_reason}</p>}
+        {data.canWrite&&request.status==='APPROVED'&&!request.purchase_order_id&&<form className="mt-4 grid gap-3 rounded-lg bg-slate-50 p-3 md:grid-cols-4" onSubmit={event=>void submitForm(event,async form=>{
+          const lines=request.lines.map(line=>({itemId:line.itemId,quantity:Number(line.quantity),unitPrice:Number(form.get(`price-${line.itemId}`))}));
+          await post('inventory/orders',{requestId:request.id,vendorName:form.get('vendorName'),currency:form.get('currency'),lines});
+          return 'Purchase order submitted for approval.';
+        })}>
+          <label className={labelClass}>Supplier<input required name="vendorName" maxLength={160} className={inputClass}/></label>
+          <label className={labelClass}>Currency<select name="currency" className={inputClass}><option value="LRD">LRD</option><option value="USD">USD</option></select></label>
+          {request.lines.map(line=><label key={line.itemId} className={labelClass}>{line.itemName} unit price<input required name={`price-${line.itemId}`} type="number" min="0" step="0.01" className={inputClass}/></label>)}
+          <div className="flex items-end"><button disabled={busy} className={buttonClass}>Create purchase order</button></div>
+        </form>}
+      </article>)}{!data.requests.length&&<p className="py-4 text-sm text-slate-500">No procurement requests yet.</p>}</div>
+    </section>
+
+    <section className={sectionClass}>
+      <h2 className="text-lg font-extrabold">Purchase orders & goods receiving</h2>
+      <div className="mt-3 space-y-3">{data.orders.map(order=><article key={order.id} className="rounded-xl border border-slate-200 p-4">
+        <div className="flex flex-wrap items-center justify-between gap-2"><div><h3 className="font-bold">{order.purchase_order_number} · {order.vendor_name}</h3><p className="mt-1 text-sm text-slate-600">{order.currency} · {order.status} · {order.ordered_at?new Date(String(order.ordered_at)).toLocaleDateString():'Awaiting approval'}</p></div>
+          {data.canApprove&&order.status==='SUBMITTED'&&<button disabled={busy} onClick={async()=>{setBusy(true);setError('');setNotice('');try{await post(`inventory/orders/${order.id}/approve`,{});setNotice('Purchase order approved. It can now be received into stock.');await onSaved();}catch(cause){setError(cause instanceof Error?cause.message:'Could not approve purchase order.');}finally{setBusy(false);}}} className="rounded-lg bg-emerald-700 px-3 py-2 text-xs font-bold text-white">Approve order</button>}
+        </div>
+        <div className="mt-3 overflow-x-auto"><table className="w-full min-w-[420px] text-left text-sm"><thead className="border-b text-xs uppercase text-slate-500"><tr><th className="py-2 pr-3">Item</th><th className="py-2 pr-3">Ordered</th><th className="py-2 pr-3">Received</th><th className="py-2">Unit price</th></tr></thead><tbody className="divide-y">{order.lines.map(line=><tr key={line.itemId}><td className="py-2 pr-3">{line.itemName} · {line.sku}</td><td className="py-2 pr-3">{line.quantity} {line.unit}</td><td className="py-2 pr-3">{line.receivedQuantity}</td><td className="py-2">{line.unitPrice} {order.currency}</td></tr>)}</tbody></table></div>
+        {data.canWrite&&['APPROVED','PARTIALLY_RECEIVED'].includes(order.status)&&<form className="mt-4 grid gap-3 rounded-lg bg-slate-50 p-3 md:grid-cols-3" onSubmit={event=>void submitForm(event,async form=>{
+          const locationId=String(form.get('locationId')||'');
+          const lines=order.lines.map(line=>({itemId:line.itemId,quantity:Number(form.get(`receive-${line.itemId}`)||0),locationId})).filter(line=>line.quantity>0);
+          await post(`inventory/orders/${order.id}/receive`,{lines});
+          return 'Goods received. Stock balances and the purchase order have been updated.';
+        })}>
+          <label className={labelClass}>Receive into location<select required name="locationId" className={inputClass}><option value="">Select location</option>{data.locations.map(location=><option key={location.id} value={location.id!}>{location.name}</option>)}</select></label>
+          {order.lines.filter(line=>Number(line.quantity)>Number(line.receivedQuantity)).map(line=><label key={line.itemId} className={labelClass}>{line.itemName} outstanding<input name={`receive-${line.itemId}`} type="number" min="0" max={Number(line.quantity)-Number(line.receivedQuantity)} step="0.01" defaultValue="0" className={inputClass}/></label>)}
+          <div className="flex items-end"><button disabled={busy||!data.locations.length} className={buttonClass}>Record goods received</button></div>
+        </form>}
+      </article>)}{!data.orders.length&&<p className="py-4 text-sm text-slate-500">No purchase orders yet.</p>}</div>
+    </section>
+
+    <section className={sectionClass}>
+      <h2 className="font-extrabold">Recent stock movements</h2>
+      <div className="mt-3 divide-y">{data.movements.slice(0,30).map(movement=><div key={movement.id} className="flex flex-wrap justify-between gap-2 py-2 text-sm"><span><b>{movement.item_name}</b> · {movement.movement_type} {movement.quantity} · {movement.location_name} · {movement.reason}</span><span className="text-slate-500">{new Date(String(movement.movement_date)).toLocaleString()} · {movement.recorded_by}</span></div>)}{!data.movements.length&&<p className="py-3 text-sm text-slate-500">No stock movements recorded.</p>}</div>
+    </section>
+  </div>;
 };
 
 const CommunicationsWorkspace: React.FC<{ data: CommunicationsWorkspaceData; post: PostOperation; onSaved: () => Promise<void> }> = ({ data, post, onSaved }) => {

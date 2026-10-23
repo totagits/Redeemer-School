@@ -759,10 +759,20 @@ export function createOperationsRouter({ authenticate, sendInvitation = sendAcco
         req.auth.client.query(`SELECT i.id,i.sku,i.name,i.category,i.unit,i.reorder_level,i.active,COALESCE(sum(CASE WHEN m.movement_type IN ('RECEIPT','TRANSFER_IN') THEN m.quantity WHEN m.movement_type IN ('ISSUE','TRANSFER_OUT') THEN -m.quantity WHEN m.movement_type='ADJUSTMENT' THEN m.quantity ELSE 0 END),0)::numeric AS on_hand FROM inventory_items i LEFT JOIN stock_movements m ON m.school_id=i.school_id AND m.item_id=i.id WHERE i.school_id=$1 GROUP BY i.id ORDER BY i.name`,[schoolId]),
         req.auth.client.query(`SELECT id,code,name FROM inventory_locations WHERE school_id=$1 AND active ORDER BY name`,[schoolId]),
         req.auth.client.query(`SELECT m.id,m.movement_type,m.quantity,m.movement_date,m.reference,m.reason,i.name AS item_name,l.name AS location_name,u.full_name AS recorded_by FROM stock_movements m JOIN inventory_items i ON i.school_id=m.school_id AND i.id=m.item_id JOIN inventory_locations l ON l.school_id=m.school_id AND l.id=m.location_id JOIN user_accounts u ON u.school_id=m.school_id AND u.id=m.recorded_by WHERE m.school_id=$1 ORDER BY m.movement_date DESC LIMIT 200`,[schoolId]),
-        req.auth.client.query(`SELECT id,request_number,status,justification,created_at FROM procurement_requests WHERE school_id=$1 ORDER BY created_at DESC LIMIT 100`,[schoolId]),
-        req.auth.client.query(`SELECT id,purchase_order_number,vendor_name,currency,status,ordered_at FROM purchase_orders WHERE school_id=$1 ORDER BY ordered_at DESC NULLS LAST LIMIT 100`,[schoolId])
+        req.auth.client.query(`SELECT r.id,r.request_number,r.status,r.justification,r.decision_reason,r.created_at,r.estimated_currency,u.full_name AS requested_by,p.id AS purchase_order_id,
+          COALESCE(json_agg(json_build_object('itemId',l.item_id,'sku',i.sku,'itemName',i.name,'unit',i.unit,'quantity',l.quantity,'estimatedUnitCost',l.estimated_unit_cost,'note',l.note)) FILTER (WHERE l.id IS NOT NULL),'[]') AS lines
+          FROM procurement_requests r JOIN user_accounts u ON u.school_id=r.school_id AND u.id=r.requested_by
+          LEFT JOIN procurement_request_lines l ON l.school_id=r.school_id AND l.procurement_request_id=r.id
+          LEFT JOIN inventory_items i ON i.school_id=l.school_id AND i.id=l.item_id
+          LEFT JOIN purchase_orders p ON p.school_id=r.school_id AND p.procurement_request_id=r.id
+          WHERE r.school_id=$1 GROUP BY r.id,u.full_name,p.id ORDER BY r.created_at DESC LIMIT 100`,[schoolId]),
+        req.auth.client.query(`SELECT p.id,p.purchase_order_number,p.vendor_name,p.currency,p.status,p.ordered_at,p.submitted_at,p.approved_at,
+          COALESCE(json_agg(json_build_object('itemId',l.item_id,'sku',i.sku,'itemName',i.name,'unit',i.unit,'quantity',l.quantity,'receivedQuantity',l.received_quantity,'unitPrice',l.unit_price)) FILTER (WHERE l.id IS NOT NULL),'[]') AS lines
+          FROM purchase_orders p LEFT JOIN purchase_order_lines l ON l.school_id=p.school_id AND l.purchase_order_id=p.id
+          LEFT JOIN inventory_items i ON i.school_id=l.school_id AND i.id=l.item_id
+          WHERE p.school_id=$1 GROUP BY p.id ORDER BY p.submitted_at DESC NULLS LAST,p.ordered_at DESC NULLS LAST LIMIT 100`,[schoolId])
       ]);
-      await close(req,true); return res.json({items:items.rows,locations:locations.rows,movements:movements.rows,requests:requests.rows,orders:orders.rows,canWrite:req.auth.account.permissions.includes('inventory.write')});
+      await close(req,true); return res.json({items:items.rows,locations:locations.rows,movements:movements.rows,requests:requests.rows,orders:orders.rows,canWrite:req.auth.account.permissions.includes('inventory.write'),canApprove:req.auth.account.permissions.includes('inventory.approve')});
     } catch(error){return fail(req,res,error);}
   });
 
@@ -783,6 +793,93 @@ export function createOperationsRouter({ authenticate, sendInvitation = sendAcco
     if(!itemId||!locationId||!Number.isFinite(quantity)||quantity<=0||!['RECEIPT','ISSUE','ADJUSTMENT'].includes(type)||!reason){await close(req,false);return res.status(400).json({error:'Enter a valid item, location, positive quantity, movement type, and reason.'});}
     try{const schoolId=req.auth.claims.schoolId; if(type==='ISSUE'){const stock=await req.auth.client.query(`SELECT COALESCE(sum(CASE WHEN movement_type IN ('RECEIPT','TRANSFER_IN') THEN quantity WHEN movement_type IN ('ISSUE','TRANSFER_OUT') THEN -quantity WHEN movement_type='ADJUSTMENT' THEN quantity ELSE 0 END),0) AS on_hand FROM stock_movements WHERE school_id=$1 AND item_id=$2 AND location_id=$3`,[schoolId,itemId,locationId]);if(Number(stock.rows[0].on_hand)<quantity){await close(req,false);return res.status(409).json({error:'Not enough stock is available at this location.'});}}
       const r=await req.auth.client.query(`INSERT INTO stock_movements(school_id,item_id,location_id,movement_type,quantity,reference,reason,recorded_by) SELECT $1,i.id,l.id,$4,$5,NULLIF($6,''),$7,$8 FROM inventory_items i JOIN inventory_locations l ON l.school_id=i.school_id WHERE i.school_id=$1 AND i.id=$2 AND l.id=$3 AND i.active AND l.active RETURNING id,movement_type,quantity,reference,reason,movement_date`,[schoolId,itemId,locationId,type,quantity,reference,reason,req.auth.claims.userId]);if(!r.rowCount){await close(req,false);return res.status(400).json({error:'Choose an active item and location belonging to this school.'});}await audit(req,'INVENTORY_MOVEMENT_RECORDED','STOCK_MOVEMENT',r.rows[0].id,{type,quantity});return done(req,res,201,{movement:r.rows[0]});}catch(error){return fail(req,res,error);}
+  });
+
+  router.post('/inventory/requests', needsPermission('inventory.write'), csrf, async (req, res) => {
+    const justification=text(req.body?.justification,1000); const currency=text(req.body?.currency,3).toUpperCase(); const rawLines=Array.isArray(req.body?.lines)?req.body.lines:[];
+    const lines=rawLines.slice(0,50).map(line=>({itemId:text(line?.itemId,50),quantity:Number(line?.quantity),estimatedUnitCost:Number(line?.estimatedUnitCost||0),note:text(line?.note,300)}));
+    if(!justification||!['LRD','USD'].includes(currency)||lines.length===0||lines.some(line=>!line.itemId||!Number.isFinite(line.quantity)||line.quantity<=0||!Number.isFinite(line.estimatedUnitCost)||line.estimatedUnitCost<0)||new Set(lines.map(line=>line.itemId)).size!==lines.length){
+      await close(req,false); return res.status(400).json({error:'Enter a reason, choose LRD or USD, and add unique items with valid quantities and estimated unit costs.'});
+    }
+    try{
+      const schoolId=req.auth.claims.schoolId; const requestNumber=`PR-${new Date().toISOString().slice(0,10).replaceAll('-','')}-${randomUUID().slice(0,8).toUpperCase()}`;
+      const request=await req.auth.client.query(`INSERT INTO procurement_requests(school_id,request_number,requested_by,status,justification,submitted_at,estimated_currency)
+        VALUES($1,$2,$3,'SUBMITTED',$4,now(),$5) RETURNING id,request_number,status`,[schoolId,requestNumber,req.auth.claims.userId,justification,currency]);
+      for(const line of lines){
+        const saved=await req.auth.client.query(`INSERT INTO procurement_request_lines(school_id,procurement_request_id,item_id,quantity,estimated_unit_cost,note)
+          SELECT $1,$2,i.id,$4,$5,$6 FROM inventory_items i WHERE i.school_id=$1 AND i.id=$3 AND i.active RETURNING id`,[schoolId,request.rows[0].id,line.itemId,line.quantity,line.estimatedUnitCost,line.note]);
+        if(!saved.rowCount){await close(req,false);return res.status(400).json({error:'One selected item is not active or does not belong to this school. Refresh inventory and try again.'});}
+      }
+      await audit(req,'PROCUREMENT_REQUEST_SUBMITTED','PROCUREMENT_REQUEST',request.rows[0].id,{requestNumber,lineCount:lines.length});
+      return done(req,res,201,{request:request.rows[0]});
+    }catch(error){return fail(req,res,error);}
+  });
+
+  router.post('/inventory/requests/:requestId/decision', needsPermission('inventory.approve'), csrf, async(req,res)=>{
+    const decision=text(req.body?.decision,20).toUpperCase(); const reason=text(req.body?.reason,1000);
+    if(!['APPROVE','REJECT'].includes(decision)||(decision==='REJECT'&&!reason)){await close(req,false);return res.status(400).json({error:'Choose approve or reject; a reason is required when rejecting.'});}
+    try{
+      const status=decision==='APPROVE'?'APPROVED':'REJECTED';
+      const result=await req.auth.client.query(`UPDATE procurement_requests SET status=$3,approved_by=CASE WHEN $3='APPROVED' THEN $4 ELSE NULL END,approved_at=CASE WHEN $3='APPROVED' THEN now() ELSE NULL END,decided_at=now(),decision_reason=NULLIF($5,'')
+        WHERE school_id=$1 AND id=$2 AND status='SUBMITTED' RETURNING id,request_number,status,decision_reason`,[req.auth.claims.schoolId,req.params.requestId,status,req.auth.claims.userId,reason]);
+      if(!result.rowCount){await close(req,false);return res.status(409).json({error:'This request is no longer waiting for approval.'});}
+      await audit(req,`PROCUREMENT_REQUEST_${status}`,'PROCUREMENT_REQUEST',result.rows[0].id,{requestNumber:result.rows[0].request_number,reason});
+      return done(req,res,200,{request:result.rows[0]});
+    }catch(error){return fail(req,res,error);}
+  });
+
+  router.post('/inventory/orders', needsPermission('inventory.write'), csrf, async(req,res)=>{
+    const requestId=text(req.body?.requestId,50); const vendorName=text(req.body?.vendorName,160); const currency=text(req.body?.currency,3).toUpperCase(); const rawLines=Array.isArray(req.body?.lines)?req.body.lines:[];
+    const lines=rawLines.slice(0,50).map(line=>({itemId:text(line?.itemId,50),quantity:Number(line?.quantity),unitPrice:Number(line?.unitPrice)}));
+    if(!requestId||!vendorName||!['LRD','USD'].includes(currency)||!lines.length||lines.some(line=>!line.itemId||!Number.isFinite(line.quantity)||line.quantity<=0||!Number.isFinite(line.unitPrice)||line.unitPrice<0)||new Set(lines.map(line=>line.itemId)).size!==lines.length){await close(req,false);return res.status(400).json({error:'Choose an approved request, enter the vendor and currency, and provide valid prices for its items.'});}
+    try{
+      const schoolId=req.auth.claims.schoolId;
+      const request=await req.auth.client.query(`SELECT id,request_number,status FROM procurement_requests WHERE school_id=$1 AND id=$2 FOR UPDATE`,[schoolId,requestId]);
+      if(!request.rowCount||request.rows[0].status!=='APPROVED'){await close(req,false);return res.status(409).json({error:'Only an approved procurement request can become a purchase order.'});}
+      const requested=await req.auth.client.query(`SELECT item_id,quantity FROM procurement_request_lines WHERE school_id=$1 AND procurement_request_id=$2 ORDER BY item_id`,[schoolId,requestId]);
+      const requestedByItem=new Map(requested.rows.map(row=>[row.item_id,Number(row.quantity)]));
+      if(lines.length!==requestedByItem.size||lines.some(line=>!requestedByItem.has(line.itemId)||line.quantity!==requestedByItem.get(line.itemId))){await close(req,false);return res.status(400).json({error:'Purchase order quantities must match every approved request line exactly.'});}
+      const poNumber=`PO-${new Date().toISOString().slice(0,10).replaceAll('-','')}-${randomUUID().slice(0,8).toUpperCase()}`;
+      const order=await req.auth.client.query(`INSERT INTO purchase_orders(school_id,purchase_order_number,vendor_name,currency,status,procurement_request_id,requested_by,submitted_at)
+        VALUES($1,$2,$3,$4,'SUBMITTED',$5,$6,now()) RETURNING id,purchase_order_number,status`,[schoolId,poNumber,vendorName,currency,requestId,req.auth.claims.userId]);
+      for(const line of lines) await req.auth.client.query(`INSERT INTO purchase_order_lines(school_id,purchase_order_id,item_id,quantity,unit_price) VALUES($1,$2,$3,$4,$5)`,[schoolId,order.rows[0].id,line.itemId,line.quantity,line.unitPrice]);
+      await audit(req,'PURCHASE_ORDER_SUBMITTED','PURCHASE_ORDER',order.rows[0].id,{purchaseOrderNumber:poNumber,requestNumber:request.rows[0].request_number,currency});
+      return done(req,res,201,{order:order.rows[0]});
+    }catch(error){return fail(req,res,error);}
+  });
+
+  router.post('/inventory/orders/:orderId/approve', needsPermission('inventory.approve'), csrf, async(req,res)=>{
+    try{
+      const result=await req.auth.client.query(`UPDATE purchase_orders SET status='APPROVED',approved_by=$3,approved_at=now(),ordered_at=now()
+        WHERE school_id=$1 AND id=$2 AND status='SUBMITTED' RETURNING id,purchase_order_number,status,ordered_at`,[req.auth.claims.schoolId,req.params.orderId,req.auth.claims.userId]);
+      if(!result.rowCount){await close(req,false);return res.status(409).json({error:'This purchase order is no longer waiting for approval.'});}
+      await req.auth.client.query(`UPDATE procurement_requests SET status='ORDERED' WHERE school_id=$1 AND id=(SELECT procurement_request_id FROM purchase_orders WHERE school_id=$1 AND id=$2) AND status='APPROVED'`,[req.auth.claims.schoolId,req.params.orderId]);
+      await audit(req,'PURCHASE_ORDER_APPROVED','PURCHASE_ORDER',result.rows[0].id,{purchaseOrderNumber:result.rows[0].purchase_order_number});
+      return done(req,res,200,{order:result.rows[0]});
+    }catch(error){return fail(req,res,error);}
+  });
+
+  router.post('/inventory/orders/:orderId/receive', needsPermission('inventory.write'), csrf, async(req,res)=>{
+    const rawLines=Array.isArray(req.body?.lines)?req.body.lines:[];
+    const lines=rawLines.map(line=>({itemId:text(line?.itemId,50),locationId:text(line?.locationId,50),quantity:Number(line?.quantity)}));
+    if(!lines.length||lines.some(line=>!line.itemId||!line.locationId||!Number.isFinite(line.quantity)||line.quantity<=0)||new Set(lines.map(line=>line.itemId)).size!==lines.length){await close(req,false);return res.status(400).json({error:'Choose a valid stock location and positive received quantity for each unique order item.'});}
+    try{
+      const schoolId=req.auth.claims.schoolId;const orderResult=await req.auth.client.query(`SELECT id,purchase_order_number,status FROM purchase_orders WHERE school_id=$1 AND id=$2 FOR UPDATE`,[schoolId,req.params.orderId]);
+      if(!orderResult.rowCount||!['APPROVED','PARTIALLY_RECEIVED'].includes(orderResult.rows[0].status)){await close(req,false);return res.status(409).json({error:'Only an approved order with goods outstanding can be received.'});}
+      const order=orderResult.rows[0];const orderLines=await req.auth.client.query(`SELECT l.item_id,l.quantity,l.received_quantity,i.name FROM purchase_order_lines l JOIN inventory_items i ON i.school_id=l.school_id AND i.id=l.item_id WHERE l.school_id=$1 AND l.purchase_order_id=$2 ORDER BY l.item_id FOR UPDATE OF l`,[schoolId,order.id]);
+      const lineMap=new Map(orderLines.rows.map(row=>[row.item_id,row]));
+      for(const line of lines){
+        const existing=lineMap.get(line.itemId);if(!existing||line.quantity>Number(existing.quantity)-Number(existing.received_quantity)){await close(req,false);return res.status(400).json({error:'A received quantity exceeds the outstanding quantity on this purchase order.'});}
+        const location=await req.auth.client.query(`SELECT id FROM inventory_locations WHERE school_id=$1 AND id=$2 AND active`,[schoolId,line.locationId]);if(!location.rowCount){await close(req,false);return res.status(400).json({error:'Choose an active stock location belonging to this school.'});}
+        await req.auth.client.query(`INSERT INTO stock_movements(school_id,item_id,location_id,movement_type,quantity,reference,reason,recorded_by) VALUES($1,$2,$3,'RECEIPT',$4,$5,$6,$7)`,[schoolId,line.itemId,line.locationId,line.quantity,order.purchase_order_number,`Goods received against ${order.purchase_order_number}`,req.auth.claims.userId]);
+        await req.auth.client.query(`UPDATE purchase_order_lines SET received_quantity=received_quantity+$4 WHERE school_id=$1 AND purchase_order_id=$2 AND item_id=$3`,[schoolId,order.id,line.itemId,line.quantity]);
+      }
+      const totals=await req.auth.client.query(`SELECT count(*) AS line_count,count(*) FILTER (WHERE received_quantity=quantity) AS complete_count,count(*) FILTER (WHERE received_quantity>0) AS started_count FROM purchase_order_lines WHERE school_id=$1 AND purchase_order_id=$2`,[schoolId,order.id]);
+      const allReceived=Number(totals.rows[0].line_count)===Number(totals.rows[0].complete_count);const anyReceived=Number(totals.rows[0].started_count)>0;const newStatus=allReceived?'RECEIVED':'PARTIALLY_RECEIVED';
+      await req.auth.client.query(`UPDATE purchase_orders SET status=$3,received_at=CASE WHEN $3='RECEIVED' THEN now() ELSE received_at END WHERE school_id=$1 AND id=$2`,[schoolId,order.id,newStatus]);
+      await audit(req,'PURCHASE_ORDER_GOODS_RECEIVED','PURCHASE_ORDER',order.id,{purchaseOrderNumber:order.purchase_order_number,lines:lines.length,complete:allReceived});
+      return done(req,res,200,{status:newStatus,partial:anyReceived&&!allReceived});
+    }catch(error){return fail(req,res,error);}
   });
 
   router.get('/communications', needsPermission('communications.read'), async(req,res)=>{
