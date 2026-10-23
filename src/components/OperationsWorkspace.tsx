@@ -19,10 +19,28 @@ const labelClass = 'block text-sm font-semibold text-slate-700';
 const buttonClass = 'inline-flex items-center justify-center gap-2 rounded-lg bg-blue-700 px-4 py-2.5 text-sm font-bold text-white hover:bg-blue-800 disabled:cursor-wait disabled:opacity-60';
 const sectionClass = 'rounded-2xl border border-slate-200 bg-white p-5 shadow-sm sm:p-6';
 
-interface Props { account: SchoolAccount; csrfToken: string; busy: boolean; error: string; onSignOut: () => void; onPasswordChanged: () => void; }
+interface Props { account: SchoolAccount; csrfToken: string; busy: boolean; error: string; initialWorkspace?: string; onSignOut: () => void; onPasswordChanged: () => void; }
 type PostOperation = (path: string, body: Record<string, unknown>) => Promise<Record<string, unknown>>;
 
-export const OperationsWorkspace: React.FC<Props> = ({ account, csrfToken, busy: signOutBusy, error: authError, onSignOut, onPasswordChanged }) => {
+function canOpenWorkspace(account: SchoolAccount, workspace: string) {
+  const permissions = account.permissions;
+  if (workspace === 'overview') return true;
+  if (workspace === 'students') return permissions.includes('students.read');
+  if (workspace === 'finance') return permissions.includes('finance.read');
+  if (workspace === 'reports') return permissions.includes('reports.read') || permissions.includes('emis.export');
+  if (workspace === 'teaching') return ['attendance.read', 'attendance.write', 'grades.enter', 'grades.moderate', 'grades.publish'].some(permission => permissions.includes(permission));
+  if (workspace === 'curriculum') return ['curriculum.manage', 'curriculum.read', 'academics.configure'].some(permission => permissions.includes(permission));
+  if (workspace === 'people') return ['staff.read', 'staff.write', 'users.manage', 'students.write'].some(permission => permissions.includes(permission));
+  return false;
+}
+
+function defaultWorkspace(account: SchoolAccount, requested?: string) {
+  if (requested && canOpenWorkspace(account, requested)) return requested;
+  if (account.roles.includes('TEACHER') && canOpenWorkspace(account, 'teaching')) return 'teaching';
+  return 'overview';
+}
+
+export const OperationsWorkspace: React.FC<Props> = ({ account, csrfToken, busy: signOutBusy, error: authError, initialWorkspace, onSignOut, onPasswordChanged }) => {
   const [setup, setSetup] = useState<Setup | null>(null);
   const [portal, setPortal] = useState<Portal | null>(null);
   const [dashboard, setDashboard] = useState<Dashboard | null>(null);
@@ -43,7 +61,7 @@ export const OperationsWorkspace: React.FC<Props> = ({ account, csrfToken, busy:
   const [correctionReason, setCorrectionReason] = useState('');
   const [passwordBusy, setPasswordBusy] = useState(false);
   const [passwordError, setPasswordError] = useState('');
-  const [activeWorkspace, setActiveWorkspace] = useState(() => account.roles.includes('TEACHER') ? 'teaching' : 'overview');
+  const [activeWorkspace, setActiveWorkspace] = useState(() => defaultWorkspace(account, initialWorkspace));
   const [mobileNavOpen, setMobileNavOpen] = useState(false);
 
   const refresh = useCallback(async () => {
@@ -162,9 +180,12 @@ export const OperationsWorkspace: React.FC<Props> = ({ account, csrfToken, busy:
   }[label]);
 
   useEffect(() => {
-    setActiveWorkspace(account.roles.includes('TEACHER') ? 'teaching' : 'overview');
+    setActiveWorkspace(defaultWorkspace(account, initialWorkspace));
+    if (initialWorkspace && !canOpenWorkspace(account, initialWorkspace)) {
+      setNotice('Your account does not have permission to open that workspace. You are viewing your overview; use the menu for areas available to your role.');
+    }
     setMobileNavOpen(false);
-  }, [account.id, account.roles]);
+  }, [account.id, account.roles, account.permissions, initialWorkspace]);
 
   if (account.mustResetPassword) return <section className="grid min-h-[calc(100vh-4rem)] place-items-center bg-slate-50 px-4 py-10"><form className="w-full max-w-md rounded-2xl border border-slate-200 bg-white p-6 shadow-xl" onSubmit={async event => {
     event.preventDefault(); setPasswordBusy(true); setPasswordError('');

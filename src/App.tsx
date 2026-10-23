@@ -47,8 +47,14 @@ export default function App() {
   const [csrfToken, setCsrfToken] = useState('');
   const [authLoading, setAuthLoading] = useState(true);
   const [showSignIn, setShowSignIn] = useState(false);
+  const [requestedWorkspace, setRequestedWorkspace] = useState<string | undefined>();
   const [signOutBusy, setSignOutBusy] = useState(false);
   const [authError, setAuthError] = useState('');
+
+  const openSignIn = (workspace?: string) => {
+    setRequestedWorkspace(workspace);
+    setShowSignIn(true);
+  };
 
   useEffect(() => {
     let active = true;
@@ -89,6 +95,7 @@ export default function App() {
       }
       setAuthAccount(null);
       setCsrfToken('');
+      setRequestedWorkspace(undefined);
       setShowSignIn(false);
     } catch (cause) {
       setAuthError(cause instanceof Error ? cause.message : 'Could not reach the sign-out service.');
@@ -501,18 +508,18 @@ export default function App() {
       <div className="min-h-screen bg-slate-50 flex flex-col font-sans">
         {!authAccount && <Header
           currentView="home"
-          onSelectView={() => setShowSignIn(false)}
+          onSelectView={() => { setRequestedWorkspace(undefined); setShowSignIn(false); }}
           lowStockCount={0}
-          onSignIn={() => setShowSignIn(true)}
+          onSignIn={() => openSignIn()}
         />}
         <main className="flex-1">
           {authLoading ? (
             <div className="grid min-h-[60vh] place-items-center text-sm font-medium text-slate-600">Checking staging sign-in…</div>
           ) : authAccount ? (
-            <OperationsWorkspace account={authAccount} csrfToken={csrfToken} busy={signOutBusy} error={authError} onSignOut={handleSignOut} onPasswordChanged={() => setAuthAccount(current => current ? { ...current, mustResetPassword: false } : current)} />
+            <OperationsWorkspace account={authAccount} csrfToken={csrfToken} busy={signOutBusy} error={authError} initialWorkspace={requestedWorkspace} onSignOut={handleSignOut} onPasswordChanged={() => setAuthAccount(current => current ? { ...current, mustResetPassword: false } : current)} />
           ) : showSignIn ? (
             <SignInPage
-              onCancel={() => setShowSignIn(false)}
+              onCancel={() => { setRequestedWorkspace(undefined); setShowSignIn(false); }}
               onSignedIn={(account, token) => {
                 setAuthAccount(account);
                 setCsrfToken(token);
@@ -541,12 +548,12 @@ export default function App() {
         currentView={currentView}
         onSelectView={setCurrentView}
         lowStockCount={lowStockCount}
-        onSignIn={() => setShowSignIn(true)}
+        onSignIn={() => openSignIn()}
       />
 
       {/* Main Content Area */}
       <main className={`flex-1 ${currentView === 'home' ? 'w-full' : 'max-w-7xl w-full mx-auto px-4 sm:px-6 lg:px-8 py-6'}`}>
-        {currentView === 'home' && <HomeLandingPage onSignIn={() => setShowSignIn(true)} />}
+        {currentView === 'home' && <HomeLandingPage onSignIn={openSignIn} />}
         {currentView === 'dashboard' && (
           <DashboardView
             onNavigate={setCurrentView}
