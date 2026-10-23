@@ -12,9 +12,9 @@ Set these on the Redeemer staging application's **Production** environment scope
 | `RESEND_FROM_EMAIL` | `Redeemer ERP Staging <staging@mail.redeemer.totag.network>` |
 | `APP_PUBLIC_URL` | `https://redeemer-staging.totag.network` |
 | `EMAIL_MODE` | `staging` |
-| `EMAIL_ALLOWED_RECIPIENTS` | Comma-separated test inboxes you control |
+| `EMAIL_ALLOWED_RECIPIENTS` | Test inbox address(es) you control, entered once |
 
-Staging email delivery fails closed for any recipient not listed in `EMAIL_ALLOWED_RECIPIENTS`. For several role tests, use separate inbox aliases that deliver to an inbox you control, for example plus-addressing if your email provider supports it. Never add real student, guardian, or staff addresses to the staging allowlist.
+Staging accepts only the approved inboxes and plus-addressed aliases of those inboxes. Add a test inbox you control to `EMAIL_ALLOWED_RECIPIENTS` once; do not change Coolify for each account. For multiple role tests, use unique aliases such as `yourname+teacher@gmail.com`, `yourname+student@gmail.com`, and `yourname+guardian@gmail.com` when your email provider supports plus-addressing. Resend sends each invite to its alias, and those messages arrive in the same controlled inbox. Each alias is the account's staging login email. Never allowlist real student, guardian, or staff addresses in staging.
 
 ## Database migration and deployment
 

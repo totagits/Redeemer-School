@@ -26,6 +26,11 @@ function escapeHtml(value) {
   })[char]);
 }
 
+function testInboxBase(email) {
+  const [local, domain] = email.trim().toLowerCase().split('@');
+  return `${local.split('+', 1)[0]}@${domain}`;
+}
+
 function invitationConfig(email) {
   const apiKey = process.env.RESEND_API_KEY?.trim();
   const from = process.env.RESEND_FROM_EMAIL?.trim();
@@ -49,8 +54,8 @@ function invitationConfig(email) {
   if (mode === 'staging') {
     const allowedRecipients = (process.env.EMAIL_ALLOWED_RECIPIENTS || '')
       .split(',').map(item => item.trim().toLowerCase()).filter(Boolean);
-    if (!allowedRecipients.includes(email.toLowerCase())) {
-      throw new InvitationDeliveryError('Staging invitations can only be sent to approved test inboxes. Add this test email to the staging recipient allowlist in Coolify.', 400);
+    if (!allowedRecipients.includes(testInboxBase(email))) {
+      throw new InvitationDeliveryError('This email is not an approved staging test inbox. Use the approved inbox or a plus-addressed alias that delivers to it.', 400);
     }
   }
 

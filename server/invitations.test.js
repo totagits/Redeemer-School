@@ -55,6 +55,25 @@ test('staging invitation emails are limited to allowlisted recipients and use co
   });
 });
 
+test('staging accepts distinct plus-addressed test accounts for one approved inbox', async () => {
+  await withEnv({
+    RESEND_API_KEY: 're_test_only',
+    RESEND_FROM_EMAIL: 'Redeemer ERP Staging <staging@mail.redeemer.totag.network>',
+    APP_PUBLIC_URL: 'https://redeemer-staging.totag.network',
+    EMAIL_MODE: 'staging',
+    EMAIL_ALLOWED_RECIPIENTS: 'tester@example.test',
+  }, async () => {
+    const originalFetch = globalThis.fetch;
+    let request;
+    globalThis.fetch = async (url, options) => { request = { url, options }; return { ok: true, status: 200 }; };
+    try {
+      await sendAccountInvitation({ email: 'tester+teacher@example.test', fullName: 'Test Teacher', role: 'TEACHER', token: 'x'.repeat(43) });
+      const body = JSON.parse(request.options.body);
+      assert.deepEqual(body.to, ['tester+teacher@example.test']);
+    } finally { globalThis.fetch = originalFetch; }
+  });
+});
+
 test('staging invitation email fails closed for recipients outside the test allowlist', async () => {
   await withEnv({
     RESEND_API_KEY: 're_test_only',
@@ -65,7 +84,7 @@ test('staging invitation email fails closed for recipients outside the test allo
   }, async () => {
     await assert.rejects(
       sendAccountInvitation({ email: 'parent@example.test', fullName: 'Test Parent', role: 'PARENT', token: 'x'.repeat(43) }),
-      /approved test inboxes/
+      /approved staging test inbox/
     );
   });
 });
