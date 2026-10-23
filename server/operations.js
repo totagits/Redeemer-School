@@ -95,26 +95,13 @@ async function withTenantTransaction(pool, schoolId, action) {
   } finally { client.release(); }
 }
 
-async function createAndSendInvitation(client, { schoolId, userId, email, fullName, role, createdBy }, sendInvitation, { manualLinkFallback = false } = {}) {
+async function createAndSendInvitation(client, { schoolId, userId, email, fullName, role, createdBy }, sendInvitation) {
   const { token, tokenHash } = createInvitationSecret();
   await client.query(`UPDATE account_invitations SET revoked_at = now()
     WHERE school_id = $1 AND user_id = $2 AND redeemed_at IS NULL AND revoked_at IS NULL`, [schoolId, userId]);
   await client.query(`INSERT INTO account_invitations (school_id, user_id, token_hash, expires_at, created_by)
     VALUES ($1, $2, $3, now() + interval '48 hours', $4)`, [schoolId, userId, tokenHash, createdBy]);
-  try {
-    await sendInvitation({ email, fullName, role, token });
-    return { emailSent: true };
-  } catch (error) {
-    if (!manualLinkFallback || !(error instanceof InvitationDeliveryError)) throw error;
-    let appUrl;
-    try { appUrl = new URL(process.env.APP_PUBLIC_URL?.trim() || ''); }
-    catch { throw new InvitationDeliveryError('The account was not created because the school setup-link address is not configured correctly.'); }
-    if (appUrl.protocol !== 'https:' || appUrl.username || appUrl.password || appUrl.search || appUrl.hash) {
-      throw new InvitationDeliveryError('The account was not created because the school setup-link address must be a clean HTTPS URL.');
-    }
-    const invitationUrl = new URL(`/set-password?token=${encodeURIComponent(token)}`, `${appUrl.origin}/`).toString();
-    return { emailSent: false, invitationUrl };
-  }
+  await sendInvitation({ email, fullName, role, token });
 }
 
 export function createOperationsRouter({ authenticate, sendInvitation = sendAccountInvitation, pool = null, momoClient = createMomoClient() }) {
@@ -1195,9 +1182,17 @@ export function createOperationsRouter({ authenticate, sendInvitation = sendAcco
       const student = await req.auth.client.query('SELECT id FROM students WHERE school_id = $1 AND id = $2', [schoolId, studentId]);
       if (!student.rowCount) { await close(req, false); return res.status(400).json({ error: 'Choose a learner from this school.' }); }
       const existingLink = type === 'STUDENT'
-        ? await req.auth.client.query('SELECT 1 FROM student_portal_links WHERE school_id = $1 AND student_id = $2', [schoolId, studentId])
-        : await req.auth.client.query('SELECT 1 FROM student_guardians sg JOIN guardians g ON g.school_id = sg.school_id AND g.id = sg.guardian_id WHERE sg.school_id = $1 AND sg.student_id = $2 AND g.email = $3', [schoolId, studentId, email]);
-      if (existingLink.rowCount) { await close(req, false); return res.status(409).json({ error: 'This learner already has that portal link.' }); }
+        ? await req.auth.client.query(`SELECT u.id, u.email, u.full_name, u.role, u.status, u.must_reset_password FROM student_portal_links l JOIN user_accounts u ON u.school_id = l.school_id AND u.id = l.user_id WHERE l.school_id = $1 AND l.student_id = $2`, [schoolId, studentId])
+        : await req.auth.client.query(`SELECT u.id, u.email, u.full_name, u.role, u.status, u.must_reset_password FROM student_guardians sg JOIN guardians g ON g.school_id = sg.school_id AND g.id = sg.guardian_id JOIN user_accounts u ON u.school_id = g.school_id AND u.id = g.user_id WHERE sg.school_id = $1 AND sg.student_id = $2 AND lower(g.email) = $3`, [schoolId, studentId, email]);
+      if (existingLink.rowCount) {
+        const pending = existingLink.rows[0];
+        if (pending && pending.email?.toLowerCase() === email && pending.role === type && pending.status === 'ACTIVE' && pending.must_reset_password) {
+          await createAndSendInvitation(req.auth.client, { schoolId, userId: pending.id, email: pending.email, fullName: pending.full_name, role: type, createdBy: req.auth.claims.userId }, sendInvitation);
+          await audit(req, 'PORTAL_INVITATION_RESENT', `${type}_PORTAL`, pending.id, { studentId });
+          return done(req, res, 200, { account: pending, notice: `A new password setup email was sent to ${email}. Any previous setup link is no longer valid.` });
+        }
+        await close(req, false); return res.status(409).json({ error: 'This learner already has a portal account. Pending accounts can receive a new setup email by entering the same account details.' });
+      }
       const passwordHash = await hashPassword(randomBytes(32).toString('base64url'));
       const account = await req.auth.client.query(`INSERT INTO user_accounts (school_id, email, password_hash, full_name, role, status, must_reset_password) VALUES ($1, $2, $3, $4, $5, 'ACTIVE', true) RETURNING id, email, full_name, role`, [schoolId, email, passwordHash, fullName, type]);
       await req.auth.client.query(`INSERT INTO user_role_assignments (school_id, user_id, role_id, assigned_by) SELECT $1, $2, id, $3 FROM school_roles WHERE school_id = $1 AND code = $4`, [schoolId, account.rows[0].id, req.auth.claims.userId, type]);
@@ -1208,11 +1203,9 @@ export function createOperationsRouter({ authenticate, sendInvitation = sendAcco
         const guardian = await req.auth.client.query(`INSERT INTO guardians (school_id, user_id, first_name, last_name, email) VALUES ($1, $2, $3, $4, $5) RETURNING id`, [schoolId, account.rows[0].id, firstName, lastName, email]);
         await req.auth.client.query(`INSERT INTO student_guardians (school_id, student_id, guardian_id, relationship, can_view_results, can_view_finance, communication_consent) VALUES ($1, $2, $3, $4, $5, $6, $7)`, [schoolId, studentId, guardian.rows[0].id, relationship, req.body?.canViewResults !== false, Boolean(req.body?.canViewFinance), Boolean(req.body?.communicationConsent)]);
       }
-      const delivery = await createAndSendInvitation(req.auth.client, { schoolId, userId: account.rows[0].id, email, fullName, role: type, createdBy: req.auth.claims.userId }, sendInvitation, { manualLinkFallback: true });
+      await createAndSendInvitation(req.auth.client, { schoolId, userId: account.rows[0].id, email, fullName, role: type, createdBy: req.auth.claims.userId }, sendInvitation);
       await audit(req, 'PORTAL_ACCOUNT_CREATED', `${type}_PORTAL`, account.rows[0].id, { studentId });
-      return done(req, res, 201, delivery.emailSent
-        ? { account: account.rows[0], notice: `Invitation email sent to ${email}. The setup link expires in 48 hours.` }
-        : { account: account.rows[0], notice: `Portal account created. Email could not be sent from staging; copy the private setup link below and share it directly with ${email}. It expires in 48 hours and can only be used once.`, invitationUrl: delivery.invitationUrl });
+      return done(req, res, 201, { account: account.rows[0], notice: `Portal account created and password setup email sent to ${email}. The setup link expires in 48 hours.` });
     } catch (error) { return fail(req, res, error); }
   });
 
@@ -1234,11 +1227,9 @@ export function createOperationsRouter({ authenticate, sendInvitation = sendAcco
       if (existing.rowCount) {
         const pending = existing.rows[0];
         if (pending.role === role && pending.status === 'ACTIVE' && pending.must_reset_password) {
-          const delivery = await createAndSendInvitation(req.auth.client, { schoolId, userId: pending.id, email: pending.email, fullName: pending.full_name, role, createdBy: req.auth.claims.userId }, sendInvitation, { manualLinkFallback: true });
+          await createAndSendInvitation(req.auth.client, { schoolId, userId: pending.id, email: pending.email, fullName: pending.full_name, role, createdBy: req.auth.claims.userId }, sendInvitation);
           await audit(req, 'STAFF_INVITATION_RESENT', 'STAFF_ACCOUNT', pending.id, { role });
-          return done(req, res, 200, delivery.emailSent
-            ? { account: pending, notice: `A new setup link was sent to ${email}. The previous link is no longer valid; the new link expires in 48 hours.` }
-            : { account: pending, notice: `A new setup link was created for ${email}, but staging blocked the email. Copy the private setup link shown below and share it directly; the previous link is no longer valid.`, invitationUrl: delivery.invitationUrl });
+          return done(req, res, 200, { account: pending, notice: `A new password setup email was sent to ${email}. Any previous setup link is no longer valid.` });
         }
         await close(req, false);
         return res.status(409).json({ error: 'That email is already linked to a configured school account. Check the email address or contact the system administrator.' });
@@ -1257,11 +1248,9 @@ export function createOperationsRouter({ authenticate, sendInvitation = sendAcco
       const nameParts = fullName.split(/\s+/);
       await req.auth.client.query(`INSERT INTO staff_records (school_id, user_id, employee_number, first_name, last_name, email, job_title)
         VALUES ($1, $2, $3, $4, $5, $6, $7)`, [schoolId, userId, employeeNumber, nameParts[0], nameParts.slice(1).join(' ') || nameParts[0], email, jobTitle]);
-      const delivery = await createAndSendInvitation(req.auth.client, { schoolId, userId, email, fullName, role, createdBy: req.auth.claims.userId }, sendInvitation, { manualLinkFallback: true });
+      await createAndSendInvitation(req.auth.client, { schoolId, userId, email, fullName, role, createdBy: req.auth.claims.userId }, sendInvitation);
       await audit(req, 'STAFF_ACCOUNT_CREATED', 'STAFF_ACCOUNT', userId, { role, employeeNumber, jobTitle });
-      return done(req, res, 201, delivery.emailSent
-        ? { account: account.rows[0], notice: `Invitation email sent to ${email}. The setup link expires in 48 hours.` }
-        : { account: account.rows[0], notice: `Staff account created. Staging blocked the email; copy the private setup link shown below and share it directly with ${email}. It expires in 48 hours.`, invitationUrl: delivery.invitationUrl });
+      return done(req, res, 201, { account: account.rows[0], notice: `Staff account created and password setup email sent to ${email}. The setup link expires in 48 hours.` });
     } catch (error) { return fail(req, res, error); }
   });
 
@@ -1270,8 +1259,20 @@ export function createOperationsRouter({ authenticate, sendInvitation = sendAcco
     const employeeNumber = text(req.body?.employeeNumber, 40).toUpperCase();
     if (!fullName || !EMAIL_RE.test(email) || !employeeNumber) { await close(req, false); return res.status(400).json({ error: 'Enter the teacher name, valid email, and employee number.' }); }
     try {
-      const passwordHash = await hashPassword(randomBytes(32).toString('base64url'));
       const schoolId = req.auth.claims.schoolId;
+      const existing = await req.auth.client.query(`SELECT id, email, full_name, role, status, must_reset_password FROM user_accounts WHERE school_id = $1 AND lower(email) = $2 LIMIT 1`, [schoolId, email]);
+      if (existing.rowCount) {
+        const pending = existing.rows[0];
+        const profile = pending.role === 'TEACHER' ? await req.auth.client.query('SELECT 1 FROM teacher_profiles WHERE school_id = $1 AND user_id = $2', [schoolId, pending.id]) : { rowCount: 0 };
+        if (pending.role === 'TEACHER' && pending.status === 'ACTIVE' && pending.must_reset_password && profile.rowCount) {
+          await createAndSendInvitation(req.auth.client, { schoolId, userId: pending.id, email: pending.email, fullName: pending.full_name, role: 'TEACHER', createdBy: req.auth.claims.userId }, sendInvitation);
+          await audit(req, 'TEACHER_INVITATION_RESENT', 'TEACHER', pending.id, { employeeNumber });
+          return done(req, res, 200, { teacher: { ...pending, employee_number: employeeNumber }, notice: `A new password setup email was sent to ${email}. Any previous setup link is no longer valid.` });
+        }
+        await close(req, false);
+        return res.status(409).json({ error: 'That email is already linked to a school account. Pending teacher accounts can receive a new setup email by entering the same email and employee number.' });
+      }
+      const passwordHash = await hashPassword(randomBytes(32).toString('base64url'));
       const account = await req.auth.client.query(`INSERT INTO user_accounts
         (school_id, email, password_hash, full_name, role, status, must_reset_password)
         VALUES ($1, $2, $3, $4, 'TEACHER', 'ACTIVE', true) RETURNING id, email, full_name`,
@@ -1284,11 +1285,9 @@ export function createOperationsRouter({ authenticate, sendInvitation = sendAcco
       [schoolId, teacherId, employeeNumber, fullName.split(/\s+/)[0], fullName.split(/\s+/).slice(1).join(' ') || fullName, email]);
       await req.auth.client.query(`INSERT INTO teacher_profiles (school_id, user_id, employee_number, employment_type, active, staff_record_id)
         VALUES ($1, $2, $3, 'FULL_TIME', true, $4)`, [schoolId, teacherId, employeeNumber, staff.rows[0].id]);
-      const delivery = await createAndSendInvitation(req.auth.client, { schoolId, userId: teacherId, email, fullName, role: 'TEACHER', createdBy: req.auth.claims.userId }, sendInvitation, { manualLinkFallback: true });
+      await createAndSendInvitation(req.auth.client, { schoolId, userId: teacherId, email, fullName, role: 'TEACHER', createdBy: req.auth.claims.userId }, sendInvitation);
       await audit(req, 'TEACHER_CREATED', 'TEACHER', teacherId, { employeeNumber });
-      return done(req, res, 201, delivery.emailSent
-        ? { teacher: { ...account.rows[0], employee_number: employeeNumber }, notice: `Invitation email sent to ${email}. The setup link expires in 48 hours.` }
-        : { teacher: { ...account.rows[0], employee_number: employeeNumber }, notice: `Teacher account created. Staging blocked the email; copy the private setup link shown below and share it directly with ${email}. It expires in 48 hours.`, invitationUrl: delivery.invitationUrl });
+      return done(req, res, 201, { teacher: { ...account.rows[0], employee_number: employeeNumber }, notice: `Teacher account created and password setup email sent to ${email}. The setup link expires in 48 hours.` });
     } catch (error) { return fail(req, res, error); }
   });
 
