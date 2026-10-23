@@ -425,7 +425,12 @@ export function createAuthRouter({ pool, secret, sessionTtlMs = 8 * 60 * 60 * 10
       const result = await pool.query('SELECT user_id FROM app.consume_password_reset($1, $2)', [hashInvitationToken(token), passwordHash]);
       if (!result.rowCount) return res.status(400).json({ error: 'This reset link is invalid, expired, or already used. Request a new password reset link.' });
       return res.status(204).end();
-    } catch {
+    } catch (error) {
+      // Keep the reset token and password out of logs, but retain the database
+      // error code so an operator can diagnose missing grants/functions safely.
+      console.error('Password reset redemption failed:', {
+        code: typeof error?.code === 'string' ? error.code : 'UNKNOWN',
+      });
       return res.status(503).json({ error: 'Password reset is temporarily unavailable. Please try again.' });
     }
   });
