@@ -47,14 +47,29 @@ export default function App() {
   const [csrfToken, setCsrfToken] = useState('');
   const [authLoading, setAuthLoading] = useState(true);
   const [showSignIn, setShowSignIn] = useState(false);
+  const [pathname, setPathname] = useState(window.location.pathname);
   const [requestedWorkspace, setRequestedWorkspace] = useState<string | undefined>();
   const [signOutBusy, setSignOutBusy] = useState(false);
   const [authError, setAuthError] = useState('');
 
+  const navigate = (path: string, replace = false) => {
+    if (replace) window.history.replaceState(null, '', path);
+    else window.history.pushState(null, '', path);
+    setPathname(path);
+  };
+
+  useEffect(() => {
+    const onPopState = () => setPathname(window.location.pathname);
+    window.addEventListener('popstate', onPopState);
+    return () => window.removeEventListener('popstate', onPopState);
+  }, []);
+
   const openSignIn = (workspace?: string) => {
     setRequestedWorkspace(workspace);
     setShowSignIn(true);
+    navigate('/staff');
   };
+  const openPortalSignIn = () => { setRequestedWorkspace(undefined); setShowSignIn(true); navigate('/portal'); };
 
   useEffect(() => {
     let active = true;
@@ -97,6 +112,7 @@ export default function App() {
       setCsrfToken('');
       setRequestedWorkspace(undefined);
       setShowSignIn(false);
+      navigate('/');
     } catch (cause) {
       setAuthError(cause instanceof Error ? cause.message : 'Could not reach the sign-out service.');
     } finally {
@@ -496,12 +512,33 @@ export default function App() {
 
   const lowStockCount = inventory.filter(i => i.currentStock <= i.reorderLevel).length;
 
-  if (window.location.pathname === '/set-password' || window.location.pathname === '/reset-password') {
+  const isPortalAccount = Boolean(authAccount?.roles.some(role => ['STUDENT', 'PARENT'].includes(role)));
+  useEffect(() => {
+    if (!authAccount) return;
+    const destination = isPortalAccount ? '/portal' : '/staff';
+    if (pathname !== destination && pathname !== '/set-password' && pathname !== '/reset-password') navigate(destination, true);
+  }, [authAccount, isPortalAccount]);
+
+  if (pathname === '/set-password' || pathname === '/reset-password') {
     return <InvitationPasswordSetupPage onContinue={() => {
-      window.history.replaceState(null, '', '/');
+      navigate('/staff', true);
       setShowSignIn(true);
     }} />;
   }
+
+  if (authLoading) return <div className="grid min-h-screen place-items-center bg-slate-50 text-sm font-medium text-slate-600">Checking secure school access…</div>;
+
+  if (authAccount) return <div className="min-h-screen bg-slate-50 font-sans">
+    {isPortalAccount ? <div className="border-b border-blue-100 bg-blue-50 px-4 py-2 text-center text-xs font-semibold text-blue-900">Redeemer Student & Family Portal · Installable on your phone · Your view is limited to linked learners</div> : null}
+    <OperationsWorkspace account={authAccount} csrfToken={csrfToken} busy={signOutBusy} error={authError} initialWorkspace={requestedWorkspace} onSignOut={handleSignOut} onPasswordChanged={() => setAuthAccount(current => current ? { ...current, mustResetPassword: false } : current)} />
+  </div>;
+
+  return <div className="min-h-screen bg-white font-sans">
+    <Header currentView="home" onSelectView={() => { setRequestedWorkspace(undefined); setShowSignIn(false); navigate('/'); }} lowStockCount={0} onSignIn={() => openSignIn()} onPortalSignIn={openPortalSignIn} />
+    <main>
+      {pathname === '/staff' || (showSignIn && pathname !== '/portal') ? <SignInPage audience="STAFF" onCancel={() => { setRequestedWorkspace(undefined); setShowSignIn(false); navigate('/'); }} onSignedIn={(account, token) => { setAuthAccount(account); setCsrfToken(token); setAuthError(''); navigate(account.roles.some(role => ['STUDENT', 'PARENT'].includes(role)) ? '/portal' : '/staff', true); }} /> : pathname === '/portal' ? <SignInPage audience="PORTAL" onCancel={() => { setShowSignIn(false); navigate('/'); }} onSignedIn={(account, token) => { setAuthAccount(account); setCsrfToken(token); setAuthError(''); navigate('/portal', true); }} /> : <HomeLandingPage onSignIn={openSignIn} onPortalSignIn={openPortalSignIn} />}
+    </main>
+  </div>;
 
   if (authLoading || authAccount || showSignIn) {
     return (
@@ -516,7 +553,7 @@ export default function App() {
           {authLoading ? (
             <div className="grid min-h-[60vh] place-items-center text-sm font-medium text-slate-600">Checking staging sign-in…</div>
           ) : authAccount ? (
-            <OperationsWorkspace account={authAccount} csrfToken={csrfToken} busy={signOutBusy} error={authError} initialWorkspace={requestedWorkspace} onSignOut={handleSignOut} onPasswordChanged={() => setAuthAccount(current => current ? { ...current, mustResetPassword: false } : current)} />
+            <OperationsWorkspace account={authAccount!} csrfToken={csrfToken} busy={signOutBusy} error={authError} initialWorkspace={requestedWorkspace} onSignOut={handleSignOut} onPasswordChanged={() => setAuthAccount(current => current ? { ...current, mustResetPassword: false } : current)} />
           ) : showSignIn ? (
             <SignInPage
               onCancel={() => { setRequestedWorkspace(undefined); setShowSignIn(false); }}
@@ -553,7 +590,7 @@ export default function App() {
 
       {/* Main Content Area */}
       <main className={`flex-1 ${currentView === 'home' ? 'w-full' : 'max-w-7xl w-full mx-auto px-4 sm:px-6 lg:px-8 py-6'}`}>
-        {currentView === 'home' && <HomeLandingPage onSignIn={openSignIn} />}
+        {currentView === 'home' && <HomeLandingPage onSignIn={openSignIn} onPortalSignIn={openPortalSignIn} />}
         {currentView === 'dashboard' && (
           <DashboardView
             onNavigate={setCurrentView}

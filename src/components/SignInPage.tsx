@@ -15,6 +15,7 @@ export interface SchoolAccount {
 interface SignInPageProps {
   onCancel: () => void;
   onSignedIn: (account: SchoolAccount, csrfToken: string) => void;
+  audience?: 'STAFF' | 'PORTAL';
 }
 
 interface AuthResponse {
@@ -84,7 +85,7 @@ export const InvitationPasswordSetupPage: React.FC<{ onContinue: () => void }> =
   </section>;
 };
 
-export const SignInPage: React.FC<SignInPageProps> = ({ onCancel, onSignedIn }) => {
+export const SignInPage: React.FC<SignInPageProps> = ({ onCancel, onSignedIn, audience = 'STAFF' }) => {
   const [schoolCode, setSchoolCode] = useState('RIA');
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
@@ -103,7 +104,7 @@ export const SignInPage: React.FC<SignInPageProps> = ({ onCancel, onSignedIn }) 
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         credentials: 'same-origin',
-        body: JSON.stringify({ schoolCode, email, password }),
+        body: JSON.stringify({ schoolCode, email, password, audience }),
       });
       const result = await response.json() as AuthResponse;
       if (!response.ok || !result.account || !result.csrfToken) {
@@ -128,11 +129,11 @@ export const SignInPage: React.FC<SignInPageProps> = ({ onCancel, onSignedIn }) 
           <div className="mb-6 flex items-center gap-3">
             <span className="grid h-11 w-11 place-items-center rounded-xl bg-blue-50 text-blue-800"><LockKeyhole className="h-5 w-5" /></span>
             <div>
-              <p className="text-xs font-bold uppercase tracking-[0.16em] text-blue-700">School staff sign-in</p>
-              <h1 className="mt-1 text-xl font-bold text-slate-950">Sign in to Redeemer ERP</h1>
+              <p className="text-xs font-bold uppercase tracking-[0.16em] text-blue-700">{audience === 'PORTAL' ? 'Student & family portal' : 'School staff sign-in'}</p>
+              <h1 className="mt-1 text-xl font-bold text-slate-950">{audience === 'PORTAL' ? 'Sign in to your school portal' : 'Sign in to Redeemer ERP'}</h1>
             </div>
           </div>
-          <p className="mb-6 text-sm leading-6 text-slate-600">Use your school code and the account details provided by your school administrator.</p>
+          <p className="mb-6 text-sm leading-6 text-slate-600">{audience === 'PORTAL' ? 'Use the school code and login details provided by the school. This portal shows only learners linked to your account.' : 'Use your school code and the account details provided by your school administrator.'}</p>
 
           <form onSubmit={handleSubmit} className="space-y-4">
             <label className="block text-sm font-semibold text-slate-700">

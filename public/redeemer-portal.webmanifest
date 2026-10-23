@@ -1,0 +1,14 @@
+{
+  "id": "/portal",
+  "name": "Redeemer Student & Family Portal",
+  "short_name": "Redeemer Portal",
+  "description": "A private school portal for Redeemer learners and guardians.",
+  "start_url": "/portal",
+  "scope": "/",
+  "display": "standalone",
+  "background_color": "#f8fafc",
+  "theme_color": "#071b33",
+  "icons": [
+    { "src": "/redeemer-seal.svg?v=2", "sizes": "any", "type": "image/svg+xml", "purpose": "any maskable" }
+  ]
+}

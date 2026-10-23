@@ -176,6 +176,20 @@ test('login creates a scoped session, GET session validates it, and CSRF protect
   assert.equal(pool.releaseCount, 5);
 });
 
+test('staff credentials are rejected by the family portal login audience before a session is created', async t => {
+  const password = 'Stage-Only-Password-2026!';
+  const pool = new FakePool(await hashPassword(password));
+  const baseUrl = await startServer(t, pool);
+  const response = await fetch(`${baseUrl}/api/auth/login`, {
+    method: 'POST', headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ schoolCode: 'RIA', email: 'admin@redeemer.example', password, audience: 'PORTAL' }),
+  });
+  const result = await response.json();
+  assert.equal(response.status, 403);
+  assert.match(result.error, /staff sign-in/i);
+  assert.equal(pool.sessions.size, 0);
+});
+
 test('authentication stays closed when the runtime database role is privileged', async (t) => {
   const baseUrl = await startServer(t, {
     async query() { return { rows: [{ safe: false }], rowCount: 1 }; },

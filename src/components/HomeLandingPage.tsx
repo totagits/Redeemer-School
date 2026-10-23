@@ -10,6 +10,8 @@ import {
   CircleDollarSign,
   ClipboardCheck,
   GraduationCap,
+  HeartHandshake,
+  Phone,
   ShieldCheck,
   UsersRound,
 } from 'lucide-react';
@@ -17,6 +19,7 @@ import { SCHOOL_CONTACT } from '../data/schoolContact.ts';
 
 interface HomeLandingPageProps {
   onSignIn: (workspace?: string) => void;
+  onPortalSignIn: () => void;
 }
 
 const capabilities = [
@@ -53,7 +56,7 @@ const capabilityTone: Record<string, string> = {
   amber: 'bg-amber-50 text-amber-700 ring-amber-100',
 };
 
-export const HomeLandingPage: React.FC<HomeLandingPageProps> = ({ onSignIn }) => (
+export const HomeLandingPage: React.FC<HomeLandingPageProps> = ({ onSignIn, onPortalSignIn }) => (
   <div className="bg-white text-slate-900">
     <section className="relative isolate overflow-hidden bg-[#071b33] text-white">
       <div className="absolute inset-0 -z-10 bg-[radial-gradient(ellipse_at_78%_22%,rgba(37,99,235,0.30),transparent_42%),radial-gradient(ellipse_at_14%_95%,rgba(14,116,144,0.22),transparent_42%)]" />
@@ -75,6 +78,9 @@ export const HomeLandingPage: React.FC<HomeLandingPageProps> = ({ onSignIn }) =>
           <div className="mt-8 flex flex-col gap-3 sm:flex-row">
             <button onClick={() => onSignIn()} className="group inline-flex items-center justify-center gap-2 rounded-lg bg-white px-5 py-3 text-sm font-bold text-slate-900 shadow-lg shadow-blue-950/25 transition hover:-translate-y-0.5 hover:bg-blue-50 focus:outline-none focus:ring-2 focus:ring-white focus:ring-offset-2 focus:ring-offset-[#071b33]">
               Staff sign in <ArrowRight className="h-4 w-4 transition group-hover:translate-x-0.5" />
+            </button>
+            <button onClick={onPortalSignIn} className="inline-flex items-center justify-center gap-2 rounded-lg border border-white/25 px-5 py-3 text-sm font-semibold text-white transition hover:border-white/45 hover:bg-white/[0.08]">
+              Student & family portal <HeartHandshake className="h-4 w-4" />
             </button>
             <a href="#capabilities" className="inline-flex items-center justify-center gap-2 rounded-lg border border-white/20 px-5 py-3 text-sm font-semibold text-white transition hover:border-white/40 hover:bg-white/[0.06]">
               See what it brings together <ArrowDownRight className="h-4 w-4" />
@@ -148,6 +154,13 @@ export const HomeLandingPage: React.FC<HomeLandingPageProps> = ({ onSignIn }) =>
       </div>
     </section>
 
+    <section className="border-b border-blue-100 bg-blue-50/70">
+      <div className="mx-auto flex max-w-7xl flex-col gap-4 px-5 py-5 sm:px-8 md:flex-row md:items-center md:justify-between lg:px-10">
+        <div><p className="text-sm font-extrabold text-slate-900">A separate place for students and families</p><p className="mt-1 text-sm text-slate-600">Check published grades, attendance, timetable, learning materials, school notices and authorized fee balances from a phone.</p></div>
+        <button onClick={onPortalSignIn} className="inline-flex shrink-0 items-center justify-center gap-2 rounded-lg bg-blue-700 px-4 py-2.5 text-sm font-bold text-white hover:bg-blue-800">Open family portal <ArrowRight className="h-4 w-4"/></button>
+      </div>
+    </section>
+
     <section className="border-b border-slate-100 bg-white">
       <div className="mx-auto grid max-w-7xl gap-5 px-5 py-7 sm:grid-cols-3 sm:px-8 lg:px-10">
         <TrustPoint title="A school-first view" detail="Designed around the people and routines of school life." />
@@ -195,8 +208,8 @@ export const HomeLandingPage: React.FC<HomeLandingPageProps> = ({ onSignIn }) =>
 
     <section id="contact" className="scroll-mt-24 border-t border-slate-100 bg-slate-50 py-12">
       <div className="mx-auto flex max-w-7xl flex-col gap-6 px-5 sm:px-8 md:flex-row md:items-center md:justify-between lg:px-10">
-        <div><p className="text-xs font-bold uppercase tracking-[0.18em] text-blue-700">Redeemer’s International Academy · Est. 2022</p><p className="mt-2 text-sm text-slate-600">{SCHOOL_CONTACT.address}</p><p className="mt-1 text-sm font-semibold text-slate-800">{SCHOOL_CONTACT.phones.join('  ·  ')}</p></div>
-        <button onClick={() => onSignIn()} className="inline-flex shrink-0 items-center justify-center gap-2 rounded-lg bg-blue-700 px-5 py-3 text-sm font-bold text-white shadow-sm transition hover:bg-blue-800">Staff sign in <ArrowRight className="h-4 w-4" /></button>
+        <div><p className="text-xs font-bold uppercase tracking-[0.18em] text-blue-700">Redeemer’s International Academy · Est. 2022</p><p className="mt-2 text-sm text-slate-600">{SCHOOL_CONTACT.address}</p><div className="mt-2 flex flex-wrap gap-x-4 gap-y-2 text-sm font-semibold text-slate-800">{SCHOOL_CONTACT.phones.map(phone=><a key={phone} href={`tel:${phone}`} className="inline-flex items-center gap-1.5 hover:text-blue-700"><Phone className="h-3.5 w-3.5"/>{phone}</a>)}</div><a href={`https://wa.me/231778786116?text=${encodeURIComponent('Hello Redeemer’s International Academy. I would like information about admissions.')}`} target="_blank" rel="noreferrer" className="mt-3 inline-flex text-sm font-bold text-blue-700 underline">Ask about admissions on WhatsApp</a></div>
+        <div className="flex flex-col gap-2 sm:flex-row"><button onClick={onPortalSignIn} className="inline-flex shrink-0 items-center justify-center gap-2 rounded-lg border border-slate-300 bg-white px-5 py-3 text-sm font-bold text-slate-800 hover:bg-slate-50">Family portal</button><button onClick={() => onSignIn()} className="inline-flex shrink-0 items-center justify-center gap-2 rounded-lg bg-blue-700 px-5 py-3 text-sm font-bold text-white shadow-sm transition hover:bg-blue-800">Staff sign in <ArrowRight className="h-4 w-4" /></button></div>
       </div>
     </section>
     <div className="border-t border-slate-200 bg-white px-5 py-4 text-center text-[11px] text-slate-500">Staging environment · Workspace access is protected by sign-in and your assigned school permissions</div>

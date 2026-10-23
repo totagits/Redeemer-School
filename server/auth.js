@@ -235,7 +235,8 @@ export function createAuthRouter({ pool, secret, sessionTtlMs = 8 * 60 * 60 * 10
     const schoolCode = typeof req.body?.schoolCode === 'string' ? req.body.schoolCode.trim().toUpperCase() : '';
     const email = typeof req.body?.email === 'string' ? req.body.email.trim().toLowerCase() : '';
     const password = typeof req.body?.password === 'string' ? req.body.password : '';
-    if (!/^[A-Z0-9][A-Z0-9_-]{1,49}$/.test(schoolCode) || email.length > 254 || !email.includes('@') || !password || Buffer.byteLength(password, 'utf8') > 1024) {
+    const audience = typeof req.body?.audience === 'string' ? req.body.audience.trim().toUpperCase() : '';
+    if (!/^[A-Z0-9][A-Z0-9_-]{1,49}$/.test(schoolCode) || email.length > 254 || !email.includes('@') || !password || Buffer.byteLength(password, 'utf8') > 1024 || (audience && !['STAFF', 'PORTAL'].includes(audience))) {
       return res.status(400).json({ error: 'Enter a valid school code, email, and password.' });
     }
 
@@ -301,6 +302,19 @@ export function createAuthRouter({ pool, secret, sessionTtlMs = 8 * 60 * 60 * 10
         return res.status(401).json({ error: 'School code, email, or password is incorrect.' });
       }
 
+      const account = await loadAccountView(client, schoolId, user.id);
+      if (!account) {
+        await rollbackAndRelease(client);
+        client = null;
+        return res.status(403).json({ error: 'This account has no active school role.' });
+      }
+      const isPortalAccount = account.roles.some(role => ['STUDENT', 'PARENT'].includes(role));
+      if ((audience === 'PORTAL' && !isPortalAccount) || (audience === 'STAFF' && isPortalAccount)) {
+        await rollbackAndRelease(client);
+        client = null;
+        return res.status(403).json({ error: audience === 'PORTAL' ? 'Use the staff sign-in page for this account.' : 'Use the student and family portal sign-in page for this account.' });
+      }
+
       const sessionId = randomBytes(16).toString('hex');
       const expiresAt = now + sessionTtlMs;
       const csrfToken = randomBytes(32).toString('base64url');
@@ -322,12 +336,6 @@ export function createAuthRouter({ pool, secret, sessionTtlMs = 8 * 60 * 60 * 10
          WHERE school_id = $1 AND id = $2`,
         [schoolId, user.id]
       );
-      const account = await loadAccountView(client, schoolId, user.id);
-      if (!account) {
-        await rollbackAndRelease(client);
-        client = null;
-        return res.status(403).json({ error: 'This account has no active school role.' });
-      }
       await logAuthEvent(client, req, {
         schoolId,
         actorUserId: user.id,
