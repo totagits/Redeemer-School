@@ -910,7 +910,7 @@ export function createOperationsRouter({ authenticate, sendInvitation = sendAcco
     try {
       const schoolId = req.auth.claims.schoolId;
       const isTeacher = req.auth.account.roles.includes('TEACHER') && !req.auth.account.permissions.includes('academics.configure');
-      const [school, years, subjects, classes, teachers, students, assignments, educationLevels, gradeLevels, terms, curriculum, resources, periods, slots, assessments] = await Promise.all([
+      const [school, years, subjects, classes, teachers, students, assignments, educationLevels, gradeLevels, terms, curriculum, resources, periods, slots, assessments, teachingMaterials] = await Promise.all([
         req.auth.client.query('SELECT id, code, name, timezone FROM schools WHERE id = $1', [schoolId]),
         req.auth.client.query(`SELECT y.id, y.name, y.starts_on, y.ends_on, y.status FROM academic_years y WHERE y.school_id = $1 ${isTeacher ? 'AND EXISTS (SELECT 1 FROM teacher_subject_assignments a WHERE a.school_id = y.school_id AND a.academic_year_id = y.id AND a.teacher_id = $2)' : ''} ORDER BY y.starts_on DESC`, isTeacher ? [schoolId, req.auth.claims.userId] : [schoolId]),
         req.auth.client.query(`SELECT s.id, s.code, s.name FROM subjects s WHERE s.school_id = $1 AND s.is_active ${isTeacher ? 'AND EXISTS (SELECT 1 FROM teacher_subject_assignments a WHERE a.school_id = s.school_id AND a.subject_id = s.id AND a.teacher_id = $2)' : ''} ORDER BY s.name`, isTeacher ? [schoolId, req.auth.claims.userId] : [schoolId]),
@@ -950,11 +950,20 @@ export function createOperationsRouter({ authenticate, sendInvitation = sendAcco
           LEFT JOIN assessment_scores sc ON sc.school_id = a.school_id AND sc.assessment_id = a.id
           WHERE a.school_id = $1 ${isTeacher ? 'AND ta.teacher_id = $2' : ''}
           GROUP BY a.id, c.name, s.name, u.full_name ORDER BY a.created_at DESC LIMIT 100`, isTeacher ? [schoolId, req.auth.claims.userId] : [schoolId]),
+        req.auth.client.query(`SELECT m.id,m.teacher_assignment_id,m.title,m.description,m.material_type,m.resource_url,m.status,m.created_at,m.published_at,
+            c.name AS class_name,s.name AS subject_name,u.full_name AS teacher_name
+          FROM teaching_materials m
+          JOIN teacher_subject_assignments ta ON ta.school_id=m.school_id AND ta.id=m.teacher_assignment_id
+          JOIN class_groups c ON c.school_id=ta.school_id AND c.id=ta.class_group_id
+          JOIN subjects s ON s.school_id=ta.school_id AND s.id=ta.subject_id
+          JOIN user_accounts u ON u.school_id=ta.school_id AND u.id=ta.teacher_id
+          WHERE m.school_id=$1 ${isTeacher ? 'AND ta.teacher_id=$2' : ''}
+          ORDER BY m.created_at DESC LIMIT 100`, isTeacher ? [schoolId, req.auth.claims.userId] : [schoolId]),
       ]);
       await close(req, true);
       return res.json({ school: school.rows[0], years: years.rows, subjects: subjects.rows, classes: classes.rows,
         teachers: teachers.rows, students: students.rows, assignments: assignments.rows, educationLevels: educationLevels.rows, gradeLevels: gradeLevels.rows, terms: terms.rows,
-        curriculum: curriculum.rows, resources: resources.rows, periods: periods.rows, timetable: slots.rows, assessments: assessments.rows });
+        curriculum: curriculum.rows, resources: resources.rows, periods: periods.rows, timetable: slots.rows, assessments: assessments.rows, teachingMaterials: teachingMaterials.rows });
     } catch (error) { return fail(req, res, error); }
   });
 
@@ -1196,6 +1205,44 @@ export function createOperationsRouter({ authenticate, sendInvitation = sendAcco
     } catch (error) { return fail(req, res, error); }
   });
 
+  router.post('/teaching-materials', needsAnyPermission(['grades.enter', 'academics.configure']), csrf, async (req, res) => {
+    const assignmentId = text(req.body?.assignmentId, 50);
+    const title = text(req.body?.title, 160);
+    const description = text(req.body?.description, 2000);
+    const type = text(req.body?.materialType, 30).toUpperCase();
+    const url = text(req.body?.resourceUrl, 1000);
+    if (!assignmentId || !title || !['LESSON_PLAN','HANDOUT','PRESENTATION','HOMEWORK','LINK','OTHER'].includes(type) || (url && (!/^https:\/\//i.test(url) || url.length > 1000)) || (type === 'LINK' && !url)) {
+      await close(req, false); return res.status(400).json({ error: 'Choose an assigned class, enter a title and material type, and use a secure HTTPS link when linking to a file.' });
+    }
+    const isTeacher = req.auth.account.roles.includes('TEACHER') && !req.auth.account.permissions.includes('academics.configure');
+    try {
+      const result = await req.auth.client.query(`INSERT INTO teaching_materials (school_id,teacher_assignment_id,created_by,title,description,material_type,resource_url,status)
+        SELECT $1,ta.id,$3,$4,NULLIF($5,''),$6,NULLIF($7,''),'DRAFT'
+        FROM teacher_subject_assignments ta
+        WHERE ta.school_id=$1 AND ta.id=$2 AND ta.effective_from<=CURRENT_DATE AND (ta.effective_to IS NULL OR ta.effective_to>=CURRENT_DATE)
+          AND ($8::boolean=false OR ta.teacher_id=$3)
+        RETURNING id,teacher_assignment_id,title,description,material_type,resource_url,status,created_at`,
+      [req.auth.claims.schoolId,assignmentId,req.auth.claims.userId,title,description,type,url,isTeacher]);
+      if (!result.rowCount) { await close(req, false); return res.status(403).json({ error: 'You can add materials only to a current teaching assignment assigned to your account.' }); }
+      await audit(req,'TEACHING_MATERIAL_CREATED','TEACHING_MATERIAL',result.rows[0].id,{assignmentId,type,title});
+      return done(req,res,201,{material:result.rows[0]});
+    } catch (error) { return fail(req,res,error); }
+  });
+
+  router.post('/teaching-materials/:materialId/publish', needsAnyPermission(['grades.enter', 'academics.configure']), csrf, async (req, res) => {
+    const isTeacher = req.auth.account.roles.includes('TEACHER') && !req.auth.account.permissions.includes('academics.configure');
+    try {
+      const result = await req.auth.client.query(`UPDATE teaching_materials m SET status='PUBLISHED',published_at=now()
+        FROM teacher_subject_assignments ta
+        WHERE m.school_id=$1 AND m.id=$2 AND m.status='DRAFT' AND ta.school_id=m.school_id AND ta.id=m.teacher_assignment_id
+          AND ($3::boolean=false OR ta.teacher_id=$4)
+        RETURNING m.id,m.title,m.status,m.published_at`,[req.auth.claims.schoolId,req.params.materialId,isTeacher,req.auth.claims.userId]);
+      if (!result.rowCount) { await close(req,false); return res.status(409).json({error:'This draft is unavailable or has already been published.'}); }
+      await audit(req,'TEACHING_MATERIAL_PUBLISHED','TEACHING_MATERIAL',result.rows[0].id,{title:result.rows[0].title});
+      return done(req,res,200,{material:result.rows[0]});
+    } catch (error) { return fail(req,res,error); }
+  });
+
   router.post('/assessments', needsPermission('grades.enter'), csrf, async (req, res) => {
     const assignmentId = text(req.body?.assignmentId, 50);
     const title = text(req.body?.title, 160);
@@ -1372,7 +1419,21 @@ export function createOperationsRouter({ authenticate, sendInvitation = sendAcco
           req.auth.client.query(`SELECT ts.day_of_week, tp.name AS period_name, tp.starts_at, tp.ends_at, s.name AS subject_name, u.full_name AS teacher_name FROM class_enrollments ce JOIN class_groups c ON c.school_id = ce.school_id AND c.id = ce.class_group_id JOIN teacher_subject_assignments a ON a.school_id = c.school_id AND a.class_group_id = c.id AND a.academic_year_id = c.academic_year_id JOIN timetable_slots ts ON ts.school_id = a.school_id AND ts.teacher_assignment_id = a.id JOIN timetable_periods tp ON tp.school_id = ts.school_id AND tp.id = ts.period_id JOIN subjects s ON s.school_id = a.school_id AND s.id = a.subject_id JOIN user_accounts u ON u.school_id = a.school_id AND u.id = a.teacher_id WHERE ce.school_id = $1 AND ce.student_id = $2 AND ce.status = 'ACTIVE' ORDER BY ts.day_of_week, tp.starts_at`, [schoolId, learner.id]),
           req.auth.client.query(`SELECT sa.status, sa.recorded_at, cs.scheduled_at, s.name AS subject_name FROM student_attendance sa JOIN class_sessions cs ON cs.school_id = sa.school_id AND cs.id = sa.class_session_id JOIN teacher_subject_assignments a ON a.school_id = cs.school_id AND a.id = cs.teacher_assignment_id JOIN subjects s ON s.school_id = a.school_id AND s.id = a.subject_id WHERE sa.school_id = $1 AND sa.student_id = $2 ORDER BY cs.scheduled_at DESC LIMIT 30`, [schoolId, learner.id]),
           req.auth.client.query(`SELECT a.title, a.assessment_type, a.max_score, sc.score, sc.feedback, sc.published_at, s.name AS subject_name FROM assessment_scores sc JOIN assessments a ON a.school_id = sc.school_id AND a.id = sc.assessment_id JOIN teacher_subject_assignments ta ON ta.school_id = a.school_id AND ta.id = a.teacher_assignment_id JOIN subjects s ON s.school_id = ta.school_id AND s.id = ta.subject_id WHERE sc.school_id = $1 AND sc.student_id = $2 AND a.status = 'PUBLISHED' AND sc.published_at IS NOT NULL ORDER BY sc.published_at DESC`, [schoolId, learner.id]),
-          req.auth.client.query(`SELECT r.resource_type, r.title, r.author, r.publisher, r.isbn, r.edition, r.description, r.resource_url, r.required, s.name AS subject_name FROM class_enrollments ce JOIN class_groups c ON c.school_id = ce.school_id AND c.id = ce.class_group_id JOIN grade_curriculum_subjects gc ON gc.school_id = c.school_id AND gc.grade_level_id = c.grade_level_id AND gc.academic_year_id = c.academic_year_id JOIN curriculum_resources r ON r.school_id = gc.school_id AND r.curriculum_subject_id = gc.id AND r.visible_to_students JOIN subjects s ON s.school_id = gc.school_id AND s.id = gc.subject_id WHERE ce.school_id = $1 AND ce.student_id = $2 AND ce.status = 'ACTIVE' ORDER BY s.name, r.title`, [schoolId, learner.id]),
+          req.auth.client.query(`SELECT * FROM (
+            SELECT r.resource_type,r.title,r.author,r.publisher,r.isbn,r.edition,r.description,r.resource_url,r.required,s.name AS subject_name
+            FROM class_enrollments ce JOIN class_groups c ON c.school_id=ce.school_id AND c.id=ce.class_group_id
+            JOIN grade_curriculum_subjects gc ON gc.school_id=c.school_id AND gc.grade_level_id=c.grade_level_id AND gc.academic_year_id=c.academic_year_id
+            JOIN curriculum_resources r ON r.school_id=gc.school_id AND r.curriculum_subject_id=gc.id AND r.visible_to_students
+            JOIN subjects s ON s.school_id=gc.school_id AND s.id=gc.subject_id
+            WHERE ce.school_id=$1 AND ce.student_id=$2 AND ce.status='ACTIVE'
+            UNION ALL
+            SELECT m.material_type AS resource_type,m.title,NULL::text,NULL::text,NULL::text,NULL::text,m.description,m.resource_url,false,s.name
+            FROM class_enrollments ce JOIN class_groups c ON c.school_id=ce.school_id AND c.id=ce.class_group_id
+            JOIN teacher_subject_assignments ta ON ta.school_id=c.school_id AND ta.class_group_id=c.id AND ta.academic_year_id=c.academic_year_id
+            JOIN teaching_materials m ON m.school_id=ta.school_id AND m.teacher_assignment_id=ta.id AND m.status='PUBLISHED'
+            JOIN subjects s ON s.school_id=ta.school_id AND s.id=ta.subject_id
+            WHERE ce.school_id=$1 AND ce.student_id=$2 AND ce.status='ACTIVE'
+          ) published_resources ORDER BY subject_name,title`, [schoolId, learner.id]),
         ]);
         await close(req, true); return res.json({ role: 'STUDENT', linked: true, student: learner, subjects: subjects.rows, timetable: timetable.rows, attendance: attendance.rows, grades: grades.rows, resources: resources.rows });
       }
@@ -1385,7 +1446,21 @@ export function createOperationsRouter({ authenticate, sendInvitation = sendAcco
             req.auth.client.query(`SELECT ts.day_of_week, tp.name AS period_name, tp.starts_at, tp.ends_at, s.name AS subject_name, u.full_name AS teacher_name FROM class_enrollments ce JOIN class_groups c ON c.school_id = ce.school_id AND c.id = ce.class_group_id JOIN teacher_subject_assignments a ON a.school_id = c.school_id AND a.class_group_id = c.id AND a.academic_year_id = c.academic_year_id JOIN timetable_slots ts ON ts.school_id = a.school_id AND ts.teacher_assignment_id = a.id JOIN timetable_periods tp ON tp.school_id = ts.school_id AND tp.id = ts.period_id JOIN subjects s ON s.school_id = a.school_id AND s.id = a.subject_id JOIN user_accounts u ON u.school_id = a.school_id AND u.id = a.teacher_id WHERE ce.school_id = $1 AND ce.student_id = $2 AND ce.status = 'ACTIVE' ORDER BY ts.day_of_week, tp.starts_at`, [schoolId, child.id]),
             req.auth.client.query(`SELECT sa.status, cs.scheduled_at, s.name AS subject_name FROM student_attendance sa JOIN class_sessions cs ON cs.school_id = sa.school_id AND cs.id = sa.class_session_id JOIN teacher_subject_assignments a ON a.school_id = cs.school_id AND a.id = cs.teacher_assignment_id JOIN subjects s ON s.school_id = a.school_id AND s.id = a.subject_id WHERE sa.school_id = $1 AND sa.student_id = $2 ORDER BY cs.scheduled_at DESC LIMIT 30`, [schoolId, child.id]),
             child.can_view_results ? req.auth.client.query(`SELECT a.title, a.assessment_type, a.max_score, sc.score, sc.feedback, sc.published_at, s.name AS subject_name FROM assessment_scores sc JOIN assessments a ON a.school_id = sc.school_id AND a.id = sc.assessment_id JOIN teacher_subject_assignments ta ON ta.school_id = a.school_id AND ta.id = a.teacher_assignment_id JOIN subjects s ON s.school_id = ta.school_id AND s.id = ta.subject_id WHERE sc.school_id = $1 AND sc.student_id = $2 AND a.status = 'PUBLISHED' AND sc.published_at IS NOT NULL ORDER BY sc.published_at DESC`, [schoolId, child.id]) : Promise.resolve({ rows: [] }),
-            req.auth.client.query(`SELECT r.resource_type, r.title, r.author, r.publisher, r.isbn, r.edition, r.description, r.resource_url, r.required, s.name AS subject_name FROM class_enrollments ce JOIN class_groups c ON c.school_id = ce.school_id AND c.id = ce.class_group_id JOIN grade_curriculum_subjects gc ON gc.school_id = c.school_id AND gc.grade_level_id = c.grade_level_id AND gc.academic_year_id = c.academic_year_id JOIN curriculum_resources r ON r.school_id = gc.school_id AND r.curriculum_subject_id = gc.id AND r.visible_to_guardians JOIN subjects s ON s.school_id = gc.school_id AND s.id = gc.subject_id WHERE ce.school_id = $1 AND ce.student_id = $2 AND ce.status = 'ACTIVE' ORDER BY s.name, r.title`, [schoolId, child.id]),
+            req.auth.client.query(`SELECT * FROM (
+              SELECT r.resource_type,r.title,r.author,r.publisher,r.isbn,r.edition,r.description,r.resource_url,r.required,s.name AS subject_name
+              FROM class_enrollments ce JOIN class_groups c ON c.school_id=ce.school_id AND c.id=ce.class_group_id
+              JOIN grade_curriculum_subjects gc ON gc.school_id=c.school_id AND gc.grade_level_id=c.grade_level_id AND gc.academic_year_id=c.academic_year_id
+              JOIN curriculum_resources r ON r.school_id=gc.school_id AND r.curriculum_subject_id=gc.id AND r.visible_to_guardians
+              JOIN subjects s ON s.school_id=gc.school_id AND s.id=gc.subject_id
+              WHERE ce.school_id=$1 AND ce.student_id=$2 AND ce.status='ACTIVE'
+              UNION ALL
+              SELECT m.material_type AS resource_type,m.title,NULL::text,NULL::text,NULL::text,NULL::text,m.description,m.resource_url,false,s.name
+              FROM class_enrollments ce JOIN class_groups c ON c.school_id=ce.school_id AND c.id=ce.class_group_id
+              JOIN teacher_subject_assignments ta ON ta.school_id=c.school_id AND ta.class_group_id=c.id AND ta.academic_year_id=c.academic_year_id
+              JOIN teaching_materials m ON m.school_id=ta.school_id AND m.teacher_assignment_id=ta.id AND m.status='PUBLISHED'
+              JOIN subjects s ON s.school_id=ta.school_id AND s.id=ta.subject_id
+              WHERE ce.school_id=$1 AND ce.student_id=$2 AND ce.status='ACTIVE'
+            ) published_resources ORDER BY subject_name,title`, [schoolId, child.id]),
           ]);
           results.push({ ...child, subjects: subjects.rows, timetable: timetable.rows, attendance: attendance.rows, grades: grades.rows, resources: resources.rows, financeVisible: Boolean(child.can_view_finance) });
         }
