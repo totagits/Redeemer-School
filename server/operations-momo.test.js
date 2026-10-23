@@ -17,6 +17,7 @@ class AuthClient {
     const normalized = sql.replace(/\s+/g, ' ').trim();
     this.statements.push({ sql: normalized, params });
     if (['BEGIN', 'COMMIT', 'ROLLBACK'].includes(normalized)) return { rows: [], rowCount: 0 };
+    if (normalized.startsWith('SELECT count(*)::int AS ready FROM information_schema.columns')) return { rows: [{ ready: 2 }], rowCount: 1 };
     if (normalized.includes('FROM fee_invoices fi') && normalized.includes('FOR UPDATE OF fi')) {
       return { rows: [{ id: invoiceId, student_id: 'student-id', currency: 'LRD', invoice_number: 'RIA-2026-1', status: 'ISSUED', total: '1000.00', paid: '0.00' }], rowCount: 1 };
     }

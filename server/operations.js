@@ -177,7 +177,9 @@ export function createOperationsRouter({ authenticate, sendInvitation = sendAcco
           LEFT JOIN LATERAL (SELECT SUM(pa.amount) AS paid FROM payment_allocations pa JOIN payments p ON p.school_id = pa.school_id AND p.id = pa.payment_id AND p.status IN ('SUCCEEDED','PARTIALLY_REVERSED') WHERE pa.school_id = fi.school_id AND pa.invoice_id = fi.id) alloc ON true
           WHERE fi.school_id = $1 AND fi.status <> 'VOID'
           ORDER BY fi.issued_on DESC, fi.created_at DESC LIMIT 250`, [schoolId]),
-        req.auth.client.query(`SELECT p.id, p.receipt_number, p.currency, p.amount::text, p.provider_fee_amount::text, p.provider_fee_rate_bps, p.channel, p.status, p.received_at,
+        req.auth.client.query(`SELECT p.id, p.receipt_number, p.currency, p.amount::text,
+            COALESCE(to_jsonb(p)->>'provider_fee_amount','0') AS provider_fee_amount,
+            COALESCE((to_jsonb(p)->>'provider_fee_rate_bps')::integer,0) AS provider_fee_rate_bps, p.channel, p.status, p.received_at,
             p.payer_reference, st.student_number, st.first_name, st.last_name, fi.invoice_number
           FROM payments p JOIN students st ON st.school_id = p.school_id AND st.id = p.student_id
           LEFT JOIN payment_allocations pa ON pa.school_id = p.school_id AND pa.payment_id = p.id
@@ -278,6 +280,12 @@ export function createOperationsRouter({ authenticate, sendInvitation = sendAcco
     const referenceId = randomUUID();
     let invoiceNumber;
     try {
+      const schema = await req.auth.client.query(`SELECT count(*)::int AS ready FROM information_schema.columns
+        WHERE table_schema = current_schema() AND table_name = 'payments' AND column_name IN ('provider_fee_amount','provider_fee_rate_bps')`);
+      if (Number(schema.rows[0]?.ready || 0) < 2) {
+        await close(req, false);
+        return res.status(503).json({ error: 'MTN Collections is not ready yet. Apply staging database migration 009 before enabling payment requests.' });
+      }
       const invoice = await req.auth.client.query(`SELECT fi.id, fi.student_id, fi.currency, fi.invoice_number, fi.status,
           COALESCE(lines.total, 0) AS total, COALESCE(alloc.paid, 0) AS paid
         FROM fee_invoices fi

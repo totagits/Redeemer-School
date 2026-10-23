@@ -81,7 +81,7 @@ The request and reconciliation flow now works as follows:
 
 The code uses sandbox by default and keeps MTN credentials server-side in Coolify. Set `MTN_MOMO_API_USER`, `MTN_MOMO_API_KEY`, and `MTN_MOMO_SUBSCRIPTION_KEY`; configure `MTN_MOMO_ENVIRONMENT=SANDBOX` for initial tests. Do not switch to production until MTN has enabled the account and a school finance owner has passed sandbox acceptance testing. Never paste or commit the credentials. Status polling is used; callbacks are not configured.
 
-Apply migration `009_mtn_collection_fees.sql` to the staging database before deploying this release, because the finance API reads the new provider-fee columns. After the migration, deploy the application and configure the sandbox secrets in Coolify. The workspace does not have access to the remote staging database, so SQL migration execution and a live MTN sandbox request still need to be verified in staging.
+Apply migration `009_mtn_collection_fees.sql` to staging before enabling the MTN credentials. The finance workspace remains readable before the migration; the payment-request endpoint checks the schema and refuses to send a request until migration 009 is applied. Configure the sandbox secrets in Coolify only after migration. The workspace does not have access to the remote staging database, so SQL migration execution and a live MTN sandbox request still need to be verified in staging.
 
 ## Delivery backlog
 
