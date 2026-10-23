@@ -2,7 +2,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { createInvitationSecret, hashInvitationToken, sendAccountInvitation } from './invitations.js';
 
-const trackedEnv = ['RESEND_API_KEY', 'RESEND_FROM_EMAIL', 'APP_PUBLIC_URL', 'EMAIL_MODE', 'EMAIL_ALLOWED_RECIPIENTS'];
+const trackedEnv = ['RESEND_API_KEY', 'RESEND_FROM_EMAIL', 'APP_PUBLIC_URL', 'EMAIL_MODE'];
 
 function withEnv(values, action) {
   const previous = Object.fromEntries(trackedEnv.map(key => [key, process.env[key]]));
@@ -26,13 +26,12 @@ test('invitation tokens are high entropy and stored as one-way SHA-256 hashes', 
   assert.notEqual(first.token, second.token);
 });
 
-test('staging invitation emails are limited to allowlisted recipients and use configured sender/link', async () => {
+test('staging invitation emails send to the requested test address and clearly identify staging', async () => {
   await withEnv({
     RESEND_API_KEY: 're_test_only',
     RESEND_FROM_EMAIL: "Redeemer ERP Staging <staging@mail.redeemer.totag.network>",
     APP_PUBLIC_URL: 'https://redeemer-staging.totag.network',
     EMAIL_MODE: 'staging',
-    EMAIL_ALLOWED_RECIPIENTS: 'tester@example.test',
   }, async () => {
     const originalFetch = globalThis.fetch;
     let request;
@@ -45,6 +44,8 @@ test('staging invitation emails are limited to allowlisted recipients and use co
       assert.equal(request.url, 'https://api.resend.com/emails');
       const body = JSON.parse(request.options.body);
       assert.deepEqual(body.to, ['Tester@example.test']);
+      assert.equal(body.subject, '[STAGING] Set up your Redeemer ERP account');
+      assert.match(body.text, /STAGING TEST MESSAGE/);
       assert.match(body.from, /staging@mail\.redeemer\.totag\.network/);
       assert.match(body.html, /&lt;Test User&gt;/);
       assert.match(body.html, /https:\/\/redeemer-staging\.totag\.network\/set-password\?token=/);
@@ -55,36 +56,34 @@ test('staging invitation emails are limited to allowlisted recipients and use co
   });
 });
 
-test('staging accepts distinct plus-addressed test accounts for one approved inbox', async () => {
+test('staging sends invitations to different valid test inboxes without per-recipient configuration', async () => {
   await withEnv({
     RESEND_API_KEY: 're_test_only',
     RESEND_FROM_EMAIL: 'Redeemer ERP Staging <staging@mail.redeemer.totag.network>',
     APP_PUBLIC_URL: 'https://redeemer-staging.totag.network',
     EMAIL_MODE: 'staging',
-    EMAIL_ALLOWED_RECIPIENTS: 'tester@example.test',
   }, async () => {
     const originalFetch = globalThis.fetch;
     let request;
     globalThis.fetch = async (url, options) => { request = { url, options }; return { ok: true, status: 200 }; };
     try {
-      await sendAccountInvitation({ email: 'tester+teacher@example.test', fullName: 'Test Teacher', role: 'TEACHER', token: 'x'.repeat(43) });
+      await sendAccountInvitation({ email: 'teacher@example.test', fullName: 'Test Teacher', role: 'TEACHER', token: 'x'.repeat(43) });
       const body = JSON.parse(request.options.body);
-      assert.deepEqual(body.to, ['tester+teacher@example.test']);
+      assert.deepEqual(body.to, ['teacher@example.test']);
     } finally { globalThis.fetch = originalFetch; }
   });
 });
 
-test('staging invitation email fails closed for recipients outside the test allowlist', async () => {
+test('staging still rejects malformed email addresses before sending', async () => {
   await withEnv({
     RESEND_API_KEY: 're_test_only',
     RESEND_FROM_EMAIL: 'Redeemer ERP Staging <staging@mail.redeemer.totag.network>',
     APP_PUBLIC_URL: 'https://redeemer-staging.totag.network',
     EMAIL_MODE: 'staging',
-    EMAIL_ALLOWED_RECIPIENTS: 'approved@example.test',
   }, async () => {
     await assert.rejects(
-      sendAccountInvitation({ email: 'parent@example.test', fullName: 'Test Parent', role: 'PARENT', token: 'x'.repeat(43) }),
-      /approved staging test inbox/
+      sendAccountInvitation({ email: 'not-an-email', fullName: 'Test Parent', role: 'PARENT', token: 'x'.repeat(43) }),
+      /valid email address/
     );
   });
 });

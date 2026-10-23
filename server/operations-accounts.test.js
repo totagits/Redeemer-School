@@ -96,24 +96,24 @@ test('a failed invitation send rolls back account creation', async t => {
 });
 
 test('student invitation email failure rolls back portal account creation', async t => {
-  const { url, clients } = await startServer(t, admin, { sendInvitation: async () => { throw new InvitationDeliveryError('Staging recipient not allowlisted.', 400); } });
+  const { url, clients } = await startServer(t, admin, { sendInvitation: async () => { throw new InvitationDeliveryError('Resend temporarily unavailable.'); } });
   const studentId = '8e28b784-4b78-4dfa-93d1-bec2de816bbe';
   const response = await fetch(`${url}/api/operations/portal-accounts`, { method: 'POST', headers, body: JSON.stringify({ type: 'STUDENT', studentId, fullName: 'Test Learner', email: 'learner@example.test' }) });
   const result = await response.json();
-  assert.equal(response.status, 400);
-  assert.match(result.error, /not allowlisted/i);
+  assert.equal(response.status, 503);
+  assert.match(result.error, /Resend temporarily unavailable/i);
   assert.ok(clients[0].statements.some(item => item.sql.startsWith('INSERT INTO student_portal_links')));
   assert.equal(clients[0].statements.some(item => item.sql.startsWith('INSERT INTO audit_events')), false);
   assert.equal(clients[0].statements.at(-1).sql, 'ROLLBACK');
 });
 
 test('guardian invitation email failure rolls back portal account creation', async t => {
-  const { url, clients } = await startServer(t, admin, { sendInvitation: async () => { throw new InvitationDeliveryError('Staging recipient not allowlisted.', 400); } });
+  const { url, clients } = await startServer(t, admin, { sendInvitation: async () => { throw new InvitationDeliveryError('Resend temporarily unavailable.'); } });
   const studentId = '8e28b784-4b78-4dfa-93d1-bec2de816bbe';
   const response = await fetch(`${url}/api/operations/portal-accounts`, { method: 'POST', headers, body: JSON.stringify({ type: 'PARENT', studentId, fullName: 'Test Guardian', email: 'guardian@example.test', relationship: 'Parent' }) });
   const result = await response.json();
-  assert.equal(response.status, 400);
-  assert.match(result.error, /not allowlisted/i);
+  assert.equal(response.status, 503);
+  assert.match(result.error, /Resend temporarily unavailable/i);
   assert.ok(clients[0].statements.some(item => item.sql.startsWith('INSERT INTO guardians')));
   assert.ok(clients[0].statements.some(item => item.sql.startsWith('INSERT INTO student_guardians')));
   assert.equal(clients[0].statements.at(-1).sql, 'ROLLBACK');
@@ -121,11 +121,11 @@ test('guardian invitation email failure rolls back portal account creation', asy
 
 test('teacher invitation email failure rolls back teacher account creation', async t => {
   const teacherAdmin = { ...admin, permissions: ['staff.write'] };
-  const { url, clients } = await startServer(t, teacherAdmin, { sendInvitation: async () => { throw new InvitationDeliveryError('Staging recipient not allowlisted.', 400); } });
+  const { url, clients } = await startServer(t, teacherAdmin, { sendInvitation: async () => { throw new InvitationDeliveryError('Resend temporarily unavailable.'); } });
   const response = await fetch(`${url}/api/operations/teachers`, { method: 'POST', headers, body: JSON.stringify({ fullName: 'Test Teacher', email: 'teacher@example.test', employeeNumber: 'TEST-T-001' }) });
   const result = await response.json();
-  assert.equal(response.status, 400);
-  assert.match(result.error, /not allowlisted/i);
+  assert.equal(response.status, 503);
+  assert.match(result.error, /Resend temporarily unavailable/i);
   assert.ok(clients[0].statements.some(item => item.sql.startsWith('INSERT INTO teacher_profiles')));
   assert.equal(clients[0].statements.at(-1).sql, 'ROLLBACK');
 });

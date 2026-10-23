@@ -26,11 +26,6 @@ function escapeHtml(value) {
   })[char]);
 }
 
-function testInboxBase(email) {
-  const [local, domain] = email.trim().toLowerCase().split('@');
-  return `${local.split('+', 1)[0]}@${domain}`;
-}
-
 function invitationConfig(email) {
   const apiKey = process.env.RESEND_API_KEY?.trim();
   const from = process.env.RESEND_FROM_EMAIL?.trim();
@@ -51,14 +46,6 @@ function invitationConfig(email) {
     throw new InvitationDeliveryError('The application email link address must be a clean HTTPS URL.');
   }
 
-  if (mode === 'staging') {
-    const allowedRecipients = (process.env.EMAIL_ALLOWED_RECIPIENTS || '')
-      .split(',').map(item => item.trim().toLowerCase()).filter(Boolean);
-    if (!allowedRecipients.includes(testInboxBase(email))) {
-      throw new InvitationDeliveryError('This email is not an approved staging test inbox. Use the approved inbox or a plus-addressed alias that delivers to it.', 400);
-    }
-  }
-
   return { apiKey, from, appUrl: appUrl.origin };
 }
 
@@ -67,8 +54,11 @@ export async function sendAccountInvitation({ email, fullName, role, token }) {
   const link = new URL(`/set-password?token=${encodeURIComponent(token)}`, `${appUrl}/`).toString();
   const safeName = escapeHtml(fullName);
   const safeRole = escapeHtml(role.replaceAll('_', ' ').toLowerCase());
-  const text = `Hello ${fullName},\n\nAn account for Redeemer's International Academy has been created for you as ${role.replaceAll('_', ' ').toLowerCase()}. Set your password using this one-time link:\n\n${link}\n\nThe link expires in ${INVITATION_TTL_HOURS} hours and can only be used once. If you did not expect this invitation, you can ignore this email.`;
-  const html = `<!doctype html><html><body style="font-family:Arial,sans-serif;color:#172033;line-height:1.6"><div style="max-width:560px;margin:32px auto;padding:28px;border:1px solid #e2e8f0;border-radius:16px"><p style="color:#1d4ed8;font-size:12px;font-weight:bold;letter-spacing:.12em;text-transform:uppercase">Redeemer ERP · Staging</p><h1 style="font-size:24px">Set up your account</h1><p>Hello ${safeName},</p><p>An account has been created for you as <strong>${safeRole}</strong> at Redeemer's International Academy.</p><p><a href="${escapeHtml(link)}" style="display:inline-block;background:#1d4ed8;color:#fff;padding:12px 18px;border-radius:8px;text-decoration:none;font-weight:bold">Set my password</a></p><p>This one-time link expires in ${INVITATION_TTL_HOURS} hours. It can only be used once.</p><p style="font-size:13px;color:#64748b">If you were not expecting this message, you can ignore it. Do not forward the link.</p></div></body></html>`;
+  const isStaging = process.env.EMAIL_MODE?.trim().toLowerCase() === 'staging';
+  const subject = `${isStaging ? '[STAGING] ' : ''}Set up your Redeemer ERP account`;
+  const environmentNote = isStaging ? '<p style="background:#fff7ed;color:#9a3412;padding:10px;border-radius:8px;font-size:13px;font-weight:bold">STAGING TEST MESSAGE — this is not a production school account.</p>' : '';
+  const text = `${isStaging ? '[STAGING TEST MESSAGE — not a production school account]\n\n' : ''}Hello ${fullName},\n\nAn account for Redeemer's International Academy has been created for you as ${role.replaceAll('_', ' ').toLowerCase()}. Set your password using this one-time link:\n\n${link}\n\nThe link expires in ${INVITATION_TTL_HOURS} hours and can only be used once. If you did not expect this invitation, you can ignore this email.`;
+  const html = `<!doctype html><html><body style="font-family:Arial,sans-serif;color:#172033;line-height:1.6"><div style="max-width:560px;margin:32px auto;padding:28px;border:1px solid #e2e8f0;border-radius:16px"><p style="color:#1d4ed8;font-size:12px;font-weight:bold;letter-spacing:.12em;text-transform:uppercase">Redeemer ERP</p>${environmentNote}<h1 style="font-size:24px">Set up your account</h1><p>Hello ${safeName},</p><p>An account has been created for you as <strong>${safeRole}</strong> at Redeemer's International Academy.</p><p><a href="${escapeHtml(link)}" style="display:inline-block;background:#1d4ed8;color:#fff;padding:12px 18px;border-radius:8px;text-decoration:none;font-weight:bold">Set my password</a></p><p>This one-time link expires in ${INVITATION_TTL_HOURS} hours. It can only be used once.</p><p style="font-size:13px;color:#64748b">If you were not expecting this message, you can ignore it. Do not forward the link.</p></div></body></html>`;
 
   const controller = new AbortController();
   const timeout = setTimeout(() => controller.abort(), 10_000);
@@ -76,7 +66,7 @@ export async function sendAccountInvitation({ email, fullName, role, token }) {
     const response = await fetch('https://api.resend.com/emails', {
       method: 'POST',
       headers: { Authorization: `Bearer ${apiKey}`, 'Content-Type': 'application/json' },
-      body: JSON.stringify({ from, to: [email], subject: 'Set up your Redeemer ERP account', html, text }),
+      body: JSON.stringify({ from, to: [email], subject, html, text }),
       signal: controller.signal,
     });
     if (!response.ok) {
