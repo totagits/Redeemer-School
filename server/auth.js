@@ -431,6 +431,10 @@ export function createAuthRouter({ pool, secret, sessionTtlMs = 8 * 60 * 60 * 10
       console.error('Password reset redemption failed:', {
         code: typeof error?.code === 'string' ? error.code : 'UNKNOWN',
         message: typeof error?.message === 'string' ? error.message.slice(0, 300) : 'unknown error',
+        context: typeof error?.where === 'string' ? error.where.slice(0, 1000) : undefined,
+        schema: typeof error?.schema === 'string' ? error.schema : undefined,
+        table: typeof error?.table === 'string' ? error.table : undefined,
+        routine: typeof error?.routine === 'string' ? error.routine : undefined,
       });
       return res.status(503).json({ error: 'Password reset is temporarily unavailable. Please try again.' });
     }
