@@ -420,14 +420,40 @@ export function createAuthRouter({ pool, secret, sessionTtlMs = 8 * 60 * 60 * 10
     if (!/^[A-Za-z0-9_-]{43}$/.test(token) || newPassword.length < 12 || Buffer.byteLength(newPassword, 'utf8') > 1024) {
       return res.status(400).json({ error: 'Use a valid password reset link and choose a password with at least 12 characters.' });
     }
+
+    let client;
     try {
       const passwordHash = await hashPassword(newPassword);
-      const result = await pool.query('SELECT user_id FROM app.consume_password_reset($1, $2)', [hashInvitationToken(token), passwordHash]);
-      if (!result.rowCount) return res.status(400).json({ error: 'This reset link is invalid, expired, or already used. Request a new password reset link.' });
+      client = await pool.connect();
+      await client.query('BEGIN');
+      const result = await client.query(
+        'SELECT school_id, user_id FROM app.consume_password_reset($1, $2)',
+        [hashInvitationToken(token), passwordHash]
+      );
+      if (!result.rowCount) {
+        await client.query('ROLLBACK');
+        client.release();
+        client = null;
+        return res.status(400).json({ error: 'This reset link is invalid, expired, or already used. Request a new password reset link.' });
+      }
+
+      const { school_id: schoolId, user_id: userId } = result.rows[0];
+      await setTenantContext(client, schoolId);
+      await client.query(
+        'DELETE FROM public.auth_sessions WHERE school_id = $1 AND user_id = $2',
+        [schoolId, userId]
+      );
+      await client.query('COMMIT');
+      client.release();
+      client = null;
       return res.status(204).end();
     } catch (error) {
-      // Keep the reset token and password out of logs, but retain the database
-      // error code so an operator can diagnose missing grants/functions safely.
+      if (client) {
+        try { await client.query('ROLLBACK'); } catch {}
+        client.release();
+      }
+      // Keep the reset token and password out of logs, but include PostgreSQL's
+      // safe statement context to diagnose failures without exposing credentials.
       console.error('Password reset redemption failed:', {
         code: typeof error?.code === 'string' ? error.code : 'UNKNOWN',
         message: typeof error?.message === 'string' ? error.message.slice(0, 300) : 'unknown error',
