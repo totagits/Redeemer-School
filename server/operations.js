@@ -1111,9 +1111,13 @@ export function createOperationsRouter({ authenticate, sendInvitation = sendAcco
     const code = text(req.body?.code, 30).toUpperCase(); const name = text(req.body?.name);
     if (!/^[A-Z0-9_-]{2,30}$/.test(code) || !name) { await close(req, false); return res.status(400).json({ error: 'Enter a subject name and a code (2–30 letters or numbers).' }); }
     try {
-      const result = await req.auth.client.query(`INSERT INTO subjects (school_id, code, name) VALUES ($1, $2, $3) RETURNING id, code, name`, [req.auth.claims.schoolId, code, name]);
-      await audit(req, 'SUBJECT_CREATED', 'SUBJECT', result.rows[0].id, { code, name });
-      return done(req, res, 201, { subject: result.rows[0] });
+      // Make subject setup safe to retry: an existing inactive subject is reactivated.
+      const result = await req.auth.client.query(`INSERT INTO subjects (school_id, code, name)
+        VALUES ($1, $2, $3)
+        ON CONFLICT (school_id, code) DO UPDATE SET name = EXCLUDED.name, is_active = TRUE
+        RETURNING id, code, name`, [req.auth.claims.schoolId, code, name]);
+      await audit(req, 'SUBJECT_SAVED', 'SUBJECT', result.rows[0].id, { code, name });
+      return done(req, res, 200, { subject: result.rows[0] });
     } catch (error) { return fail(req, res, error); }
   });
 
