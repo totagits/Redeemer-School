@@ -16,26 +16,26 @@ Add the output to the staging app's Coolify environment variables:
 - `VAPID_PRIVATE_KEY` — private key from the command output; never commit or share it.
 - `VAPID_SUBJECT` — a support contact such as `mailto:info@totaggroup.com`.
 
-Redeploy the staging app after adding the variables. A signed-in student or teacher can then open **Alerts** or the teaching workspace and click **Enable alerts** on each device/browser that should receive push notifications. The browser must grant notification permission. Push is unavailable until all three server variables are set.
+Redeploy the staging app after adding the variables. A signed-in student, teacher, or guardian can then open **Alerts** and click **Enable alerts** on each device/browser that should receive push notifications. The browser must grant notification permission. Push is unavailable until all three server variables are set.
 
-## SMS delivery adapter
+## SMS delivery with Orange Liberia
 
 SMS sends only to guardian phone numbers with the school's recorded communication consent. A published announcement queues eligible phone numbers; an authorized user chooses **Send consented SMS** to dispatch them. Failed items remain in the delivery log for retry.
 
-The server expects a provider adapter endpoint using this contract:
+Orange's Liberia SMS API can deliver to numbers on any local operator, so the school can use one Orange API integration for guardians on both Orange and MTN networks. This is SMS delivery through Orange, not an MTN MoMo payment connection. The app requests and caches Orange OAuth tokens on the server and refreshes an expired token automatically.
 
-- HTTPS `POST` to `SMS_GATEWAY_URL`.
-- `Authorization: Bearer <SMS_GATEWAY_TOKEN>`.
-- JSON body: `{"to":"+231...","sender":"RIA","message":"..."}`.
-- A successful response uses HTTP 2xx and may return `{"messageId":"provider-id"}`.
+1. Register at [Orange Developer](https://developer.orange.com/apis/sms-liberia), create an application, subscribe it to SMS Liberia, and copy the Client ID and Client Secret from **My Apps**.
+2. Purchase an SMS bundle and check the **Configure** page for the assigned sender number/name. If Orange requires an approved sender name for Liberia, ask Orange Liberia to approve it before sending.
+3. In Coolify, add these server-side variables to the **staging app**:
 
-Add these as Coolify secrets only after the SMS vendor supplies an API endpoint, token, and sender ID:
+- `ORANGE_SMS_CLIENT_ID` — Orange application Client ID.
+- `ORANGE_SMS_CLIENT_SECRET` — Orange application Client Secret; keep it secret.
+- `ORANGE_SMS_SENDER_NAME` — optional sender name only if Orange has approved it for the account. Leave blank to use the account's default sender.
+- `ORANGE_SMS_SENDER_NUMBER` — optional only if Orange gives a different Liberia sender number; otherwise the code uses `tel:+2310000`.
 
-- `SMS_GATEWAY_URL`
-- `SMS_GATEWAY_TOKEN`
-- `SMS_GATEWAY_SENDER`
+Save and redeploy staging. The SMS delivery action should become available once both Orange credentials are present. Initially test with one consenting staff/guardian number on Orange and one on MTN. The server normalizes Liberia local numbers beginning with `0` to `+231` and sends through Orange. Orange's documented SMS API accepts messages up to 160 characters per request; the school SMS workflow should keep text within that limit.
 
-If the vendor's API uses a different authentication method or request/response shape, its provider-specific adapter must be added before sending. MTN MoMo Collections credentials are for payments and do not provide SMS delivery.
+MTN MoMo Collections credentials are for payments and do not provide SMS delivery. The generic `SMS_GATEWAY_URL` / `SMS_GATEWAY_TOKEN` / `SMS_GATEWAY_SENDER` integration remains available for a separate SMS aggregator if needed, but Orange can already reach both local networks.
 
 ## Workflow behavior
 
