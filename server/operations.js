@@ -3,6 +3,8 @@ import express from 'express';
 import { hashPassword } from './authCrypto.js';
 import { createInvitationSecret, InvitationDeliveryError, sendAccountInvitation } from './invitations.js';
 import { createMomoClient, MomoProviderError } from './mtnMomo.js';
+import { sendWebPush } from './webPush.js';
+import { sendSchoolSms, smsReadiness } from './sms.js';
 
 const NAME_LIMIT = 120;
 const EMAIL_RE = /^\S+@\S+\.\S+$/;
@@ -108,6 +110,71 @@ export function createOperationsRouter({ authenticate, sendInvitation = sendAcco
   const router = express.Router();
   router.use(authenticate);
   router.use((_req, res, next) => { res.setHeader('Cache-Control', 'no-store'); next(); });
+
+  async function pushToUser(schoolId, userId, payload) {
+    if (!pool || !process.env.VAPID_PUBLIC_KEY || !process.env.VAPID_PRIVATE_KEY || !process.env.VAPID_SUBJECT) return;
+    const client = await pool.connect();
+    try {
+      await client.query('BEGIN');
+      await client.query("SELECT set_config('app.current_school_id', $1, true)", [schoolId]);
+      const subscriptions = await client.query('SELECT id, endpoint, p256dh, auth_secret FROM push_subscriptions WHERE school_id=$1 AND user_id=$2', [schoolId, userId]);
+      await client.query('COMMIT');
+      for (const subscription of subscriptions.rows) {
+        try {
+          const result = await sendWebPush(subscription, payload);
+          if (result.expired) {
+            await client.query('BEGIN');
+            await client.query("SELECT set_config('app.current_school_id', $1, true)", [schoolId]);
+            await client.query('DELETE FROM push_subscriptions WHERE school_id=$1 AND id=$2', [schoolId, subscription.id]);
+            await client.query('COMMIT');
+          }
+          else if (!result.sent) console.warn('Web push delivery skipped:', result.reason);
+        } catch (error) { console.warn('Web push delivery failed:', error instanceof Error ? error.message : 'unknown error'); }
+      }
+    } catch (error) {
+      try { await client.query('ROLLBACK'); } catch {}
+      console.warn('Web push lookup failed:', error instanceof Error ? error.message : 'unknown error');
+    } finally { client.release(); }
+  }
+
+  async function queueAnnouncementSms(client, schoolId, announcementId) {
+    return client.query(`INSERT INTO notification_deliveries(school_id,guardian_id,announcement_id,channel,recipient_ref,status)
+      SELECT $1,g.id,a.id,'SMS',g.phone,'QUEUED'
+      FROM announcements a
+      JOIN student_guardians sg ON sg.school_id=a.school_id AND sg.communication_consent=true
+      JOIN guardians g ON g.school_id=sg.school_id AND g.id=sg.guardian_id AND g.active AND NULLIF(trim(g.phone),'') IS NOT NULL
+      LEFT JOIN class_enrollments ce ON ce.school_id=sg.school_id AND ce.student_id=sg.student_id AND ce.status='ACTIVE'
+      JOIN students st ON st.school_id=sg.school_id AND st.id=sg.student_id
+      WHERE a.school_id=$1 AND a.id=$2 AND a.audience IN ('ALL_GUARDIANS','CAMPUS','CLASS')
+        AND (a.audience='ALL_GUARDIANS' OR (a.audience='CLASS' AND ce.class_group_id=a.class_group_id)
+          OR (a.audience='CAMPUS' AND (a.campus_id IS NULL OR st.campus_id=a.campus_id)))
+        AND NOT EXISTS (SELECT 1 FROM notification_deliveries nd WHERE nd.school_id=$1 AND nd.announcement_id=a.id AND nd.guardian_id=g.id AND nd.channel='SMS')
+      GROUP BY g.id,g.phone,a.id RETURNING id`);
+  }
+
+  async function queueAnnouncementAlerts(client, schoolId, announcementId) {
+    const recipients = await client.query(`WITH a AS (SELECT * FROM announcements WHERE school_id=$1 AND id=$2 AND status='PUBLISHED'),
+      linked AS (
+        SELECT DISTINCT spl.user_id, a.title, a.body FROM a
+        JOIN student_portal_links spl ON spl.school_id=a.school_id
+        JOIN students st ON st.school_id=spl.school_id AND st.id=spl.student_id
+        LEFT JOIN class_enrollments ce ON ce.school_id=st.school_id AND ce.student_id=st.id AND ce.status='ACTIVE'
+        WHERE (a.audience='LEARNERS' OR (a.audience='CLASS' AND ce.class_group_id=a.class_group_id)
+          OR (a.audience='CAMPUS' AND (a.campus_id IS NULL OR st.campus_id=a.campus_id)))
+        UNION
+        SELECT DISTINCT g.user_id,a.title,a.body FROM a JOIN student_guardians sg ON sg.school_id=a.school_id
+        JOIN guardians g ON g.school_id=sg.school_id AND g.id=sg.guardian_id AND g.active AND g.user_id IS NOT NULL
+        JOIN students st ON st.school_id=sg.school_id AND st.id=sg.student_id
+        LEFT JOIN class_enrollments ce ON ce.school_id=st.school_id AND ce.student_id=st.id AND ce.status='ACTIVE'
+        WHERE (a.audience='ALL_GUARDIANS' OR (a.audience='CLASS' AND ce.class_group_id=a.class_group_id)
+          OR (a.audience='CAMPUS' AND (a.campus_id IS NULL OR st.campus_id=a.campus_id)))
+      )
+      INSERT INTO portal_notifications(school_id,user_id,kind,title,body,target_url,announcement_id)
+      SELECT $1,user_id,'ANNOUNCEMENT',title,body,'/portal',$2 FROM linked
+      ON CONFLICT(school_id,user_id,announcement_id) WHERE announcement_id IS NOT NULL DO NOTHING
+      RETURNING user_id,title,body`,[schoolId,announcementId]);
+    return recipients.rows;
+  }
 
   router.get('/dashboard', async (req, res) => {
     const permissions = new Set(req.auth.account.permissions);
@@ -1010,19 +1077,30 @@ export function createOperationsRouter({ authenticate, sendInvitation = sendAcco
   router.get('/communications', needsPermission('communications.read'), async(req,res)=>{
     try{const schoolId=req.auth.claims.schoolId;const [announcements,deliveries,classes]=await Promise.all([
       req.auth.client.query(`SELECT a.id,a.title,a.body,a.audience,a.status,a.created_at,a.published_at,u.full_name AS author FROM announcements a JOIN user_accounts u ON u.school_id=a.school_id AND u.id=a.created_by WHERE a.school_id=$1 ORDER BY a.created_at DESC LIMIT 200`,[schoolId]),
-      req.auth.client.query(`SELECT id,channel,status,count(*) OVER(PARTITION BY announcement_id) AS audience_count,queued_at,sent_at FROM notification_deliveries WHERE school_id=$1 ORDER BY queued_at DESC LIMIT 100`,[schoolId]),
+      req.auth.client.query(`SELECT nd.id,nd.announcement_id,a.title,nd.channel,nd.status,count(*) OVER(PARTITION BY nd.announcement_id,nd.channel) AS audience_count,nd.queued_at,nd.sent_at,nd.error_code FROM notification_deliveries nd LEFT JOIN announcements a ON a.school_id=nd.school_id AND a.id=nd.announcement_id WHERE nd.school_id=$1 ORDER BY nd.queued_at DESC LIMIT 100`,[schoolId]),
       req.auth.client.query(`SELECT id,name,grade_level FROM class_groups WHERE school_id=$1 ORDER BY grade_level,name`,[schoolId])
-    ]);await close(req,true);return res.json({announcements:announcements.rows,deliveries:deliveries.rows,classes:classes.rows,canWrite:req.auth.account.permissions.includes('communications.write')});}catch(error){return fail(req,res,error);}
+    ]);await close(req,true);return res.json({announcements:announcements.rows,deliveries:deliveries.rows,classes:classes.rows,canWrite:req.auth.account.permissions.includes('communications.write'),canSendSms:req.auth.account.permissions.includes('communications.sms.send'),smsConfigured:smsReadiness()});}catch(error){return fail(req,res,error);}
   });
 
   router.post('/communications', needsPermission('communications.write'), csrf, async(req,res)=>{
     const title=text(req.body?.title,160);const body=text(req.body?.body,5000);const audience=text(req.body?.audience,30).toUpperCase();const classId=text(req.body?.classGroupId,50)||null;
     if(!title||!body||!['ALL_GUARDIANS','CAMPUS','CLASS','STAFF','LEARNERS'].includes(audience)||(audience==='CLASS'&&!classId)){await close(req,false);return res.status(400).json({error:'Enter a title and message, choose an audience, and select a class for class messages.'});}
-    try{const schoolId=req.auth.claims.schoolId;const status=req.auth.account.roles.some(role=>['SCHOOL_ADMIN','PRINCIPAL'].includes(role))?'PUBLISHED':'DRAFT';const r=await req.auth.client.query(`INSERT INTO announcements(school_id,class_group_id,title,body,audience,status,created_by,published_at) SELECT $1,c.id,$3,$4,$5,$6,$7,CASE WHEN $6='PUBLISHED' THEN now() ELSE NULL END FROM (SELECT 1) seed LEFT JOIN class_groups c ON c.school_id=$1 AND c.id=$2 WHERE ($5<>'CLASS' OR c.id IS NOT NULL) RETURNING id,title,body,audience,status,created_at,published_at`,[schoolId,classId,title,body,audience,status,req.auth.claims.userId]);if(!r.rowCount){await close(req,false);return res.status(400).json({error:'Choose a class belonging to this school.'});}await audit(req,'ANNOUNCEMENT_CREATED','ANNOUNCEMENT',r.rows[0].id,{audience,status});return done(req,res,201,{announcement:r.rows[0],notice:status==='PUBLISHED'?'Announcement published in the school system. External email/SMS delivery is not configured.':'Announcement saved as a draft for review.'});}catch(error){return fail(req,res,error);}
+    try{const schoolId=req.auth.claims.schoolId;const status=req.auth.account.roles.some(role=>['SCHOOL_ADMIN','PRINCIPAL'].includes(role))?'PUBLISHED':'DRAFT';const r=await req.auth.client.query(`INSERT INTO announcements(school_id,class_group_id,title,body,audience,status,created_by,published_at) SELECT $1,c.id,$3,$4,$5,$6,$7,CASE WHEN $6='PUBLISHED' THEN now() ELSE NULL END FROM (SELECT 1) seed LEFT JOIN class_groups c ON c.school_id=$1 AND c.id=$2 WHERE ($5<>'CLASS' OR c.id IS NOT NULL) RETURNING id,title,body,audience,status,created_at,published_at`,[schoolId,classId,title,body,audience,status,req.auth.claims.userId]);if(!r.rowCount){await close(req,false);return res.status(400).json({error:'Choose a class belonging to this school.'});}let alerts=[];if(status==='PUBLISHED'){await queueAnnouncementSms(req.auth.client,schoolId,r.rows[0].id);alerts=await queueAnnouncementAlerts(req.auth.client,schoolId,r.rows[0].id);}await audit(req,'ANNOUNCEMENT_CREATED','ANNOUNCEMENT',r.rows[0].id,{audience,status,alerts:alerts.length});await done(req,res,201,{announcement:r.rows[0],notice:status==='PUBLISHED'?'Announcement published in the portal. Eligible in-app and push alerts were queued; consent-eligible SMS recipients are ready to send.':'Announcement saved as a draft for review.'});for(const target of alerts)void pushToUser(schoolId,target.user_id,{title:target.title,body:target.body.slice(0,180),url:'/portal'});return;}catch(error){return fail(req,res,error);}
   });
 
   router.post('/communications/:announcementId/publish', needsPermission('communications.write'), csrf, async(req,res)=>{
-    try{const r=await req.auth.client.query(`UPDATE announcements SET status='PUBLISHED',approved_by=$3,published_at=now() WHERE school_id=$1 AND id=$2 AND status='DRAFT' RETURNING id,title,status,published_at`,[req.auth.claims.schoolId,req.params.announcementId,req.auth.claims.userId]);if(!r.rowCount){await close(req,false);return res.status(404).json({error:'Draft announcement not found.'});}await audit(req,'ANNOUNCEMENT_PUBLISHED','ANNOUNCEMENT',r.rows[0].id);return done(req,res,200,{announcement:r.rows[0],notice:'Published in the school system. Email/SMS delivery is not configured.'});}catch(error){return fail(req,res,error);}
+    try{const r=await req.auth.client.query(`UPDATE announcements SET status='PUBLISHED',approved_by=$3,published_at=now() WHERE school_id=$1 AND id=$2 AND status='DRAFT' RETURNING id,title,status,published_at`,[req.auth.claims.schoolId,req.params.announcementId,req.auth.claims.userId]);if(!r.rowCount){await close(req,false);return res.status(404).json({error:'Draft announcement not found.'});}const queued=await queueAnnouncementSms(req.auth.client,req.auth.claims.schoolId,r.rows[0].id);const alerts=await queueAnnouncementAlerts(req.auth.client,req.auth.claims.schoolId,r.rows[0].id);await audit(req,'ANNOUNCEMENT_PUBLISHED','ANNOUNCEMENT',r.rows[0].id,{smsQueued:queued.rowCount,alerts:alerts.length});await done(req,res,200,{announcement:r.rows[0],notice:`Published to the portal. ${alerts.length} in-app/push alert(s) queued. ${queued.rowCount} consent-eligible SMS recipient(s) queued${smsReadiness()?' and ready to send':' (SMS gateway not configured)'}.`});for(const target of alerts)void pushToUser(req.auth.claims.schoolId,target.user_id,{title:target.title,body:target.body.slice(0,180),url:'/portal'});return;}catch(error){return fail(req,res,error);}
+  });
+
+  router.post('/communications/:announcementId/send-sms', needsPermission('communications.sms.send'), csrf, async(req,res)=>{
+    if(!smsReadiness()){await close(req,false);return res.status(503).json({error:'SMS delivery is not configured. Add the school SMS gateway URL, token, and sender ID in Coolify before sending.'});}
+    try{const schoolId=req.auth.claims.schoolId;const announcement=await req.auth.client.query(`SELECT id,title,body,status FROM announcements WHERE school_id=$1 AND id=$2`,[schoolId,req.params.announcementId]);if(!announcement.rowCount||announcement.rows[0].status!=='PUBLISHED'){await close(req,false);return res.status(409).json({error:'Publish this school announcement before sending SMS.'});}
+      await queueAnnouncementSms(req.auth.client,schoolId,announcement.rows[0].id);
+      const queued=await req.auth.client.query(`SELECT id,recipient_ref FROM notification_deliveries WHERE school_id=$1 AND announcement_id=$2 AND channel='SMS' AND status IN ('QUEUED','FAILED') ORDER BY queued_at LIMIT 300`,[schoolId,announcement.rows[0].id]);
+      let sent=0,failed=0;
+      for(const delivery of queued.rows){try{const {providerMessageId}=await sendSchoolSms({to:delivery.recipient_ref,message:`${announcement.rows[0].title}: ${announcement.rows[0].body}`});await req.auth.client.query(`UPDATE notification_deliveries SET status='SENT',provider_message_id=$3,sent_at=now(),error_code=NULL WHERE school_id=$1 AND id=$2`,[schoolId,delivery.id,providerMessageId]);sent++;}catch(error){await req.auth.client.query(`UPDATE notification_deliveries SET status='FAILED',error_code=$3 WHERE school_id=$1 AND id=$2`,[schoolId,delivery.id,(error instanceof Error?error.message:'Delivery failed').slice(0,120)]);failed++;}}
+      await audit(req,'ANNOUNCEMENT_SMS_DISPATCHED','ANNOUNCEMENT',announcement.rows[0].id,{sent,failed});return done(req,res,200,{sent,failed,notice:`SMS delivery finished: ${sent} sent, ${failed} failed.`});
+    }catch(error){return fail(req,res,error);}
   });
 
   router.get('/setup', async (req, res, next) => {
@@ -1111,7 +1189,8 @@ export function createOperationsRouter({ authenticate, sendInvitation = sendAcco
     const code = text(req.body?.code, 30).toUpperCase(); const name = text(req.body?.name);
     if (!/^[A-Z0-9_-]{2,30}$/.test(code) || !name) { await close(req, false); return res.status(400).json({ error: 'Enter a subject name and a code (2–30 letters or numbers).' }); }
     try {
-      // Make subject setup safe to retry: an existing inactive subject is reactivated.
+      // Make subject setup safe to retry: a previously created but inactive subject
+      // should be reactivated, and an existing code should remain selectable.
       const result = await req.auth.client.query(`INSERT INTO subjects (school_id, code, name)
         VALUES ($1, $2, $3)
         ON CONFLICT (school_id, code) DO UPDATE SET name = EXCLUDED.name, is_active = TRUE
@@ -1554,6 +1633,178 @@ export function createOperationsRouter({ authenticate, sendInvitation = sendAcco
       await audit(req, 'TIMETABLE_SLOT_CREATED', 'TIMETABLE_SLOT', result.rows[0].id, { assignmentId, periodId, day });
       return done(req, res, 201, { timetableSlot: result.rows[0] });
     } catch (error) { return fail(req, res, error); }
+  });
+
+  router.get('/portal/workflows', async (req, res) => {
+    if (!req.auth.account.roles.includes('STUDENT') || !req.auth.account.permissions.includes('student.portal.read')) {
+      await close(req, false); return res.status(403).json({ error: 'This workflow is for linked learner accounts.' });
+    }
+    try {
+      const schoolId = req.auth.claims.schoolId; const userId = req.auth.claims.userId;
+      const linked = await req.auth.client.query(`SELECT st.id, ce.class_group_id, c.name AS class_name
+        FROM student_portal_links spl JOIN students st ON st.school_id=spl.school_id AND st.id=spl.student_id
+        LEFT JOIN class_enrollments ce ON ce.school_id=st.school_id AND ce.student_id=st.id AND ce.status='ACTIVE'
+        LEFT JOIN class_groups c ON c.school_id=ce.school_id AND c.id=ce.class_group_id
+        WHERE spl.school_id=$1 AND spl.user_id=$2`, [schoolId,userId]);
+      if (!linked.rowCount) { await close(req,false); return res.status(404).json({ error:'No learner record is linked to this account.' }); }
+      const student = linked.rows[0];
+      const [assignments, teachers, threads, notifications, subscriptions] = await Promise.all([
+        req.auth.client.query(`SELECT a.id,a.title,a.assessment_type,a.max_score,a.due_at,a.status,s.name AS subject_name,
+            ta.id AS teacher_assignment_id, u.full_name AS teacher_name, sub.id AS submission_id,sub.status AS submission_status,
+            sub.submitted_at,sub.response_text,sub.attachment_name,sub.feedback,
+            CASE WHEN a.status='PUBLISHED' AND published_score.published_at IS NOT NULL THEN published_score.score END AS score
+          FROM assessments a JOIN teacher_subject_assignments ta ON ta.school_id=a.school_id AND ta.id=a.teacher_assignment_id
+          JOIN subjects s ON s.school_id=ta.school_id AND s.id=ta.subject_id JOIN user_accounts u ON u.school_id=ta.school_id AND u.id=ta.teacher_id
+          LEFT JOIN assessment_submissions sub ON sub.school_id=a.school_id AND sub.assessment_id=a.id AND sub.student_id=$2
+          LEFT JOIN assessment_scores published_score ON published_score.school_id=a.school_id AND published_score.assessment_id=a.id AND published_score.student_id=$2
+          WHERE a.school_id=$1 AND ta.class_group_id=$3 AND a.assessment_type='ASSIGNMENT' AND a.status IN ('OPEN','CLOSED','PUBLISHED')
+          ORDER BY a.due_at NULLS LAST,a.created_at DESC LIMIT 100`, [schoolId,student.id,student.class_group_id]),
+        req.auth.client.query(`SELECT DISTINCT u.id AS teacher_id,u.full_name,s.name AS subject_name FROM teacher_subject_assignments ta
+          JOIN user_accounts u ON u.school_id=ta.school_id AND u.id=ta.teacher_id JOIN subjects s ON s.school_id=ta.school_id AND s.id=ta.subject_id
+          WHERE ta.school_id=$1 AND ta.class_group_id=$2 AND ta.effective_from<=CURRENT_DATE AND (ta.effective_to IS NULL OR ta.effective_to>=CURRENT_DATE)
+          AND u.status='ACTIVE' ORDER BY u.full_name,s.name`, [schoolId,student.class_group_id]),
+        req.auth.client.query(`SELECT t.id,t.subject,t.updated_at,u.full_name AS teacher_name,
+            (SELECT pm.body FROM portal_messages pm WHERE pm.school_id=t.school_id AND pm.thread_id=t.id ORDER BY pm.created_at DESC LIMIT 1) AS latest_message,
+            (SELECT pm.created_at FROM portal_messages pm WHERE pm.school_id=t.school_id AND pm.thread_id=t.id ORDER BY pm.created_at DESC LIMIT 1) AS latest_at,
+            (SELECT count(*)::int FROM portal_messages pm WHERE pm.school_id=t.school_id AND pm.thread_id=t.id AND pm.sender_user_id<>$2 AND pm.read_at IS NULL) AS unread_count
+          FROM portal_message_threads t JOIN user_accounts u ON u.school_id=t.school_id AND u.id=t.teacher_user_id
+          WHERE t.school_id=$1 AND t.student_id=$3 ORDER BY t.updated_at DESC LIMIT 100`, [schoolId,userId,student.id]),
+        req.auth.client.query(`SELECT id,kind,title,body,target_url,read_at,created_at FROM portal_notifications
+          WHERE school_id=$1 AND user_id=$2 ORDER BY created_at DESC LIMIT 100`, [schoolId,userId]),
+        req.auth.client.query('SELECT count(*)::int AS count FROM push_subscriptions WHERE school_id=$1 AND user_id=$2', [schoolId,userId]),
+      ]);
+      await close(req,true);
+      return res.json({studentId:student.id,className:student.class_name,assignments:assignments.rows,teachers:teachers.rows,threads:threads.rows,notifications:notifications.rows,pushEnabled:Boolean(process.env.VAPID_PUBLIC_KEY),pushSubscribed:Number(subscriptions.rows[0]?.count||0)>0,pushPublicKey:process.env.VAPID_PUBLIC_KEY||null});
+    } catch(error) { return fail(req,res,error); }
+  });
+
+  router.post('/portal/submissions', csrf, async (req,res) => {
+    if (!req.auth.account.roles.includes('STUDENT') || !req.auth.account.permissions.includes('assignments.submit')) { await close(req,false); return res.status(403).json({error:'Only a student can submit their own class assignment.'}); }
+    const assessmentId=text(req.body?.assessmentId,50); const responseText=text(req.body?.responseText,20000); const attachment=req.body?.attachment;
+    if(!assessmentId || (!responseText && !attachment) || (attachment && (typeof attachment.data!=='string' || attachment.data.length>7_000_000 || !/^[\w.-]{1,180}$/.test(attachment.name||'') || !['application/pdf','image/jpeg','image/png','text/plain'].includes(attachment.mime)))) { await close(req,false); return res.status(400).json({error:'Add written work or one PDF, JPG, PNG or text file up to 5 MB.'}); }
+    let bytes=null;
+    if(attachment){try{bytes=Buffer.from(attachment.data,'base64');if(bytes.length>5*1024*1024||bytes.toString('base64').replace(/=+$/,'')!==attachment.data.replace(/=+$/,''))throw new Error('Invalid attachment.');}catch{await close(req,false);return res.status(400).json({error:'The attachment is invalid or larger than 5 MB.'});}}
+    try{
+      const schoolId=req.auth.claims.schoolId;const userId=req.auth.claims.userId;
+      const target=await req.auth.client.query(`SELECT st.id,a.id AS assessment_id,a.title,a.due_at,a.status,ta.teacher_id
+        FROM student_portal_links spl JOIN students st ON st.school_id=spl.school_id AND st.id=spl.student_id
+        JOIN class_enrollments ce ON ce.school_id=st.school_id AND ce.student_id=st.id AND ce.status='ACTIVE'
+        JOIN assessments a ON a.school_id=ce.school_id JOIN teacher_subject_assignments ta ON ta.school_id=a.school_id AND ta.id=a.teacher_assignment_id AND ta.class_group_id=ce.class_group_id
+        WHERE spl.school_id=$1 AND spl.user_id=$2 AND a.id=$3 AND a.assessment_type='ASSIGNMENT' AND a.status='OPEN' AND (a.due_at IS NULL OR a.due_at>=now())`,[schoolId,userId,assessmentId]);
+      if(!target.rowCount){await close(req,false);return res.status(404).json({error:'This assignment is not open for your linked class or the deadline has passed.'});}
+      const studentId=target.rows[0].id;
+      const result=await req.auth.client.query(`INSERT INTO assessment_submissions(school_id,assessment_id,student_id,response_text,attachment_name,attachment_mime,attachment_bytes,status,submitted_at)
+        VALUES($1,$2,$3,NULLIF($4,''),$5,$6,$7,'SUBMITTED',now())
+        ON CONFLICT(school_id,assessment_id,student_id) DO UPDATE SET response_text=EXCLUDED.response_text,attachment_name=EXCLUDED.attachment_name,attachment_mime=EXCLUDED.attachment_mime,attachment_bytes=EXCLUDED.attachment_bytes,status='SUBMITTED',submitted_at=now(),updated_at=now(),reviewed_by=NULL,reviewed_at=NULL,feedback=NULL,score=NULL
+        WHERE assessment_submissions.status='RETURNED' RETURNING id,submitted_at,status`,[schoolId,assessmentId,studentId,responseText,attachment?.name||null,attachment?.mime||null,bytes]);
+      if(!result.rowCount){await close(req,false);return res.status(409).json({error:'Your work has already been submitted. Contact your teacher if a correction is needed.'});}
+      const notice=await req.auth.client.query(`INSERT INTO portal_notifications(school_id,user_id,kind,title,body,target_url)
+        VALUES($1,$2,'ASSIGNMENT','Assignment submitted',$3,'/portal') RETURNING id`,[schoolId,target.rows[0].teacher_id,`A learner submitted: ${target.rows[0].title}`]);
+      await audit(req,'STUDENT_ASSIGNMENT_SUBMITTED','ASSESSMENT_SUBMISSION',result.rows[0].id,{assessmentId});
+      const response=await done(req,res,201,{submission:result.rows[0]});
+      void pushToUser(schoolId,target.rows[0].teacher_id,{title:'Assignment submitted',body:`A learner submitted: ${target.rows[0].title}`,url:'/portal'});
+      return response;
+    }catch(error){return fail(req,res,error);}
+  });
+
+  router.post('/portal/push-subscriptions', needsPermission('push.register'), csrf, async(req,res)=>{
+    if(!req.auth.account.roles.some(role=>['STUDENT','PARENT','TEACHER'].includes(role))){await close(req,false);return res.status(403).json({error:'Push alerts are available only for portal and teacher accounts.'});}
+    if(!process.env.VAPID_PUBLIC_KEY){await close(req,false);return res.status(503).json({error:'Push alerts are not configured for this school site yet.'});}
+    const subscription=req.body?.subscription;
+    if(!subscription||typeof subscription.endpoint!=='string'||!subscription.endpoint.startsWith('https://')||typeof subscription.keys?.p256dh!=='string'||typeof subscription.keys?.auth!=='string'){await close(req,false);return res.status(400).json({error:'The browser did not provide a valid push subscription.'});}
+    try{await req.auth.client.query(`INSERT INTO push_subscriptions(school_id,user_id,endpoint,p256dh,auth_secret,user_agent)
+        VALUES($1,$2,$3,$4,$5,$6) ON CONFLICT(school_id,user_id,endpoint) DO UPDATE SET p256dh=EXCLUDED.p256dh,auth_secret=EXCLUDED.auth_secret,user_agent=EXCLUDED.user_agent,updated_at=now()`,[req.auth.claims.schoolId,req.auth.claims.userId,subscription.endpoint,subscription.keys.p256dh,subscription.keys.auth,text(req.get('user-agent'),500)]);
+      return done(req,res,201,{saved:true});}catch(error){return fail(req,res,error);}
+  });
+
+  router.post('/portal/notifications/:notificationId/read', needsPermission('portal.notifications.read'), csrf, async(req,res)=>{
+    try{const r=await req.auth.client.query(`UPDATE portal_notifications SET read_at=COALESCE(read_at,now()) WHERE school_id=$1 AND user_id=$2 AND id=$3 RETURNING id`,[req.auth.claims.schoolId,req.auth.claims.userId,req.params.notificationId]);if(!r.rowCount){await close(req,false);return res.status(404).json({error:'Notification not found.'});}return done(req,res,200,{read:true});}catch(error){return fail(req,res,error);}
+  });
+
+  router.post('/portal/messages', needsPermission('portal.messages.write'), csrf, async(req,res)=>{
+    if(!req.auth.account.roles.includes('STUDENT')){await close(req,false);return res.status(403).json({error:'Start a conversation from the student portal.'});}
+    const teacherId=text(req.body?.teacherId,50);const subject=text(req.body?.subject,160);const body=text(req.body?.body,5000);
+    if(!teacherId||!subject||!body){await close(req,false);return res.status(400).json({error:'Choose a teacher and enter a subject and message.'});}
+    try{const schoolId=req.auth.claims.schoolId;const userId=req.auth.claims.userId;
+      const learner=await req.auth.client.query(`SELECT st.id,ce.class_group_id FROM student_portal_links spl JOIN students st ON st.school_id=spl.school_id AND st.id=spl.student_id JOIN class_enrollments ce ON ce.school_id=st.school_id AND ce.student_id=st.id AND ce.status='ACTIVE' WHERE spl.school_id=$1 AND spl.user_id=$2`,[schoolId,userId]);
+      if(!learner.rowCount){await close(req,false);return res.status(403).json({error:'No active class is linked to this learner account.'});}
+      const allowed=await req.auth.client.query(`SELECT 1 FROM teacher_subject_assignments WHERE school_id=$1 AND class_group_id=$2 AND teacher_id=$3 AND effective_from<=CURRENT_DATE AND (effective_to IS NULL OR effective_to>=CURRENT_DATE)`,[schoolId,learner.rows[0].class_group_id,teacherId]);
+      if(!allowed.rowCount){await close(req,false);return res.status(403).json({error:'Choose a teacher assigned to your current class.'});}
+      const thread=await req.auth.client.query(`INSERT INTO portal_message_threads(school_id,student_id,teacher_user_id,subject,created_by)
+        VALUES($1,$2,$3,$4,$5) ON CONFLICT(school_id,student_id,teacher_user_id,subject) DO UPDATE SET updated_at=now() RETURNING id`,[schoolId,learner.rows[0].id,teacherId,subject,userId]);
+      const message=await req.auth.client.query(`INSERT INTO portal_messages(school_id,thread_id,sender_user_id,body) VALUES($1,$2,$3,$4) RETURNING id,body,created_at`,[schoolId,thread.rows[0].id,userId,body]);
+      await req.auth.client.query(`INSERT INTO portal_notifications(school_id,user_id,kind,title,body,target_url) VALUES($1,$2,'MESSAGE','New student message',$3,'/portal')`,[schoolId,teacherId,subject]);
+      await req.auth.client.query('UPDATE portal_message_threads SET updated_at=now() WHERE school_id=$1 AND id=$2',[schoolId,thread.rows[0].id]);
+      await audit(req,'PORTAL_MESSAGE_SENT','PORTAL_MESSAGE',message.rows[0].id,{threadId:thread.rows[0].id});
+      await done(req,res,201,{threadId:thread.rows[0].id,message:message.rows[0]});
+      void pushToUser(schoolId,teacherId,{title:'New student message',body:subject,url:'/portal'});
+      return;
+    }catch(error){return fail(req,res,error);}
+  });
+
+  router.post('/portal/messages/:threadId', needsPermission('portal.messages.write'), csrf, async(req,res)=>{
+    const body=text(req.body?.body,5000);if(!body){await close(req,false);return res.status(400).json({error:'Write a message before sending.'});}
+    try{const schoolId=req.auth.claims.schoolId;const userId=req.auth.claims.userId;const isStudent=req.auth.account.roles.includes('STUDENT');
+      const thread=await req.auth.client.query(`SELECT t.id,t.student_id,t.teacher_user_id,st.user_id AS student_user_id FROM portal_message_threads t JOIN student_portal_links st ON st.school_id=t.school_id AND st.student_id=t.student_id WHERE t.school_id=$1 AND t.id=$2`,[schoolId,req.params.threadId]);
+      if(!thread.rowCount){await close(req,false);return res.status(404).json({error:'Conversation not found.'});}
+      const item=thread.rows[0];const authorized=isStudent?item.student_user_id===userId:item.teacher_user_id===userId&&req.auth.account.roles.includes('TEACHER');
+      if(!authorized){await close(req,false);return res.status(403).json({error:'You are not a participant in this conversation.'});}
+      const recipient=isStudent?item.teacher_user_id:item.student_user_id;
+      const message=await req.auth.client.query(`INSERT INTO portal_messages(school_id,thread_id,sender_user_id,body) VALUES($1,$2,$3,$4) RETURNING id,body,created_at`,[schoolId,item.id,userId,body]);
+      await req.auth.client.query(`UPDATE portal_messages SET read_at=now() WHERE school_id=$1 AND thread_id=$2 AND sender_user_id<>$3 AND read_at IS NULL`,[schoolId,item.id,userId]);
+      await req.auth.client.query('UPDATE portal_message_threads SET updated_at=now() WHERE school_id=$1 AND id=$2',[schoolId,item.id]);
+      await req.auth.client.query(`INSERT INTO portal_notifications(school_id,user_id,kind,title,body,target_url) VALUES($1,$2,'MESSAGE','New school message',$3,'/portal')`,[schoolId,recipient,body.slice(0,220)]);
+      await audit(req,'PORTAL_MESSAGE_SENT','PORTAL_MESSAGE',message.rows[0].id,{threadId:item.id});
+      await done(req,res,201,{message:message.rows[0]});void pushToUser(schoolId,recipient,{title:'New school message',body:body.slice(0,180),url:'/portal'});return;
+    }catch(error){return fail(req,res,error);}
+  });
+
+  router.get('/portal/messages/:threadId', needsPermission('portal.messages.read'), async(req,res)=>{
+    try{const schoolId=req.auth.claims.schoolId;const userId=req.auth.claims.userId;const isStudent=req.auth.account.roles.includes('STUDENT');
+      const thread=await req.auth.client.query(`SELECT t.id,t.subject,t.student_id,t.teacher_user_id,sp.user_id AS student_user_id,u.full_name AS teacher_name FROM portal_message_threads t JOIN student_portal_links sp ON sp.school_id=t.school_id AND sp.student_id=t.student_id JOIN user_accounts u ON u.school_id=t.school_id AND u.id=t.teacher_user_id WHERE t.school_id=$1 AND t.id=$2`,[schoolId,req.params.threadId]);
+      if(!thread.rowCount){await close(req,false);return res.status(404).json({error:'Conversation not found.'});}const item=thread.rows[0];
+      const authorized=isStudent?item.student_user_id===userId:item.teacher_user_id===userId&&req.auth.account.roles.includes('TEACHER');if(!authorized){await close(req,false);return res.status(403).json({error:'You are not a participant in this conversation.'});}
+      const messages=await req.auth.client.query(`SELECT m.id,m.body,m.sender_user_id,m.created_at,m.read_at,u.full_name AS sender_name FROM portal_messages m JOIN user_accounts u ON u.school_id=m.school_id AND u.id=m.sender_user_id WHERE m.school_id=$1 AND m.thread_id=$2 ORDER BY m.created_at`,[schoolId,item.id]);
+      await req.auth.client.query(`UPDATE portal_messages SET read_at=COALESCE(read_at,now()) WHERE school_id=$1 AND thread_id=$2 AND sender_user_id<>$3`,[schoolId,item.id,userId]);
+      await close(req,true);return res.json({thread:{id:item.id,subject:item.subject,teacherName:item.teacher_name},messages:messages.rows});
+    }catch(error){return fail(req,res,error);}
+  });
+
+  router.get('/teaching/messages', needsPermission('portal.messages.read'), async(req,res)=>{
+    if(!req.auth.account.roles.includes('TEACHER')){await close(req,false);return res.status(403).json({error:'Teacher inbox is available only to teacher accounts.'});}
+    try{const userId=req.auth.claims.userId;const schoolId=req.auth.claims.schoolId;const [threads,subscriptions]=await Promise.all([
+      req.auth.client.query(`SELECT t.id,t.subject,t.updated_at,st.id AS student_id,st.first_name,st.last_name,st.student_number,
+        (SELECT pm.body FROM portal_messages pm WHERE pm.school_id=t.school_id AND pm.thread_id=t.id ORDER BY pm.created_at DESC LIMIT 1) AS latest_message,
+        (SELECT pm.created_at FROM portal_messages pm WHERE pm.school_id=t.school_id AND pm.thread_id=t.id ORDER BY pm.created_at DESC LIMIT 1) AS latest_at,
+        (SELECT count(*)::int FROM portal_messages pm WHERE pm.school_id=t.school_id AND pm.thread_id=t.id AND pm.sender_user_id<>$2 AND pm.read_at IS NULL) AS unread_count
+        FROM portal_message_threads t JOIN students st ON st.school_id=t.school_id AND st.id=t.student_id
+        JOIN teacher_subject_assignments ta ON ta.school_id=t.school_id AND ta.teacher_id=t.teacher_user_id
+        WHERE t.school_id=$1 AND t.teacher_user_id=$2 AND EXISTS(SELECT 1 FROM class_enrollments ce WHERE ce.school_id=t.school_id AND ce.student_id=t.student_id AND ce.class_group_id=ta.class_group_id AND ce.status='ACTIVE')
+        ORDER BY t.updated_at DESC LIMIT 200`,[schoolId,userId]),
+      req.auth.client.query('SELECT count(*)::int AS count FROM push_subscriptions WHERE school_id=$1 AND user_id=$2',[schoolId,userId])
+    ]);await close(req,true);return res.json({threads:threads.rows,pushEnabled:Boolean(process.env.VAPID_PUBLIC_KEY),pushPublicKey:process.env.VAPID_PUBLIC_KEY||null,pushSubscribed:Number(subscriptions.rows[0]?.count||0)>0});}catch(error){return fail(req,res,error);}
+  });
+
+  router.get('/teaching/submissions', needsPermission('assignments.review'), async(req,res)=>{
+    try{const isTeacher=req.auth.account.roles.includes('TEACHER');const results=await req.auth.client.query(`SELECT sub.id,sub.response_text,sub.attachment_name,sub.attachment_mime,sub.status,sub.submitted_at,sub.feedback,sub.score,st.first_name,st.last_name,st.student_number,a.id AS assessment_id,a.title,a.max_score,a.due_at,s.name AS subject_name FROM assessment_submissions sub JOIN assessments a ON a.school_id=sub.school_id AND a.id=sub.assessment_id JOIN teacher_subject_assignments ta ON ta.school_id=a.school_id AND ta.id=a.teacher_assignment_id JOIN subjects s ON s.school_id=ta.school_id AND s.id=ta.subject_id JOIN students st ON st.school_id=sub.school_id AND st.id=sub.student_id WHERE sub.school_id=$1 AND ($2::boolean=false OR ta.teacher_id=$3) ORDER BY sub.submitted_at DESC LIMIT 300`,[req.auth.claims.schoolId,isTeacher,req.auth.claims.userId]);await close(req,true);return res.json({submissions:results.rows});}catch(error){return fail(req,res,error);}
+  });
+
+  router.post('/teaching/submissions/:submissionId/review', needsPermission('assignments.review'), csrf, async(req,res)=>{
+    const feedback=text(req.body?.feedback,2000);const score=req.body?.score===''||req.body?.score==null?null:Number(req.body.score);const status=text(req.body?.status,20).toUpperCase();
+    if(!['RETURNED','REVIEWED'].includes(status)||(score!==null&&(!Number.isFinite(score)||score<0))){await close(req,false);return res.status(400).json({error:'Choose Return for revision or Mark reviewed, and enter a valid optional score.'});}
+    try{const isTeacher=req.auth.account.roles.includes('TEACHER');const updated=await req.auth.client.query(`UPDATE assessment_submissions sub SET status=$4,feedback=NULLIF($5,''),score=$6,reviewed_by=$3,reviewed_at=now(),updated_at=now() FROM assessments a JOIN teacher_subject_assignments ta ON ta.school_id=a.school_id AND ta.id=a.teacher_assignment_id WHERE sub.school_id=$1 AND sub.id=$2 AND a.school_id=sub.school_id AND a.id=sub.assessment_id AND ($7::boolean=false OR ta.teacher_id=$3) AND (a.status='OPEN' OR $6 IS NULL) RETURNING sub.id,sub.assessment_id,sub.student_id,sub.status,sub.score`,[req.auth.claims.schoolId,req.params.submissionId,req.auth.claims.userId,status,feedback,score,isTeacher]);
+      if(!updated.rowCount){await close(req,false);return res.status(404).json({error:'Submission not found, or you are not assigned to its class.'});}
+      const item=updated.rows[0];if(score!==null){const saved=await req.auth.client.query(`INSERT INTO assessment_scores(school_id,assessment_id,student_id,score,feedback,entered_by) SELECT $1,$2,$3,$4,NULLIF($5,''),$6 WHERE $4<=(SELECT max_score FROM assessments WHERE school_id=$1 AND id=$2) ON CONFLICT(school_id,assessment_id,student_id) DO UPDATE SET score=EXCLUDED.score,feedback=EXCLUDED.feedback,entered_by=EXCLUDED.entered_by,moderated_by=NULL,moderated_at=NULL,published_at=NULL RETURNING id`,[req.auth.claims.schoolId,item.assessment_id,item.student_id,score,feedback,req.auth.claims.userId]);if(!saved.rowCount){await close(req,false);return res.status(400).json({error:'The score exceeds the assignment maximum.'});}}
+      await req.auth.client.query(`INSERT INTO portal_notifications(school_id,user_id,kind,title,body,target_url) SELECT $1,spl.user_id,'ASSIGNMENT','Assignment feedback is ready',$3,'/portal' FROM student_portal_links spl WHERE spl.school_id=$1 AND spl.student_id=$2`,[req.auth.claims.schoolId,item.student_id,status==='RETURNED'?'Your teacher returned work for revision.':'Your teacher reviewed your submitted work.']);
+      await audit(req,'ASSIGNMENT_SUBMISSION_REVIEWED','ASSESSMENT_SUBMISSION',item.id,{status,scored:score!==null});
+      const linked=await req.auth.client.query('SELECT user_id FROM student_portal_links WHERE school_id=$1 AND student_id=$2',[req.auth.claims.schoolId,item.student_id]);
+      const response=await done(req,res,200,{submission:item});if(linked.rows[0]?.user_id)void pushToUser(req.auth.claims.schoolId,linked.rows[0].user_id,{title:'Assignment feedback is ready',body:status==='RETURNED'?'Your teacher returned work for revision.':'Your teacher reviewed your submitted work.',url:'/portal'});return response;
+    }catch(error){return fail(req,res,error);}
+  });
+
+  router.get('/portal/submissions/:submissionId/file', async(req,res)=>{
+    try{const isStudent=req.auth.account.roles.includes('STUDENT')&&req.auth.account.permissions.includes('assignments.submit');const isTeacher=req.auth.account.roles.includes('TEACHER')&&req.auth.account.permissions.includes('assignments.review');const r=await req.auth.client.query(`SELECT sub.attachment_name,sub.attachment_mime,sub.attachment_bytes FROM assessment_submissions sub JOIN assessments a ON a.school_id=sub.school_id AND a.id=sub.assessment_id JOIN teacher_subject_assignments ta ON ta.school_id=a.school_id AND ta.id=a.teacher_assignment_id WHERE sub.school_id=$1 AND sub.id=$2 AND sub.attachment_bytes IS NOT NULL AND (($3::boolean AND EXISTS(SELECT 1 FROM student_portal_links sp WHERE sp.school_id=sub.school_id AND sp.student_id=sub.student_id AND sp.user_id=$4)) OR ($5::boolean AND ta.teacher_id=$4))`,[req.auth.claims.schoolId,req.params.submissionId,isStudent,req.auth.claims.userId,isTeacher]);if(!r.rowCount){await close(req,false);return res.status(404).json({error:'Attachment not found or unavailable to this account.'});}await close(req,true);res.setHeader('Content-Type',r.rows[0].attachment_mime);res.setHeader('Content-Disposition',`attachment; filename="${String(r.rows[0].attachment_name).replace(/[\r\n"\\]/g,'_')}"`);res.setHeader('X-Content-Type-Options','nosniff');return res.send(r.rows[0].attachment_bytes);
+    }catch(error){return fail(req,res,error);}
   });
 
   router.get('/portal', async (req, res) => {

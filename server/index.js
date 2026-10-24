@@ -33,7 +33,9 @@ app.use((_req, res, next) => {
   res.setHeader('X-Content-Type-Options', 'nosniff');
   next();
 });
-app.use(express.json({ limit: '1mb' }));
+// Assignment submissions may contain one small school document (encoded in
+// JSON). The endpoint enforces a strict per-file limit before writing to DB.
+app.use(express.json({ limit: '9mb' }));
 
 app.get('/api/health/live', (_req, res) => {
   res.status(200).json({ status: 'ok' });

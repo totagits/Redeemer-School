@@ -1,4 +1,4 @@
-const CACHE_NAME = 'redeemer-family-portal-v1';
+const CACHE_NAME = 'redeemer-family-portal-v2';
 const SHELL = ['/', '/portal', '/redeemer-portal.webmanifest', '/redeemer-seal.svg?v=2'];
 
 self.addEventListener('install', event => {
@@ -36,4 +36,26 @@ self.addEventListener('fetch', event => {
   if (url.pathname.startsWith('/assets/')) {
     event.respondWith(caches.match(request).then(cached => cached || fetch(request)));
   }
+});
+
+self.addEventListener('push', event => {
+  let message = { title: 'Redeemer School', body: 'You have a new school update.', url: '/portal' };
+  try { if (event.data) message = { ...message, ...event.data.json() }; } catch {}
+  event.waitUntil(self.registration.showNotification(String(message.title || 'Redeemer School'), {
+    body: String(message.body || 'You have a new school update.'),
+    icon: '/redeemer-seal.svg',
+    badge: '/redeemer-seal.svg',
+    data: { url: typeof message.url === 'string' && message.url.startsWith('/') ? message.url : '/portal' },
+    tag: 'redeemer-school-update',
+  }));
+});
+
+self.addEventListener('notificationclick', event => {
+  event.notification.close();
+  const target = event.notification.data?.url || '/portal';
+  event.waitUntil(self.clients.matchAll({ type: 'window', includeUncontrolled: true }).then(async clients => {
+    const existing = clients.find(client => new URL(client.url).origin === self.location.origin);
+    if (existing) { await existing.focus(); if ('navigate' in existing) await existing.navigate(target); return; }
+    await self.clients.openWindow(target);
+  }));
 });
