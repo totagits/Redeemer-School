@@ -241,7 +241,7 @@ export const OperationsWorkspace: React.FC<Props> = ({ account, csrfToken, busy:
     ...(account.permissions.includes('staff.read') ? [{ id: 'staff', label: 'Staff & HR', icon: Users, status: 'available' as const }] : []),
     ...(account.permissions.includes('inventory.read') ? [{ id: 'inventory', label: 'Inventory & procurement', icon: Boxes, status: 'available' as const }] : []),
     ...(account.permissions.includes('communications.read') ? [{ id: 'communications', label: 'Communications', icon: MessageSquareText, status: 'partial' as const }] : []),
-    ...(account.permissions.includes('reports.read') || account.permissions.includes('emis.export') ? [{ id: 'reports', label: 'Reports & EMIS', icon: FileBarChart, status: 'partial' as const }] : []),
+    ...(account.permissions.includes('reports.read') || account.permissions.includes('emis.export') ? [{ id: 'reports', label: 'Reports & EMIS', icon: FileBarChart, status: 'available' as const }] : []),
     ...(account.permissions.includes('users.manage') ? [{ id: 'accounts', label: 'User access', icon: Settings2, status: 'available' as const }] : []),
   ];
   const primaryRole = account.roles.includes('PARENT') ? 'PARENT' :
