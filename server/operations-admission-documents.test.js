@@ -52,14 +52,24 @@ test('applicant PDF is encrypted, integrity-checked, private, audited and downlo
   assert.ok(clients.some(client=>client.statements.some(x=>x.statement.startsWith('INSERT INTO audit_events'))));
 }));
 
-test('guardian identification JPEG is encrypted, stored with image MIME type and downloaded as an image',async t=>withKey(async()=>{
+test('guardian identification JPEG is encrypted, stored with image MIME type and securely previewed inline',async t=>withKey(async()=>{
   FakeClient.documents.clear();const{url,clients}=await startServer(t);const params=new URLSearchParams({title:'Guardian ID photo',categoryId,fileName:'guardian-id.jpg'});
   const upload=await fetch(`${url}/api/operations/admissions/${applicationId}/documents?${params}`,{method:'POST',headers:{...csrf,'Content-Type':'image/jpeg'},body:jpeg});
   assert.equal(upload.status,201);const saved=(await upload.json()).document;assert.equal(saved.media_type,'image/jpeg');
   const insert=clients[0].statements.find(x=>x.statement.startsWith('INSERT INTO admission_documents'));
   assert.equal(insert.params[6],'image/jpeg');assert.ok(Buffer.isBuffer(insert.params[9]));assert.notDeepEqual(insert.params[9],jpeg);
+  const preview=await fetch(`${url}/api/operations/admissions/${applicationId}/documents/${saved.id}/content?disposition=inline`);
+  assert.equal(preview.status,200);assert.equal(preview.headers.get('content-type'),'image/jpeg');assert.match(preview.headers.get('content-disposition'),/^inline;/);assert.equal(preview.headers.get('cache-control'),'no-store, private');assert.deepEqual(Buffer.from(await preview.arrayBuffer()),jpeg);
+  assert.ok(clients.some(client=>client.statements.some(x=>x.statement.includes('INSERT INTO audit_events')&&x.params.some(value=>JSON.stringify(value).includes('ADMISSION_DOCUMENT_PREVIEWED')))));
   const download=await fetch(`${url}/api/operations/admissions/${applicationId}/documents/${saved.id}/content`);
-  assert.equal(download.status,200);assert.equal(download.headers.get('content-type'),'image/jpeg');assert.deepEqual(Buffer.from(await download.arrayBuffer()),jpeg);
+  assert.equal(download.status,200);assert.match(download.headers.get('content-disposition'),/^attachment;/);assert.deepEqual(Buffer.from(await download.arrayBuffer()),jpeg);
+}));
+
+test('inline preview request never forces a PDF to render inline',async t=>withKey(async()=>{
+  FakeClient.documents.clear();const{url}=await startServer(t);const params=new URLSearchParams({title:'Birth certificate',fileName:'birth.pdf'});
+  const upload=await fetch(`${url}/api/operations/admissions/${applicationId}/documents?${params}`,{method:'POST',headers:{...csrf,'Content-Type':'application/pdf'},body:pdf});const saved=(await upload.json()).document;
+  const response=await fetch(`${url}/api/operations/admissions/${applicationId}/documents/${saved.id}/content?disposition=inline`);
+  assert.equal(response.status,200);assert.match(response.headers.get('content-disposition'),/^attachment;/);
 }));
 
 test('applicant document upload requires restricted-record permission',async t=>withKey(async()=>{

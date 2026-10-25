@@ -1213,11 +1213,12 @@ export function createOperationsRouter({ authenticate, sendInvitation = sendAcco
       const document=result.rows[0];
       const plaintext=decryptStudentDocument(document,key,`${schoolId}:admission:${applicationId}:${documentId}`);
       if (createHash('sha256').update(plaintext).digest('hex')!==document.checksum_sha256) { await close(req,false); return res.status(500).json({error:'Document integrity verification failed. Ask the school administrator for help.'}); }
-      await audit(req,'ADMISSION_DOCUMENT_DOWNLOADED','ADMISSION_DOCUMENT',documentId,{applicationId,sizeBytes:Number(document.size_bytes)});
+      const inlinePreview = req.query.disposition === 'inline' && ['image/jpeg','image/png'].includes(String(document.media_type));
+      await audit(req,inlinePreview?'ADMISSION_DOCUMENT_PREVIEWED':'ADMISSION_DOCUMENT_DOWNLOADED','ADMISSION_DOCUMENT',documentId,{applicationId,sizeBytes:Number(document.size_bytes),mediaType:document.media_type});
       await close(req,true);
       const filename=String(document.original_filename).replace(/[\\"\r\n]/g,'_'); const asciiFilename=filename.replace(/[^\x20-\x7e]/g,'_');
       res.setHeader('Cache-Control','no-store, private');res.setHeader('Content-Type',['application/pdf','image/jpeg','image/png'].includes(String(document.media_type))?String(document.media_type):'application/octet-stream');res.setHeader('X-Content-Type-Options','nosniff');
-      res.setHeader('Content-Disposition',`attachment; filename="${asciiFilename}"; filename*=UTF-8''${encodeURIComponent(filename)}`);
+      res.setHeader('Content-Disposition',`${inlinePreview?'inline':'attachment'}; filename="${asciiFilename}"; filename*=UTF-8''${encodeURIComponent(filename)}`);
       res.setHeader('Content-Length',String(plaintext.length));return res.send(plaintext);
     } catch(error){return fail(req,res,error);}
   });
