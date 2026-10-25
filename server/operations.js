@@ -1400,7 +1400,7 @@ export function createOperationsRouter({ authenticate, sendInvitation = sendAcco
           const photo = portrait.rows[0];
           const key = studentDocumentEncryptionKey();
           if (!key) throw new Error('Encrypted learner document key is not configured for photo transfer.');
-          const plain = decryptStudentDocument(photo,key,`${schoolId}:${applicant.id}:${photo.id}`);
+          const plain = decryptStudentDocument(photo,key,`${schoolId}:admission:${applicant.id}:${photo.id}`);
           if (createHash('sha256').update(plain).digest('hex') !== photo.checksum_sha256)
             throw new Error('Applicant portrait failed checksum verification.');
           const newPhotoId = randomUUID();
