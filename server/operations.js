@@ -1066,7 +1066,7 @@ export function createOperationsRouter({ authenticate, sendInvitation = sendAcco
               s.sex,
               ROW_NUMBER() OVER (
                 PARTITION BY ay.id, ce.student_id
-                ORDER BY ce.enrolled_on DESC NULLS LAST,ce.id DESC
+                ORDER BY ce.enrolled_on DESC NULLS LAST,ce.class_group_id DESC
               ) AS position
             FROM class_enrollments ce
             JOIN class_groups cg ON cg.id=ce.class_group_id AND cg.school_id=ce.school_id
