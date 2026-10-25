@@ -7,6 +7,10 @@ import { createAuthRouter } from './auth.js';
 import { createOperationsRouter } from './operations.js';
 import { createPublicAdmissionsRouter } from './publicAdmissions.js';
 import { isStrongSessionSecret } from './authCrypto.js';
+import { applyAdmissionsMigrationIfRequested } from './applyAdmissionsMigration.js';
+
+// This runs only when explicitly enabled after a verified staging backup.
+await applyAdmissionsMigrationIfRequested();
 
 const { Pool } = pg;
 const app = express();
