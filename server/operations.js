@@ -304,6 +304,23 @@ export function createOperationsRouter({ authenticate, sendInvitation = sendAcco
     } catch (error) { return fail(req, res, error); }
   });
 
+  router.post('/school-profile/emis-code', needsPermission('school.configure'), csrf, async (req, res) => {
+    const rawCode = req.body?.moeSchoolEmisCode;
+    const code = typeof rawCode === 'string' ? rawCode.trim() : '';
+    if ((rawCode != null && typeof rawCode !== 'string') || code.length > 64 || /[\u0000-\u001f\u007f]/u.test(code)) {
+      await close(req, false);
+      return res.status(400).json({ error: 'Enter a Ministry school code of up to 64 characters, or leave it blank.' });
+    }
+    try {
+      const schoolId = req.auth.claims.schoolId;
+      const result = await req.auth.client.query(`UPDATE schools SET moe_school_emis_code=NULLIF($2,''), updated_at=now()
+        WHERE id=$1 RETURNING id, moe_school_emis_code`, [schoolId, code]);
+      if (!result.rowCount) { await close(req, false); return res.status(404).json({ error: 'The school record was not found.' }); }
+      await audit(req, 'SCHOOL_EMIS_CODE_UPDATED', 'SCHOOL', schoolId, { codePresent: Boolean(code) });
+      return done(req, res, 200, { school: result.rows[0], notice: code ? 'School EMIS code saved.' : 'School EMIS code cleared.' });
+    } catch (error) { return fail(req, res, error); }
+  });
+
   router.get('/students', needsPermission('students.read'), async (req, res) => {
     try {
       if (req.auth.account.roles.some(role => ['STUDENT', 'PARENT'].includes(role))) {
@@ -1204,7 +1221,9 @@ export function createOperationsRouter({ authenticate, sendInvitation = sendAcco
       const schoolId = req.auth.claims.schoolId;
       const isTeacher = req.auth.account.roles.includes('TEACHER') && !req.auth.account.permissions.includes('academics.configure');
       const [school, years, subjects, classes, teachers, students, assignments, educationLevels, gradeLevels, terms, curriculum, resources, periods, slots, assessments, teachingMaterials] = await Promise.all([
-        req.auth.client.query('SELECT id, code, name, timezone FROM schools WHERE id = $1', [schoolId]),
+        req.auth.client.query(`SELECT id, code, name, timezone,
+            CASE WHEN $2::boolean THEN moe_school_emis_code ELSE NULL END AS moe_school_emis_code
+          FROM schools WHERE id = $1`, [schoolId, req.auth.account.permissions.includes('school.configure')]),
         req.auth.client.query(`SELECT y.id, y.name, y.starts_on, y.ends_on, y.status FROM academic_years y WHERE y.school_id = $1 ${isTeacher ? 'AND EXISTS (SELECT 1 FROM teacher_subject_assignments a WHERE a.school_id = y.school_id AND a.academic_year_id = y.id AND a.teacher_id = $2)' : ''} ORDER BY y.starts_on DESC`, isTeacher ? [schoolId, req.auth.claims.userId] : [schoolId]),
         req.auth.client.query(`SELECT s.id, s.code, s.name FROM subjects s WHERE s.school_id = $1 AND s.is_active ${isTeacher ? 'AND EXISTS (SELECT 1 FROM teacher_subject_assignments a WHERE a.school_id = s.school_id AND a.subject_id = s.id AND a.teacher_id = $2)' : ''} ORDER BY s.name`, isTeacher ? [schoolId, req.auth.claims.userId] : [schoolId]),
         req.auth.client.query(`SELECT c.id, c.name, c.grade_level, c.section, y.name AS academic_year_name
