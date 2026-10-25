@@ -71,6 +71,61 @@ export const DigitalStudentId: React.FC<{ studentId?: string; csrfToken?: string
     finally{setBusy(false);}
   };
 
+  // Print in a standalone document so the ERP sidebar and tall page layout cannot
+  // add blank pages or shrink the credential. Keep the QR's complete quiet zone.
+  const printCard=async()=>{
+    if(!card || card.status!=='ACTIVE' || !card.qrPayload)return;
+    const printWindow=window.open('','_blank','width=850,height=650');
+    if(!printWindow){setError('Allow pop-ups for this school site to print the ID card.');return;}
+    const escapeHtml=(value:string)=>value.replace(/[&<>"']/g,char=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[char]||char));
+    try{
+      const qr=qrcodegen.QrCode.encodeText(card.qrPayload,qrcodegen.QrCode.Ecc.MEDIUM);
+      let modules='';
+      for(let y=0;y<qr.size;y++)for(let x=0;x<qr.size;x++)if(qr.getModule(x,y))modules+=`<rect x="${x}" y="${y}" width="1" height="1"/>`;
+      const svg=`<svg xmlns="http://www.w3.org/2000/svg" viewBox="-4 -4 ${qr.size+8} ${qr.size+8}" preserveAspectRatio="xMidYMid meet" shape-rendering="crispEdges"><rect x="-4" y="-4" width="${qr.size+8}" height="${qr.size+8}" fill="white"/><g fill="#0f172a">${modules}</g></svg>`;
+      let photo='';
+      if(card.photoAvailable){
+        const response=await fetch(photoEndpoint,{credentials:'same-origin',cache:'no-store'});
+        if(!response.ok)throw new Error('Student photo could not be loaded for printing.');
+        const blob=await response.blob();
+        photo=await new Promise<string>((resolve,reject)=>{const reader=new FileReader();reader.onload=()=>resolve(String(reader.result));reader.onerror=()=>reject(new Error('Unable to prepare the photograph.'));reader.readAsDataURL(blob);});
+      }
+      const name=escapeHtml(card.fullName),school=escapeHtml(card.schoolName);
+      const studentNumber=escapeHtml(card.studentNumber),studentClass=escapeHtml(card.className||'Not assigned');
+      const year=escapeHtml(card.academicYear||'Not assigned');
+      const issued=card.issuedAt?new Date(card.issuedAt).toLocaleDateString():'—';
+      const expires=card.expiresAt?new Date(card.expiresAt).toLocaleDateString():'—';
+      const html=`<!doctype html><html><head><meta charset="utf-8"><title>Digital Student ID - ${name}</title>
+<style>
+@page { size: A4 portrait; margin: 12mm; }
+* { box-sizing: border-box; }
+html,body { margin:0; padding:0; background:white; font-family:Arial,Helvetica,sans-serif; }
+.card { width:85.6mm; height:54mm; overflow:hidden; border:0.35mm solid #1e3a8a; border-radius:2mm; break-inside:avoid; page-break-inside:avoid; color:#111827; background:white; }
+.heading {height:10mm; background:#172554; color:white; padding:2mm 3mm; print-color-adjust:exact; -webkit-print-color-adjust:exact;}
+.school {font-size:10pt;font-weight:800;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;}
+.caption {font-size:5.5pt;letter-spacing:.7px;margin-top:1mm;}
+.middle {height:37mm;display:flex;align-items:center;gap:2mm;padding:2mm 3mm;}
+.photo {width:17mm;height:25mm;border:0.2mm solid #cbd5e1;border-radius:1mm;object-fit:cover;flex:none;}
+.empty-photo {display:flex;align-items:center;justify-content:center;text-align:center;font-size:6pt;color:#64748b;background:#f1f5f9;}
+.details {min-width:0;flex:1;align-self:center; font-size:6.5pt;line-height:1.4;overflow:hidden;}
+.name {font-size:9pt;font-weight:800;margin-bottom:1.5mm;overflow-wrap:anywhere;}
+.details div {overflow-wrap:anywhere;}
+.status {font-weight:800;color:#1e40af;}
+.qr {width:23mm;min-width:23mm;text-align:center;margin-left:auto;}
+.qr svg {display:block;width:22mm;height:22mm;background:white;}
+.scan {font-size:4.5pt;font-weight:800;letter-spacing:.3px;margin-top:.5mm;}
+.foot {height:7mm;border-top:.2mm solid #cbd5e1;background:#f8fafc;padding:2mm 3mm;display:flex;justify-content:space-between;font-size:5.5pt;print-color-adjust:exact;-webkit-print-color-adjust:exact;}
+@media screen {body{padding:20px;background:#f1f5f9;} .card{box-shadow:0 2px 9px #94a3b8;}}
+</style></head><body><article class="card"><div class="heading"><div class="school">${school}</div><div class="caption">OFFICIAL DIGITAL STUDENT ID</div></div>
+<div class="middle">${photo?`<img class="photo" src="${photo}" alt="Student photograph">`:'<div class="photo empty-photo">No photo</div>'}
+<div class="details"><div class="name">${name}</div><div>ID: <b>${studentNumber}</b></div><div>Class: ${studentClass}</div><div>Year: ${year}</div><div class="status">ACTIVE</div></div>
+<div class="qr">${svg}<div class="scan">SCAN TO VERIFY</div></div></div>
+<div class="foot"><span>Issued: ${escapeHtml(issued)}</span><span>Valid until: ${escapeHtml(expires)}</span></div></article>
+<script>window.addEventListener('load',()=>{setTimeout(()=>window.print(),250);});<\/script></body></html>`;
+      printWindow.document.open();printWindow.document.write(html);printWindow.document.close();
+    }catch(cause){printWindow.close();setError(cause instanceof Error?cause.message:'Could not prepare printable ID.');}
+  };
+
   return <section className="rounded-2xl border border-slate-200 bg-white p-4 shadow-sm sm:p-5">
     <style>{`@media print {
       @page { size: A4; margin: 12mm; }
@@ -110,7 +165,7 @@ export const DigitalStudentId: React.FC<{ studentId?: string; csrfToken?: string
         </footer>
       </div>
       {card.status==='ACTIVE'&&card.qrPayload&&<div className="mt-4 flex flex-wrap items-center gap-3">
-        <button type="button" onClick={()=>window.print()} className={primaryButton}><Download className="h-4 w-4"/> Print / Save as PDF</button>
+        <button type="button" onClick={()=>void printCard()} className={primaryButton}><Download className="h-4 w-4"/> Print / Save as PDF</button>
         <span className="flex items-center gap-1 text-xs text-emerald-700"><ShieldCheck className="h-4 w-4"/> Signed, revocable verification QR</span>
       </div>}
       {card.status!=='ACTIVE'&&<p className="mt-3 rounded-lg bg-amber-50 p-3 text-sm text-amber-900"><XCircle className="mr-1 inline h-4 w-4"/> This ID is not active. Contact an authorized school registrar.</p>}
