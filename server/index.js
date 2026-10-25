@@ -20,6 +20,8 @@ const { applyDigitalStudentIdMigrationIfRequested } = await import('./applyDigit
 await applyDigitalStudentIdMigrationIfRequested();
 const { applyPortalPhotoMigrationIfRequested } = await import('./applyPortalPhotoMigration.js');
 await applyPortalPhotoMigrationIfRequested();
+const { applyEmisHistoricalMigrationIfRequested } = await import('./applyEmisHistoricalMigration.js');
+await applyEmisHistoricalMigrationIfRequested();
 
 const { Pool } = pg;
 const app = express();
