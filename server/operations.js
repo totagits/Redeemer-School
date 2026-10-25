@@ -498,7 +498,7 @@ export function createOperationsRouter({ authenticate, sendInvitation = sendAcco
         documentStorageReady = await hasStudentDocumentStorageSchema(req.auth.client) && Boolean(studentDocumentEncryptionKey());
         documentCategories = (await req.auth.client.query(`SELECT id,code,name,required_for_admission FROM document_categories
           WHERE school_id=$1 AND active ORDER BY name`, [schoolId])).rows;
-        if (documentStorageReady) documents = (await req.auth.client.query(`SELECT d.id,d.title,d.original_filename,d.media_type,d.size_bytes,d.checksum_sha256,d.visibility,d.uploaded_at,u.full_name AS uploaded_by,c.name AS category_name
+        if (documentStorageReady) documents = (await req.auth.client.query(`SELECT d.id,d.title,d.original_filename,d.media_type,d.size_bytes,d.checksum_sha256,d.visibility,d.uploaded_at,u.full_name AS uploaded_by,c.name AS category_name,c.code AS category_code
           FROM student_documents d JOIN user_accounts u ON u.school_id=d.school_id AND u.id=d.uploaded_by
           LEFT JOIN document_categories c ON c.school_id=d.school_id AND c.id=d.category_id
           WHERE d.school_id=$1 AND d.student_id=$2 AND d.deleted_at IS NULL ORDER BY d.uploaded_at DESC`, [schoolId, req.params.studentId])).rows;
@@ -1023,6 +1023,11 @@ export function createOperationsRouter({ authenticate, sendInvitation = sendAcco
       try {
         if (!await hasStudentDocumentStorageSchema(req.auth.client)) { await close(req, false); return res.status(503).json({ error: 'The student-document database migration must be applied before uploads can be used.' }); }
         const schoolId = req.auth.claims.schoolId; const studentId = req.params.studentId; const documentId = randomUUID();
+        if (isJpeg || isPng) {
+          if (req.body.length > 3 * 1024 * 1024) { await close(req, false); return res.status(400).json({ error: 'Student photograph must be 3 MB or smaller.' }); }
+          const photoCategory = await req.auth.client.query("SELECT id FROM document_categories WHERE school_id=$1 AND id=$2 AND code='STUDENT_PHOTO'", [schoolId,categoryId]);
+          if (!photoCategory.rowCount) { await close(req, false); return res.status(400).json({ error: 'Select the Student identification photograph category for photo uploads.' }); }
+        }
         const checksum = createHash('sha256').update(req.body).digest('hex');
         const associatedData = `${schoolId}:${studentId}:${documentId}`;
         const encrypted = encryptStudentDocument(req.body, key, associatedData);
