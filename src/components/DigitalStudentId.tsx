@@ -37,6 +37,20 @@ export const DigitalStudentId: React.FC<{ studentId?: string; csrfToken?: string
   const [error,setError]=useState('');
   const [notice,setNotice]=useState('');
   const [photoReviewed,setPhotoReviewed]=useState(false);
+  const [verification,setVerification]=useState<{valid:boolean;student?:{name:string;studentNumber:string;className:string|null}}|null>(null);
+  const verifyIssuedCard=async()=>{
+    if(!staffMode||!card?.qrPayload)return;
+    setBusy(true);setError('');setVerification(null);
+    try{
+      const response=await fetch('/api/student-id/verify',{method:'POST',credentials:'same-origin',
+        headers:{'Content-Type':'application/json','X-CSRF-Token':csrfToken},
+        body:JSON.stringify({token:card.qrPayload,purpose:'GENERAL'})});
+      const answer=await response.json();
+      if(!response.ok)throw new Error(answer.error||'Could not verify the displayed ID.');
+      setVerification(answer);
+    }catch(cause){setError(cause instanceof Error?cause.message:'Could not verify this ID.');}
+    finally{setBusy(false);}
+  };
   const endpoint=staffMode? `/api/student-id/students/${encodeURIComponent(studentId||'')}` : '/api/student-id/me';
   const photoEndpoint=staffMode? `/api/student-id/students/${encodeURIComponent(studentId||'')}/photo` : '/api/student-id/me/photo';
 
@@ -169,6 +183,11 @@ html,body { margin:0; padding:0; background:white; font-family:Arial,Helvetica,s
         <span className="flex items-center gap-1 text-xs text-emerald-700"><ShieldCheck className="h-4 w-4"/> Signed, revocable verification QR</span>
       </div>}
       {card.status!=='ACTIVE'&&<p className="mt-3 rounded-lg bg-amber-50 p-3 text-sm text-amber-900"><XCircle className="mr-1 inline h-4 w-4"/> This ID is not active. Contact an authorized school registrar.</p>}
+      {staffMode&&card.status==='ACTIVE'&&card.qrPayload&&<div className="mt-3">
+        <button type="button" disabled={busy} onClick={()=>void verifyIssuedCard()} className="rounded-lg border border-blue-300 px-4 py-2 text-sm font-bold text-blue-800 disabled:opacity-40">Verify this displayed ID</button>
+        <p className="mt-1 text-xs text-slate-500">Checks the issued QR credential directly with the verification service. This tests server-side verification; it does not test scanning a photographed QR.</p>
+        {verification&&<p role="status" className={`mt-2 rounded-lg p-3 text-sm ${verification.valid?'bg-emerald-50 text-emerald-900':'bg-red-50 text-red-900'}`}>{verification.valid?`Verified active ID: ${verification.student?.name} · ${verification.student?.studentNumber}.`:'ID is invalid, expired or revoked.'}</p>}
+      </div>}
       {staffMode&&<div className="mt-4 border-t pt-4">
         <label className="flex items-center gap-2 text-sm font-semibold text-slate-700"><input type="checkbox" checked={photoReviewed} onChange={event=>setPhotoReviewed(event.target.checked)}/> I have reviewed the student's photograph and enrollment.</label>
         <div className="mt-3 flex flex-wrap gap-2">
@@ -231,7 +250,12 @@ export const DigitalStudentIdVerifier: React.FC<{csrfToken:string}> = ({csrfToke
     picker.click();
   };
   const verify=async(event:React.FormEvent<HTMLFormElement>)=>{
-    event.preventDefault();setBusy(true);setError('');setResult(null);
+    event.preventDefault();
+    if(!/^RIA1\.[0-9a-f-]{36}\.[A-Za-z0-9_-]{43}$/i.test(token.trim())){
+      setError('This is a student number or incomplete scan, not an encoded QR credential. Upload a clear QR image or use Verify this displayed ID in the student profile.');
+      setResult(null);return;
+    }
+    setBusy(true);setError('');setResult(null);
     try{
       const response=await fetch('/api/student-id/verify',{method:'POST',credentials:'same-origin',
         headers:{'Content-Type':'application/json','X-CSRF-Token':csrfToken},
