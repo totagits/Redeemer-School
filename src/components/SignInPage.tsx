@@ -187,7 +187,7 @@ export const SignInPage: React.FC<SignInPageProps> = ({ onCancel, onSignedIn, au
             <p className="mt-2 font-semibold">Redeemer’s International Academy · 0778786116 / 0555664239</p>
             <p>RIA Highway, Thinker’s Village, Guest House Road, Paynesville, Montserrado, Liberia</p>
           </div>}
-          <p className="mt-5 flex items-start gap-2 rounded-lg bg-amber-50 p-3 text-xs leading-5 text-amber-950"><ShieldCheck className="mt-0.5 h-4 w-4 shrink-0" /> Staging sign-in verifies your account. Student, finance, staff, and other operating screens are still being connected to the database. Do not enter real school records yet.</p>
+          <p className="mt-5 flex items-start gap-2 rounded-lg bg-amber-50 p-3 text-xs leading-5 text-amber-950"><ShieldCheck className="mt-0.5 h-4 w-4 shrink-0" /> Staging environment: use authorized test accounts and test records only. Available ERP workspaces use school database records, but some modules and integrations are still being validated. Contact the school administrator for account access or password reset.</p>
         </div>
       </div>
     </section>
