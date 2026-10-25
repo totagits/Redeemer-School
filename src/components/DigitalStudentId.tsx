@@ -189,21 +189,41 @@ export const DigitalStudentIdVerifier: React.FC<{csrfToken:string}> = ({csrfToke
   const [error,setError]=useState('');
   const [scanning,setScanning]=useState(false);
   const scanWithCamera=async()=>{
-    const Detector=(window as unknown as {BarcodeDetector?:new(options:{formats:string[]})=>{detect(source:ImageBitmap):Promise<Array<{rawValue:string}> >}}).BarcodeDetector;
-    if(!Detector){setError('This browser does not support camera QR decoding. Use a QR scanner that types the decoded credential or paste it here.');return;}
     setError('');
     const picker=document.createElement('input');
-    picker.type='file';picker.accept='image/*';picker.capture='environment';
+    picker.type='file';
+    picker.accept='image/*';
+    // On mobile, the browser offers a camera or an existing photo. Desktop
+    // browsers can upload a QR screenshot directly.
     picker.onchange=async()=>{
       const file=picker.files?.[0];if(!file)return;
-      setScanning(true);
+      setScanning(true);setResult(null);
       try{
+        if(file.size>8*1024*1024)throw new Error('Choose a QR image smaller than 8 MB.');
         const image=await createImageBitmap(file);
         try{
-          const results=await new Detector({formats:['qr_code']}).detect(image);
-          const scanned=results.find(item=>item.rawValue.startsWith('RIA1.'));
-          if(!scanned)throw new Error('No valid school QR was detected in this image.');
-          setToken(scanned.rawValue);setResult(null);
+          let decoded='';
+          const Detector=(window as unknown as {BarcodeDetector?:new(options:{formats:string[]})=>{detect(source:ImageBitmap):Promise<Array<{rawValue:string}> >}}).BarcodeDetector;
+          if(Detector){
+            try{
+              const detected=await new Detector({formats:['qr_code']}).detect(image);
+              decoded=detected.find(item=>item.rawValue.startsWith('RIA1.'))?.rawValue||'';
+            }catch{ /* Use the bundled offline decoder if native decoding fails. */ }
+          }
+          if(!decoded){
+            const canvas=document.createElement('canvas');
+            const maximumDimension=1600,ratio=Math.min(1,maximumDimension/Math.max(image.width,image.height));
+            canvas.width=Math.max(1,Math.round(image.width*ratio));
+            canvas.height=Math.max(1,Math.round(image.height*ratio));
+            const context=canvas.getContext('2d',{willReadFrequently:true});
+            if(!context)throw new Error('QR image processing is not available in this browser.');
+            context.drawImage(image,0,0,canvas.width,canvas.height);
+            const pixels=context.getImageData(0,0,canvas.width,canvas.height);
+            const {default:jsQR}=await import('../logic/jsQRDecoder.js');
+            decoded=jsQR(pixels.data,pixels.width,pixels.height,{inversionAttempts:'attemptBoth'})?.data||'';
+          }
+          if(!decoded.startsWith('RIA1.'))throw new Error('No Redeemer student QR credential was found. Upload a clear image of the QR code, not the printed student number.');
+          setToken(decoded);
         }finally{image.close();}
       }catch(cause){setError(cause instanceof Error?cause.message:'Could not read QR code.');}
       finally{setScanning(false);}
@@ -230,8 +250,8 @@ export const DigitalStudentIdVerifier: React.FC<{csrfToken:string}> = ({csrfToke
       <label className="text-sm font-semibold">Verification purpose<select value={purpose} onChange={e=>setPurpose(e.target.value)} className="mt-1 w-full rounded-lg border px-3 py-2"><option value="GENERAL">School identity</option><option value="LIBRARY">Library entry</option><option value="MEAL">Meal service</option><option value="EVENT">Campus event</option></select></label>
       <button disabled={busy} className="rounded-lg bg-blue-700 px-4 py-2 text-sm font-bold text-white disabled:opacity-40 sm:col-span-3">{busy?'Verifying…':'Verify credential'}</button>
     </form>
-    <button type="button" disabled={scanning||busy} onClick={()=>void scanWithCamera()} className="mt-2 rounded-lg border border-blue-300 px-3 py-2 text-xs font-bold text-blue-800 disabled:opacity-40">{scanning?'Reading QR…':'Use camera / QR photo'}</button>
-    <p className="mt-1 text-xs text-slate-500">After capturing a QR, click Verify credential. Camera capture and QR decoding depend on browser support.</p>
+    <button type="button" disabled={scanning||busy} onClick={()=>void scanWithCamera()} className="mt-2 rounded-lg border border-blue-300 px-3 py-2 text-xs font-bold text-blue-800 disabled:opacity-40">{scanning?'Reading QR…':'Scan / upload QR photo'}</button>
+    <p className="mt-1 text-xs text-slate-500">Use a phone camera or upload a QR screenshot. The decoder works offline even when native browser QR support is unavailable; then click Verify credential.</p>
     {error&&<p role="alert" className="mt-3 rounded-lg bg-red-50 p-3 text-sm text-red-800">{error}</p>}
     {result&&<p role="status" className={`mt-3 rounded-lg p-3 text-sm ${result.valid?'bg-emerald-50 text-emerald-900':'bg-red-50 text-red-900'}`}>{result.valid?`Valid school ID: ${result.student?.name} · ${result.student?.studentNumber} · ${result.student?.className||'Class not assigned'}. Check service eligibility separately.`:'ID invalid, expired or revoked. Do not treat this scan as valid identification.'}</p>}
   </details>;
