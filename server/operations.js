@@ -1384,6 +1384,37 @@ export function createOperationsRouter({ authenticate, sendInvitation = sendAcco
         [schoolId, enrolledStudent.id, linked.id, guardian.relationship, Boolean(guardian.is_primary && !primaryLinked)]);
         if (guardian.is_primary) primaryLinked = true;
       }
+      // Transfer the most recent applicant portrait into the learner's encrypted record.
+      // Do not copy unrelated guardian identity images into a student profile.
+      const portraitCategory = await req.auth.client.query(
+        "SELECT id FROM document_categories WHERE school_id=$1 AND code='STUDENT_PHOTO' LIMIT 1", [schoolId]);
+      if (portraitCategory.rowCount) {
+        const portrait = await req.auth.client.query(`SELECT id,title,original_filename,media_type,size_bytes,checksum_sha256,
+            file_content,content_nonce,content_auth_tag
+          FROM admission_documents
+          WHERE school_id=$1 AND application_id=$2 AND category_id=$3 AND deleted_at IS NULL
+            AND media_type IN ('image/jpeg','image/png')
+          ORDER BY uploaded_at DESC LIMIT 1`,
+          [schoolId, applicant.id, portraitCategory.rows[0].id]);
+        if (portrait.rowCount) {
+          const photo = portrait.rows[0];
+          const key = studentDocumentEncryptionKey();
+          if (!key) throw new Error('Encrypted learner document key is not configured for photo transfer.');
+          const plain = decryptStudentDocument(photo,key,`${schoolId}:${applicant.id}:${photo.id}`);
+          if (createHash('sha256').update(plain).digest('hex') !== photo.checksum_sha256)
+            throw new Error('Applicant portrait failed checksum verification.');
+          const newPhotoId = randomUUID();
+          const encryptedPhoto = encryptStudentDocument(plain,key,`${schoolId}:${enrolledStudent.id}:${newPhotoId}`);
+          await req.auth.client.query(`INSERT INTO student_documents
+             (id,school_id,student_id,category_id,title,object_storage_key,original_filename,media_type,size_bytes,
+              checksum_sha256,visibility,uploaded_by,file_content,content_nonce,content_auth_tag)
+            VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,'RESTRICTED',$11,$12,$13,$14)`,
+            [newPhotoId,schoolId,enrolledStudent.id,portraitCategory.rows[0].id,'Student photograph',
+             `db-encrypted:${newPhotoId}`,photo.original_filename,photo.media_type,plain.length,
+             photo.checksum_sha256,req.auth.claims.userId,encryptedPhoto.content,encryptedPhoto.nonce,encryptedPhoto.authTag]);
+          await audit(req,'STUDENT_PHOTO_TRANSFERRED','STUDENT_DOCUMENT',newPhotoId,{studentId:enrolledStudent.id,applicationId:applicant.id});
+        }
+      }
       await req.auth.client.query(`UPDATE admission_applications SET status='ENROLLED', converted_student_id=$3,
           converted_at=now(), updated_at=now() WHERE school_id=$1 AND id=$2`, [schoolId, applicant.id, enrolledStudent.id]);
       await req.auth.client.query(`INSERT INTO admission_events (school_id, application_id, event_type, actor_user_id, details)
