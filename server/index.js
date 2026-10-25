@@ -11,6 +11,9 @@ import { applyAdmissionsMigrationIfRequested } from './applyAdmissionsMigration.
 
 // This runs only when explicitly enabled after a verified staging backup.
 await applyAdmissionsMigrationIfRequested();
+// Only executes after explicit opt-in and staging backup confirmation.
+const { applyStudentPhotoMigrationIfRequested } = await import('./applyStudentPhotoMigration.js');
+await applyStudentPhotoMigrationIfRequested();
 
 const { Pool } = pg;
 const app = express();
