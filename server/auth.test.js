@@ -74,6 +74,10 @@ class FakeClient {
         : { rows: [], rowCount: 0 };
     }
     if (normalized.startsWith('UPDATE account_password_resets')) return { rows: [], rowCount: 0 };
+    if (normalized.includes('app.consume_password_reset')) {
+      if (!this.pool.passwordResetQuery) throw new Error('Password reset test query is not configured.');
+      return this.pool.passwordResetQuery(sql, params);
+    }
     if (normalized.startsWith('INSERT INTO account_password_resets')) {
       this.pool.passwordResetTokenHash = params[2];
       return { rows: [], rowCount: 1 };
@@ -86,6 +90,7 @@ class FakeClient {
       return { rows: [], rowCount: 1 };
     }
     if (normalized.startsWith('UPDATE user_accounts')) return { rows: [], rowCount: 1 };
+    if (normalized.startsWith('DELETE FROM public.auth_sessions')) return { rows: [], rowCount: 0 };
     if (normalized.startsWith('SELECT u.id, u.school_id, u.campus_id')) {
       return {
         rows: [{
@@ -277,13 +282,9 @@ test('password reset requests hide account existence and use a one-time hashed t
   assert.notEqual(pool.passwordResetTokenHash, emailedToken);
   assert.equal(pool.passwordResetTokenHash, hashInvitationToken(emailedToken));
 
-  pool.query = async (sql, params = []) => {
-    if (sql.includes('FROM pg_roles')) return { rows: [{ safe: true }], rowCount: 1 };
-    if (sql.includes('app.consume_password_reset')) {
-      pool.passwordResetPasswordHash = params[1];
-      return params[0] === pool.passwordResetTokenHash ? { rows: [{ user_id: userId }], rowCount: 1 } : { rows: [], rowCount: 0 };
-    }
-    throw new Error('Unexpected pool query: ' + sql);
+  pool.passwordResetQuery = async (_sql, params = []) => {
+    pool.passwordResetPasswordHash = params[1];
+    return params[0] === pool.passwordResetTokenHash ? { rows: [{ school_id: schoolId, user_id: userId }], rowCount: 1 } : { rows: [], rowCount: 0 };
   };
   const newPassword = 'New-Staging-Password-2026!';
   const reset = await fetch(baseUrl + '/api/auth/reset-password', {

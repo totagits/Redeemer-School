@@ -11,7 +11,7 @@ const adminId = '721ddf68-1c98-4faa-9dc7-9161daa79870';
 const newUserId = '32f8f4d3-5d2a-4f36-bd4e-fc0f38a44f07';
 
 class FakeClient {
-  constructor({ roleAvailable = true, existingAccount = null, existingPortalLink = null, existingTeacherProfile = false } = {}) { this.roleAvailable = roleAvailable; this.existingAccount = existingAccount; this.existingPortalLink = existingPortalLink; this.existingTeacherProfile = existingTeacherProfile; this.statements = []; this.released = false; }
+  constructor({ roleAvailable = true, existingAccount = null, existingPortalLink = null, existingTeacherProfile = false, staffExists = true } = {}) { this.roleAvailable = roleAvailable; this.existingAccount = existingAccount; this.existingPortalLink = existingPortalLink; this.existingTeacherProfile = existingTeacherProfile; this.staffExists = staffExists; this.statements = []; this.released = false; }
   async query(sql, params = []) {
     const normalized = sql.replace(/\s+/g, ' ').trim();
     this.statements.push({ sql: normalized, params });
@@ -27,6 +27,10 @@ class FakeClient {
     if (normalized.startsWith('INSERT INTO staff_records')) return { rows: [{ id: 'staff-record-id' }], rowCount: 1 };
     if (normalized.startsWith('INSERT INTO teacher_profiles')) return { rows: [{ id: 'teacher-profile-id' }], rowCount: 1 };
     if (normalized.startsWith('SELECT id FROM students WHERE school_id = $1 AND id = $2')) return { rows: [{ id: params[1] }], rowCount: 1 };
+    if (normalized.startsWith('SELECT s.id, s.employee_number')) return { rows: [{ id: 'staff-record-id', employee_number: 'T-001', first_name: 'Test', last_name: 'Teacher', employment_status: 'ACTIVE', invitation_pending: true }], rowCount: 1 };
+    if (normalized.startsWith('UPDATE staff_records SET phone=NULLIF')) return this.staffExists
+      ? { rows: [{ id: params[1], phone: params[2] || null, job_title: params[3] || null, department: params[4] || null, hired_on: params[5] }], rowCount: 1 }
+      : { rows: [], rowCount: 0 };
     if (normalized.startsWith('SELECT u.id, u.email, u.full_name, u.role, u.status, u.must_reset_password FROM student_portal_links')) return this.existingPortalLink ? { rows: [this.existingPortalLink], rowCount: 1 } : { rows: [], rowCount: 0 };
     if (normalized.startsWith('SELECT u.id, u.email, u.full_name, u.role, u.status, u.must_reset_password FROM student_guardians')) return this.existingPortalLink ? { rows: [this.existingPortalLink], rowCount: 1 } : { rows: [], rowCount: 0 };
     if (normalized.startsWith('INSERT INTO student_portal_links')) return { rows: [{ id: 'student-portal-link-id' }], rowCount: 1 };
@@ -179,6 +183,50 @@ test('staff provisioning fails safely if the selected school role is missing', a
   const response = await fetch(`${url}/api/operations/staff-accounts`, { method: 'POST', headers, body: JSON.stringify(body) });
   assert.equal(response.status, 400);
   assert.equal(clients[0].statements.at(-1).sql, 'ROLLBACK');
+});
+
+test('people directory is school scoped and exposes only invitation state and profile fields', async t => {
+  const account = { ...admin, permissions: ['users.manage'] };
+  const { url, clients } = await startServer(t, account);
+  const response = await fetch(`${url}/api/operations/people`);
+  const result = await response.json();
+  assert.equal(response.status, 200);
+  assert.equal(result.staffDirectory.length, 1);
+  assert.equal(result.staffDirectory[0].invitation_pending, true);
+  assert.equal(result.canManage, false);
+  const query = clients[0].statements.find(item => item.sql.startsWith('SELECT s.id, s.employee_number'));
+  assert.deepEqual(query.params, [schoolId]);
+  assert.equal(clients[0].statements.at(-1).sql, 'COMMIT');
+});
+
+test('staff manager can update profile details and the edit is audited', async t => {
+  const staffManager = { ...admin, permissions: ['staff.write'] };
+  const { url, clients } = await startServer(t, staffManager);
+  const response = await fetch(`${url}/api/operations/people/staff-record-id/profile`, { method: 'POST', headers, body: JSON.stringify({ phone: '+231770000000', jobTitle: 'Senior Teacher', department: 'Primary', hiredOn: '2024-09-01' }) });
+  const result = await response.json();
+  assert.equal(response.status, 200);
+  assert.equal(result.staff.id, 'staff-record-id');
+  assert.ok(clients[0].statements.some(item => item.sql.startsWith('UPDATE staff_records SET phone=NULLIF')));
+  assert.ok(clients[0].statements.some(item => item.sql.startsWith('INSERT INTO audit_events')));
+  const update = clients[0].statements.find(item => item.sql.startsWith('UPDATE staff_records SET phone=NULLIF'));
+  assert.deepEqual(update.params, [schoolId, 'staff-record-id', '+231770000000', 'Senior Teacher', 'Primary', '2024-09-01']);
+  assert.equal(clients[0].statements.at(-1).sql, 'COMMIT');
+});
+
+test('staff profile updates reject a date outside the ISO calendar format', async t => {
+  const staffManager = { ...admin, permissions: ['staff.write'] };
+  const { url, clients } = await startServer(t, staffManager);
+  const response = await fetch(`${url}/api/operations/people/staff-record-id/profile`, { method: 'POST', headers, body: JSON.stringify({ phone: '', jobTitle: '', department: '', hiredOn: '09/01/2024' }) });
+  assert.equal(response.status, 400);
+  assert.equal(clients[0].statements.some(item => item.sql.startsWith('UPDATE staff_records SET phone=NULLIF')), false);
+  assert.equal(clients[0].statements.at(-1).sql, 'ROLLBACK');
+});
+
+test('generic staff provisioning does not offer a department head role for this grade-school product', async t => {
+  const { url, clients } = await startServer(t, admin);
+  const response = await fetch(`${url}/api/operations/staff-accounts`, { method: 'POST', headers, body: JSON.stringify({ ...body, role: 'DEPARTMENT_HEAD' }) });
+  assert.equal(response.status, 400);
+  assert.equal(clients[0].statements.some(item => item.sql.startsWith('INSERT INTO user_accounts')), false);
 });
 
 

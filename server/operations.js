@@ -219,6 +219,56 @@ export function createOperationsRouter({ authenticate, sendInvitation = sendAcco
     } catch (error) { return fail(req, res, error); }
   });
 
+  // People & accounts combines a staff directory with account invitation state.
+  // Keep this separate from the HR endpoint so school administrators who manage
+  // accounts can see staff identity records without seeing HR time/leave data.
+  router.get('/people', needsAnyPermission(['staff.read', 'staff.write', 'users.manage']), async (req, res) => {
+    try {
+      const schoolId = req.auth.claims.schoolId;
+      const result = await req.auth.client.query(`
+        SELECT s.id, s.employee_number, s.first_name, s.middle_name, s.last_name,
+               s.email, s.phone, s.job_title, s.department, s.hired_on,
+               s.employment_status, u.id AS user_id, u.role, u.status AS account_status,
+               u.last_login_at,
+               EXISTS (
+                 SELECT 1 FROM account_invitations i
+                 WHERE i.school_id=u.school_id AND i.user_id=u.id
+                   AND i.redeemed_at IS NULL AND i.revoked_at IS NULL AND i.expires_at > now()
+               ) AS invitation_pending
+        FROM staff_records s
+        LEFT JOIN user_accounts u ON u.school_id=s.school_id AND u.id=s.user_id
+        WHERE s.school_id=$1
+        ORDER BY CASE WHEN s.employment_status='ACTIVE' THEN 0 ELSE 1 END,
+                 lower(s.last_name), lower(s.first_name), s.employee_number
+      `, [schoolId]);
+      return done(req, res, 200, { staffDirectory: result.rows, canManage: req.auth.account.permissions.includes('staff.write') });
+    } catch (error) { return fail(req, res, error); }
+  });
+
+  router.post('/people/:staffId/profile', needsPermission('staff.write'), csrf, async (req, res) => {
+    const staffId = text(req.params.staffId, 50);
+    const phone = text(req.body?.phone, 40);
+    const jobTitle = text(req.body?.jobTitle, 100);
+    const department = text(req.body?.department, 100);
+    const hiredOn = req.body?.hiredOn === '' ? null : req.body?.hiredOn;
+    if (!staffId || (hiredOn !== null && !validDate(hiredOn))) {
+      await close(req, false);
+      return res.status(400).json({ error: 'Enter a valid staff record and hire date.' });
+    }
+    try {
+      const updated = await req.auth.client.query(`
+        UPDATE staff_records SET phone=NULLIF($3,''), job_title=NULLIF($4,''),
+          department=NULLIF($5,''), hired_on=$6, updated_at=now()
+        WHERE school_id=$1 AND id=$2
+        RETURNING id, employee_number, first_name, middle_name, last_name, email,
+                  phone, job_title, department, hired_on, employment_status
+      `, [req.auth.claims.schoolId, staffId, phone, jobTitle, department, hiredOn]);
+      if (!updated.rowCount) { await close(req, false); return res.status(404).json({ error: 'That staff record was not found in this school.' }); }
+      await audit(req, 'STAFF_PROFILE_UPDATED', 'STAFF_RECORD', staffId, { phone: Boolean(phone), jobTitle, department, hiredOn });
+      return done(req, res, 200, { staff: updated.rows[0] });
+    } catch (error) { return fail(req, res, error); }
+  });
+
   router.post('/accounts/:accountId/status', needsPermission('users.manage'), csrf, async (req, res) => {
     const accountId = text(req.params.accountId, 50);
     const status = text(req.body?.status, 20).toUpperCase();
@@ -1294,7 +1344,7 @@ export function createOperationsRouter({ authenticate, sendInvitation = sendAcco
   });
 
   router.post('/staff-accounts', needsPermission('users.manage'), csrf, async (req, res) => {
-    const allowedRoles = new Set(['PRINCIPAL', 'REGISTRAR', 'FINANCE', 'HR_MANAGER', 'INVENTORY_MANAGER', 'AUDITOR', 'DEPARTMENT_HEAD']);
+    const allowedRoles = new Set(['PRINCIPAL', 'REGISTRAR', 'FINANCE', 'HR_MANAGER', 'INVENTORY_MANAGER', 'AUDITOR']);
     const role = text(req.body?.role, 40).toUpperCase();
     const fullName = text(req.body?.fullName);
     const email = text(req.body?.email, 254).toLowerCase();
