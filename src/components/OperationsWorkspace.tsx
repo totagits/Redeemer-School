@@ -1,6 +1,3 @@
-Warning: truncated output (original token count: 54900)
-Total output lines: 1012
-
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import { Bell, BookOpen, BookOpenCheck, Boxes, Check, ClipboardList, FileBarChart, GraduationCap, LayoutDashboard, LoaderCircle, Menu, MessageSquare, MessageSquareText, Plus, RefreshCw, Settings2, Users, Wallet, X } from 'lucide-react';
 import type { SchoolAccount } from './SignInPage.tsx';
