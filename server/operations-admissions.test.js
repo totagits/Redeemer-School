@@ -13,7 +13,7 @@ const classId = 'd210b463-c02c-4be9-9003-8a9005e8dbe5';
 const guardianId = 'e210b463-c02c-4be9-9003-8a9005e8dbe5';
 
 class FakeClient {
-  constructor() { this.statements = []; this.applicationStatus = 'ACCEPTED'; this.convertedStudentId = null; }
+  constructor(applicationStatus = 'ACCEPTED') { this.statements = []; this.applicationStatus = applicationStatus; this.convertedStudentId = null; }
   async query(sql, params = []) {
     const statement = sql.replace(/\s+/g, ' ').trim();
     this.statements.push({ statement, params });
@@ -23,6 +23,11 @@ class FakeClient {
     if (statement.startsWith('SELECT id, name, grade_level FROM class_groups')) return { rows: [{ id: classId, name: 'Grade 4A', grade_level: 'Grade 4' }], rowCount: 1 };
     if (statement.startsWith('INSERT INTO admission_applications')) return { rows: [{ id: applicationId, application_number: params[1], first_name: params[2], middle_name: params[3], last_name: params[4], date_of_birth: params[5], sex: params[6], notes: params[7], status: 'RECEIVED' }], rowCount: 1 };
     if (statement.startsWith('INSERT INTO admission_guardians')) return { rows: [], rowCount: 1 };
+    if (statement.startsWith('SELECT status, converted_student_id FROM admission_applications')) return { rows: [{ status: this.applicationStatus, converted_student_id: this.convertedStudentId }], rowCount: 1 };
+    if (statement.startsWith('UPDATE admission_applications SET status = $3')) {
+      this.applicationStatus = params[2];
+      return { rows: [{ id: applicationId, application_number: 'RIA-APP-001', status: this.applicationStatus }], rowCount: 1 };
+    }
     if (statement.startsWith('SELECT id, application_number, first_name, middle_name, last_name, date_of_birth, sex, campus_id, status, converted_student_id')) {
       return { rows: [{ id: applicationId, application_number: 'RIA-APP-001', first_name: 'Test', middle_name: null, last_name: 'Learner', date_of_birth: '2016-05-11', sex: 'F', campus_id: null, status: this.applicationStatus, converted_student_id: this.convertedStudentId }], rowCount: 1 };
     }
@@ -42,11 +47,11 @@ class FakeClient {
   release() { this.released = true; }
 }
 
-async function startServer(t, permissions = ['admissions.write']) {
+async function startServer(t, permissions = ['admissions.write'], applicationStatus = 'ACCEPTED') {
   const clients = [];
   const app = express(); app.use(express.json());
   app.use('/api/operations', createOperationsRouter({ authenticate(_req, _res, next) {
-    const client = new FakeClient(); clients.push(client);
+    const client = new FakeClient(applicationStatus); clients.push(client);
     _req.auth = { account: { id: userId, roles: ['SCHOOL_ADMIN'], permissions }, claims: { schoolId, userId, csrfToken: 'csrf-test-token' }, client }; next();
   } }));
   const server = createServer(app).listen(0, '127.0.0.1'); await once(server, 'listening');
@@ -106,4 +111,36 @@ test('admissions directory returns guardian contacts and status activity for eac
   assert.equal(result.applications[0].events[0].eventType, 'APPLICATION_RECEIVED');
   assert.equal(result.applications[0].events[0].actor, 'School Admin');
   assert.ok(clients[0].statements.some(item => item.statement.includes('event_rows')));
+});
+
+test('admission status follows allowed transitions and records history and audit', async t => {
+  const { url, clients } = await startServer(t, ['admissions.write'], 'RECEIVED');
+  const response = await fetch(`${url}/api/operations/admissions/${applicationId}/status`, { method: 'POST', headers, body: JSON.stringify({ status: 'UNDER_REVIEW' }) });
+  const result = await response.json();
+  assert.equal(response.status, 200);
+  assert.equal(result.application.status, 'UNDER_REVIEW');
+  const sql = clients[0].statements.map(item => item.statement);
+  assert.ok(sql.some(statement => statement.startsWith('SELECT status, converted_student_id FROM admission_applications')));
+  assert.ok(sql.some(statement => statement.startsWith('UPDATE admission_applications SET status = $3')));
+  assert.ok(sql.some(statement => statement.startsWith('INSERT INTO admission_events')));
+  assert.ok(sql.some(statement => statement.startsWith('INSERT INTO audit_events')));
+  assert.equal(sql.at(-1), 'COMMIT');
+});
+
+test('admission status rejects an invalid jump without changing the record', async t => {
+  const { url, clients } = await startServer(t, ['admissions.write'], 'RECEIVED');
+  const response = await fetch(`${url}/api/operations/admissions/${applicationId}/status`, { method: 'POST', headers, body: JSON.stringify({ status: 'ACCEPTED' }) });
+  const result = await response.json();
+  assert.equal(response.status, 409);
+  assert.match(result.error, /cannot move from RECEIVED to ACCEPTED/i);
+  assert.ok(!clients[0].statements.some(item => item.statement.startsWith('UPDATE admission_applications SET status = $3')));
+  assert.equal(clients[0].statements.at(-1).statement, 'ROLLBACK');
+});
+
+test('admission status requires a reason before rejecting an applicant', async t => {
+  const { url, clients } = await startServer(t, ['admissions.write'], 'UNDER_REVIEW');
+  const response = await fetch(`${url}/api/operations/admissions/${applicationId}/status`, { method: 'POST', headers, body: JSON.stringify({ status: 'REJECTED', reason: '  ' }) });
+  assert.equal(response.status, 400);
+  assert.ok(!clients[0].statements.some(item => item.statement.startsWith('UPDATE admission_applications SET status = $3')));
+  assert.equal(clients[0].statements.at(-1).statement, 'ROLLBACK');
 });

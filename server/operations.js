@@ -10,6 +10,17 @@ const NAME_LIMIT = 120;
 const EMAIL_RE = /^\S+@\S+\.\S+$/;
 const DATE_RE = /^\d{4}-\d{2}-\d{2}$/;
 const STAFF_ASSIGNABLE_ROLES = ['CAMPUS_ADMIN', 'PRINCIPAL', 'REGISTRAR', 'TEACHER', 'FINANCE', 'HR_MANAGER', 'INVENTORY_MANAGER', 'AUDITOR'];
+const ADMISSION_STATUS_TRANSITIONS = {
+  RECEIVED: ['UNDER_REVIEW', 'WITHDRAWN'],
+  UNDER_REVIEW: ['INTERVIEW_SCHEDULED', 'OFFERED', 'ACCEPTED', 'WAITLISTED', 'REJECTED', 'WITHDRAWN'],
+  INTERVIEW_SCHEDULED: ['UNDER_REVIEW', 'OFFERED', 'ACCEPTED', 'WAITLISTED', 'REJECTED', 'WITHDRAWN'],
+  OFFERED: ['ACCEPTED', 'WAITLISTED', 'REJECTED', 'WITHDRAWN'],
+  ACCEPTED: ['WITHDRAWN'],
+  WAITLISTED: ['OFFERED', 'ACCEPTED', 'REJECTED', 'WITHDRAWN'],
+  REJECTED: ['UNDER_REVIEW'],
+  WITHDRAWN: [],
+  ENROLLED: [],
+};
 
 function text(value, limit = NAME_LIMIT) {
   return typeof value === 'string' ? value.trim().slice(0, limit) : '';
@@ -999,13 +1010,16 @@ export function createOperationsRouter({ authenticate, sendInvitation = sendAcco
 
   router.post('/admissions/:applicationId/status', needsPermission('admissions.write'), csrf, async (req, res) => {
     const status = text(req.body?.status, 30).toUpperCase(); const reason = text(req.body?.reason, 500);
-    const allowed = new Set(['UNDER_REVIEW','INTERVIEW_SCHEDULED','OFFERED','ACCEPTED','WAITLISTED','REJECTED','WITHDRAWN']);
-    if (!allowed.has(status) || (['REJECTED','WAITLISTED'].includes(status) && !reason)) { await close(req, false); return res.status(400).json({ error: 'Choose a valid next status and provide a reason for rejection or waitlisting.' }); }
+    if (!Object.values(ADMISSION_STATUS_TRANSITIONS).some(transitions => transitions.includes(status)) || (['REJECTED','WAITLISTED'].includes(status) && !reason)) { await close(req, false); return res.status(400).json({ error: 'Choose a valid next status and provide a reason for rejection or waitlisting.' }); }
     try {
       const id = req.params.applicationId; const schoolId = req.auth.claims.schoolId;
+      const current = await req.auth.client.query(`SELECT status, converted_student_id FROM admission_applications WHERE school_id=$1 AND id=$2 FOR UPDATE`, [schoolId, id]);
+      if (!current.rowCount) { await close(req, false); return res.status(404).json({ error: 'Application not found in this school.' }); }
+      if (current.rows[0].converted_student_id || current.rows[0].status === 'ENROLLED') { await close(req, false); return res.status(409).json({ error: 'An enrolled application cannot be changed. Update the learner record instead.' }); }
+      if (!ADMISSION_STATUS_TRANSITIONS[current.rows[0].status]?.includes(status)) { await close(req, false); return res.status(409).json({ error: `That application cannot move from ${current.rows[0].status.replaceAll('_',' ')} to ${status.replaceAll('_',' ')}.` }); }
       const result = await req.auth.client.query(`UPDATE admission_applications SET status = $3, decision = CASE WHEN $3 IN ('OFFERED','ACCEPTED','REJECTED','WAITLISTED') THEN $3 ELSE decision END, decision_reason = NULLIF($4,''), updated_at = now()
-        WHERE school_id = $1 AND id = $2 AND status NOT IN ('ENROLLED','WITHDRAWN') RETURNING id, application_number, status`, [schoolId, id, status, reason]);
-      if (!result.rowCount) { await close(req, false); return res.status(404).json({ error: 'Application not found or already closed.' }); }
+        WHERE school_id = $1 AND id = $2 AND status = $5 RETURNING id, application_number, status`, [schoolId, id, status, reason, current.rows[0].status]);
+      if (!result.rowCount) { await close(req, false); return res.status(409).json({ error: 'This application changed while you were editing it. Refresh and try again.' }); }
       await req.auth.client.query(`INSERT INTO admission_events (school_id, application_id, event_type, actor_user_id, details) VALUES ($1,$2,$3,$4,$5::jsonb)`, [schoolId, id, `STATUS_${status}`, req.auth.claims.userId, JSON.stringify({ reason })]);
       await audit(req, 'ADMISSION_STATUS_CHANGED', 'ADMISSION_APPLICATION', id, { status });
       return done(req, res, 200, { application: result.rows[0] });
