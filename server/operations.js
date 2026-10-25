@@ -1098,6 +1098,71 @@ export function createOperationsRouter({ authenticate, sendInvitation = sendAcco
     } catch (error) { return fail(req, res, error); }
   });
 
+  // Archived historical class totals are separate from live enrollments.
+  // Each import is atomic, permission-gated and protected from duplicate batches.
+  router.get('/reports/emis-archive', needsPermission('emis.export'), async(req,res)=>{
+    try {
+      if(!req.auth.account.permissions.includes('students.read')){await close(req,false);return res.status(403).json({error:'Student reporting permission required.'});}
+      const schoolId=req.auth.claims.schoolId;
+      const rows=await req.auth.client.query(`SELECT r.academic_year,r.class_name,r.learners,r.male,r.female,r.sex_unrecorded,
+        b.id AS batch_id,b.source_filename,b.imported_at FROM emis_historical_import_rows r
+        JOIN emis_historical_import_batches b ON b.school_id=r.school_id AND b.id=r.batch_id
+        WHERE r.school_id=$1 ORDER BY r.academic_year DESC,r.class_name,b.imported_at DESC`,[schoolId]);
+      await close(req,true);
+      return res.json({rows:rows.rows});
+    }catch(error){return fail(req,res,error);}
+  });
+
+  router.post('/reports/emis-archive', needsPermission('emis.export'), express.json({limit:'512kb'}), async(req,res)=>{
+    try{
+      if(!req.auth.account.permissions.includes('students.read')){await close(req,false);return res.status(403).json({error:'Student reporting permission required.'});}
+      const {filename,rows}=req.body||{};
+      if(typeof filename!=='string'||filename.length<1||filename.length>180||!filename.toLowerCase().endsWith('.csv')||!Array.isArray(rows)||!rows.length||rows.length>5000){
+        await close(req,false);return res.status(400).json({error:'Choose a valid CSV with 1 to 5,000 historical rows.'});
+      }
+      const normal=[];
+      const unique=new Set();
+      for(const [index,entry] of rows.entries()){
+        if(!entry || typeof entry!=='object'||Array.isArray(entry))throw Object.assign(new Error(`Row ${index+2}: invalid data.`),{status:400});
+        const academicYear=String(entry.academic_year||'').trim();
+        const className=String(entry.class_name||'').trim();
+        if(!/^\d{4}[-/]\d{4}$/.test(academicYear)||className.length<1||className.length>100){
+          await close(req,false);return res.status(400).json({error:`Row ${index+2}: enter academic_year YYYY-YYYY and class_name (up to 100 characters).`});
+        }
+        const numbers=['learners','male','female','sex_unrecorded'].map(field=>{
+          const value=entry[field];
+          if(!/^(0|[1-9]\d*)$/.test(String(value??'')))return NaN;
+          const count=Number(value);return Number.isSafeInteger(count)&&count<=1000000?count:NaN;
+        });
+        if(numbers.some(number=>!Number.isFinite(number))||numbers[0]!==numbers[1]+numbers[2]+numbers[3]){
+          await close(req,false);return res.status(400).json({error:`Row ${index+2}: nonnegative integers required and learners must equal male + female + sex_unrecorded.`});
+        }
+        const identity=`${academicYear.toLowerCase()}|${className.toLowerCase()}`;
+        if(unique.has(identity)){await close(req,false);return res.status(400).json({error:`Row ${index+2}: duplicate year/class in file.`});}
+        unique.add(identity);normal.push({academicYear,className,numbers});
+      }
+      const digest=createHash('sha256').update(JSON.stringify(normal)).digest('hex');
+      const schoolId=req.auth.claims.schoolId;
+      const check=await req.auth.client.query('SELECT id FROM emis_historical_import_batches WHERE school_id=$1 AND file_sha256=$2',[schoolId,digest]);
+      if(check.rowCount){await close(req,false);return res.status(409).json({error:'This set of historical records has already been imported. Existing archive is unchanged.'});}
+      const batch=await req.auth.client.query(`INSERT INTO emis_historical_import_batches
+        (school_id,imported_by,source_filename,file_sha256,row_count) VALUES($1,$2,$3,$4,$5) RETURNING id`,
+        [schoolId,req.auth.claims.userId,filename,digest,normal.length]);
+      for(const row of normal){
+        await req.auth.client.query(`INSERT INTO emis_historical_import_rows
+          (school_id,batch_id,academic_year,class_name,learners,male,female,sex_unrecorded)
+          VALUES($1,$2,$3,$4,$5,$6,$7,$8)`,[schoolId,batch.rows[0].id,row.academicYear,row.className,...row.numbers]);
+      }
+      await audit(req,'EMIS_HISTORICAL_CSV_IMPORTED','EMIS_IMPORT',batch.rows[0].id,{filename,rowCount:normal.length,sha256:digest});
+      await close(req,true);
+      return res.status(201).json({batchId:batch.rows[0].id,importedRows:normal.length});
+    }catch(error){
+      if(error?.status===400){await close(req,false);return res.status(400).json({error:error.message});}
+      if(error?.code==='23505'){await close(req,false);return res.status(409).json({error:'Historical records from this file have already been imported.'});}
+      return fail(req,res,error);
+    }
+  });
+
   router.get('/reports/emis-summary.csv', needsPermission('emis.export'), async(req,res)=>{
     try {
       const schoolId=req.auth.claims.schoolId;
