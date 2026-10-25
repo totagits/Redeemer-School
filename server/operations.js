@@ -1075,6 +1075,8 @@ export function createOperationsRouter({ authenticate, sendInvitation = sendAcco
   router.get('/reports/emis-summary.csv', needsPermission('emis.export'), async(req,res)=>{
     try {
       const schoolId=req.auth.claims.schoolId;
+      const yearFilter=typeof req.query.academicYear==='string' ? req.query.academicYear.trim() : '';
+      if(yearFilter.length>100){await close(req,false);return res.status(400).json({error:'Invalid academic year filter.'});}
       if(!req.auth.account.permissions.includes('students.read')) {
         await close(req,false);
         return res.status(403).json({error:'Learner reporting permission required.'});
@@ -1092,13 +1094,13 @@ export function createOperationsRouter({ authenticate, sendInvitation = sendAcco
           JOIN academic_years ay ON ay.school_id=cg.school_id AND ay.id=cg.academic_year_id
           WHERE ce.school_id=s.school_id AND ce.student_id=s.id AND ce.status='ACTIVE'
           ORDER BY (ay.status='ACTIVE') DESC,ay.starts_on DESC,ce.enrolled_on DESC LIMIT 1
-        ) current_class ON true WHERE s.school_id=$1 AND s.status='ACTIVE'
+        ) current_class ON true WHERE s.school_id=$1 AND s.status='ACTIVE' AND ($2::text = '' OR COALESCE(current_class.academic_year,'Not assigned')=$2)
         GROUP BY current_class.academic_year,current_class.class_name
-        ORDER BY current_class.academic_year,current_class.class_name`,[schoolId]);
+        ORDER BY current_class.academic_year,current_class.class_name`,[schoolId,yearFilter]);
       const headers=['school_name','school_emis_code','academic_year','class','active_learners','male','female','sex_not_recorded','template_status'];
       const rows=summary.rows.map(row=>[school.rows[0]?.name,school.rows[0]?.moe_school_emis_code,
         row.academic_year,row.class_name,row.learners,row.male,row.female,row.sex_unrecorded,'DRAFT_NOT_MINISTRY_VERIFIED']);
-      await audit(req,'EMIS_DRAFT_AGGREGATE_EXPORTED','SCHOOL',schoolId,{rowCount:rows.length,template:'redeemer-emis-draft-v2'});
+      await audit(req,'EMIS_DRAFT_AGGREGATE_EXPORTED','SCHOOL',schoolId,{rowCount:rows.length,template:'redeemer-emis-draft-v2',academicYear:yearFilter||'ALL'});
       await close(req,true);
       const csv=[headers,...rows].map(row=>row.map(csvCell).join(',')).join('\r\n');
       res.setHeader('Content-Type','text/csv; charset=utf-8');
