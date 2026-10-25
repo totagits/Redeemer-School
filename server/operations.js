@@ -1113,7 +1113,7 @@ export function createOperationsRouter({ authenticate, sendInvitation = sendAcco
     }catch(error){return fail(req,res,error);}
   });
 
-  router.post('/reports/emis-archive', needsPermission('emis.export'), express.json({limit:'512kb'}), async(req,res)=>{
+  router.post('/reports/emis-archive', needsPermission('emis.export'), csrf, async(req,res)=>{
     try{
       if(!req.auth.account.permissions.includes('students.read')){await close(req,false);return res.status(403).json({error:'Student reporting permission required.'});}
       const {filename,rows}=req.body||{};
