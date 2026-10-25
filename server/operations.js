@@ -859,29 +859,29 @@ export function createOperationsRouter({ authenticate, sendInvitation = sendAcco
   });
 
   router.post('/admissions', needsPermission('admissions.write'), csrf, async (req, res) => {
-    const firstName = text(req.body?.firstName); const lastName = text(req.body?.lastName);
+    const firstName = text(req.body?.firstName); const middleName = text(req.body?.middleName); const lastName = text(req.body?.lastName);
     const applicationNumber = text(req.body?.applicationNumber, 40).toUpperCase();
     const guardianFirst = text(req.body?.guardianFirstName); const guardianLast = text(req.body?.guardianLastName);
     const relationship = text(req.body?.relationship, 50); const phone = text(req.body?.phone, 40); const email = text(req.body?.email, 254).toLowerCase();
-    const dateOfBirth = req.body?.dateOfBirth || null; const levelId = text(req.body?.requestedLevelId, 50) || null;
+    const dateOfBirth = req.body?.dateOfBirth || null; const sex = text(req.body?.sex, 12).toUpperCase(); const notes = text(req.body?.notes, 2000); const levelId = text(req.body?.requestedLevelId, 50) || null;
     const classId = text(req.body?.requestedClassGroupId, 50) || null;
-    if (!firstName || !lastName || !applicationNumber || !guardianFirst || !guardianLast || !relationship || (!phone && !email) || (dateOfBirth && !validDate(dateOfBirth))) {
-      await close(req, false); return res.status(400).json({ error: 'Enter the applicant name, unique application number, guardian name and relationship, and at least one guardian contact.' });
+    if (!firstName || !lastName || !applicationNumber || !guardianFirst || !guardianLast || !relationship || (!phone && !email) || (dateOfBirth && !validDate(dateOfBirth)) || (sex && !['F', 'M', 'X', 'UNDISCLOSED'].includes(sex))) {
+      await close(req, false); return res.status(400).json({ error: 'Enter the applicant name, unique application number, guardian name and relationship, at least one guardian contact, and valid optional demographic details.' });
     }
     try {
       const schoolId = req.auth.claims.schoolId;
       const application = await req.auth.client.query(`INSERT INTO admission_applications
-        (school_id, application_number, first_name, last_name, date_of_birth, requested_level_id, requested_class_group_id, created_by)
-        SELECT $1, $2, $3, $4, $5, el.id, cg.id, $8 FROM (SELECT 1) seed
-        LEFT JOIN education_levels el ON el.school_id = $1 AND el.id = $6 AND el.active
-        LEFT JOIN class_groups cg ON cg.school_id = $1 AND cg.id = $7
-        WHERE ($6::uuid IS NULL OR el.id IS NOT NULL) AND ($7::uuid IS NULL OR cg.id IS NOT NULL)
-        RETURNING id, application_number, first_name, last_name, application_date, status`, [schoolId, applicationNumber, firstName, lastName, dateOfBirth, levelId, classId, req.auth.claims.userId]);
+        (school_id, application_number, first_name, middle_name, last_name, date_of_birth, sex, notes, requested_level_id, requested_class_group_id, created_by)
+        SELECT $1, $2, $3, NULLIF($4,''), $5, $6, NULLIF($7,''), NULLIF($8,''), el.id, cg.id, $11 FROM (SELECT 1) seed
+        LEFT JOIN education_levels el ON el.school_id = $1 AND el.id = $9 AND el.active
+        LEFT JOIN class_groups cg ON cg.school_id = $1 AND cg.id = $10
+        WHERE ($9::uuid IS NULL OR el.id IS NOT NULL) AND ($10::uuid IS NULL OR cg.id IS NOT NULL)
+        RETURNING id, application_number, first_name, middle_name, last_name, date_of_birth, sex, notes, application_date, status`, [schoolId, applicationNumber, firstName, middleName, lastName, dateOfBirth, sex, notes, levelId, classId, req.auth.claims.userId]);
       if (!application.rowCount) { await close(req, false); return res.status(400).json({ error: 'Choose an education level and class belonging to this school.' }); }
       await req.auth.client.query(`INSERT INTO admission_guardians (school_id, application_id, first_name, last_name, relationship, phone, email, is_primary)
         VALUES ($1,$2,$3,$4,$5,NULLIF($6,''),NULLIF($7,''),true)`, [schoolId, application.rows[0].id, guardianFirst, guardianLast, relationship, phone, email]);
       await req.auth.client.query(`INSERT INTO admission_events (school_id, application_id, event_type, actor_user_id, details) VALUES ($1,$2,'APPLICATION_RECEIVED',$3,$4::jsonb)`, [schoolId, application.rows[0].id, req.auth.claims.userId, JSON.stringify({ status: 'RECEIVED' })]);
-      await audit(req, 'ADMISSION_APPLICATION_CREATED', 'ADMISSION_APPLICATION', application.rows[0].id, { applicationNumber });
+      await audit(req, 'ADMISSION_APPLICATION_CREATED', 'ADMISSION_APPLICATION', application.rows[0].id, { applicationNumber, hasDateOfBirth: Boolean(dateOfBirth), hasSex: Boolean(sex), hasNotes: Boolean(notes) });
       return done(req, res, 201, { application: application.rows[0] });
     } catch (error) { return fail(req, res, error); }
   });
