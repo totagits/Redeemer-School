@@ -1056,10 +1056,36 @@ export function createOperationsRouter({ authenticate, sendInvitation = sendAcco
           WHERE s.school_id=$1 AND s.status='ACTIVE'
           GROUP BY current_class.class_name,current_class.academic_year
           ORDER BY current_class.academic_year,current_class.class_name`,[schoolId]);
+        // Historical enrollment is counted from persisted class enrollment records,
+        // independently of current student ACTIVE status. Each learner counts once
+        // per academic year, with their most recently enrolled class that year.
+        const history = await req.auth.client.query(`
+          WITH ranked AS (
+            SELECT ay.name AS academic_year, cg.name AS class_name,
+              ce.student_id, ce.status AS enrollment_status,
+              s.sex,
+              ROW_NUMBER() OVER (
+                PARTITION BY ay.id, ce.student_id
+                ORDER BY ce.enrolled_on DESC NULLS LAST,ce.id DESC
+              ) AS position
+            FROM class_enrollments ce
+            JOIN class_groups cg ON cg.id=ce.class_group_id AND cg.school_id=ce.school_id
+            JOIN academic_years ay ON ay.id=cg.academic_year_id AND ay.school_id=cg.school_id
+            JOIN students s ON s.id=ce.student_id AND s.school_id=ce.school_id
+            WHERE ce.school_id=$1
+          )
+          SELECT academic_year,class_name,COUNT(*)::int AS learners,
+            COUNT(*) FILTER (WHERE enrollment_status='ACTIVE')::int AS current_enrollments,
+            COUNT(*) FILTER (WHERE UPPER(TRIM(sex)) IN ('MALE','M'))::int AS male,
+            COUNT(*) FILTER (WHERE UPPER(TRIM(sex)) IN ('FEMALE','F'))::int AS female,
+            COUNT(*) FILTER (WHERE sex IS NULL OR UPPER(TRIM(sex)) NOT IN ('MALE','M','FEMALE','F'))::int AS sex_unrecorded
+          FROM ranked WHERE position=1
+          GROUP BY academic_year,class_name
+          ORDER BY academic_year DESC,class_name`,[schoolId]);
         reports.emis = {
           schemaVersion:'redeemer-emis-draft-v2',officialTemplateVerified:false,
           schoolName:school.rows[0]?.name||'',schoolCode:school.rows[0]?.moe_school_emis_code||null,
-          completeness:completeness.rows[0],byClass:byClass.rows,
+          completeness:completeness.rows[0],byClass:byClass.rows,historicalEnrollment:history.rows,
           generatedAt:new Date().toISOString()
         };
       }
