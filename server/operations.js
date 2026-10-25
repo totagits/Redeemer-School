@@ -117,6 +117,16 @@ function csrf(req, res, next) {
   next();
 }
 async function fail(req, res, error) {
+  // Log only non-sensitive diagnostics; never log SQL parameters, request bodies, or personal records.
+  console.error('[school-operations-error]', {
+    method: req.method,
+    route: req.route?.path || req.path,
+    code: typeof error?.code === 'string' ? error.code : null,
+    category: error?.name || 'Error',
+    table: error?.table || null,
+    column: error?.column || null,
+    constraint: error?.constraint || null,
+  });
   await close(req, false).catch(() => {});
   if (error instanceof InvitationDeliveryError) return res.status(error.status).json({ error: error.message });
   if (error?.code === '23505') return res.status(409).json({ error: 'That code, email, or record already exists for this school.' });
