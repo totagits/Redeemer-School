@@ -87,14 +87,18 @@ fails, stop and inspect Coolify deployment/runtime logs. Do not switch the
 staging URL to production credentials. Keep the fresh pre-migration backup
 until these checks pass.
 
-## Encrypted applicant documents (migration 016)
+## Encrypted applicant documents (migrations 016 and 017)
 
 After the admission-document code has been deployed to staging, take a fresh
 staging backup and run `npm run db:migrate` using the staging database owner
 connection, following the same Hostinger VPS console procedure used for the
 earlier migrations. Verify the output names
-`016_encrypted_admission_documents.sql` as applied. Keep
+`016_encrypted_admission_documents.sql` and
+`017_admission_document_images.sql` as applied. Migration 016 creates encrypted
+applicant-file storage; migration 017 enables verified JPEG and PNG uploads in
+addition to PDFs. Keep
 `STUDENT_DOCUMENT_ENCRYPTION_KEY` configured and stable in Coolify; do not
 change it after uploading files, because that would make stored files
-undecryptable. Applicant PDF upload, download, and removal stay unavailable
-until both the migration and key are ready. Use fictional files in staging.
+undecryptable. Applicant document upload, download, and removal stay
+unavailable until both migrations and the key are ready. Use fictional files
+in staging.

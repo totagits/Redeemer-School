@@ -11,15 +11,16 @@ const userId='721ddf68-1c98-4faa-9dc7-9161daa79870';
 const applicationId='a210b463-c02c-4be9-9003-8a9005e8dbe5';
 const categoryId='a310b463-c02c-4be9-9003-8a9005e8dbe5';
 const pdf=Buffer.from('%PDF-1.7\n1 0 obj\n<< /Type /Catalog >>\nendobj\n%%EOF\n');
+const jpeg=Buffer.from([0xff,0xd8,0xff,0xe0,0x00,0x10,0x4a,0x46,0x49,0x46,0x00,0xff,0xd9]);
 
 class FakeClient {
   constructor({permissions=['admissions.read','admissions.write','students.sensitive.read'],schemaReady=true}={}) { this.permissions=permissions;this.schemaReady=schemaReady;this.statements=[]; }
   async query(sql,params=[]) {
     const statement=sql.replace(/\s+/g,' ').trim();this.statements.push({statement,params});
     if(['BEGIN','COMMIT','ROLLBACK'].includes(statement))return{rows:[],rowCount:0};
-    if(statement.startsWith('SELECT count(*)::int AS column_count FROM information_schema.columns'))return{rows:[{column_count:this.schemaReady?4:0}],rowCount:1};
+    if(statement.startsWith('SELECT count(*)::int AS column_count,'))return{rows:[{column_count:this.schemaReady?4:0,media_type_constraint:this.schemaReady===true?"CHECK (media_type = ANY (ARRAY['application/pdf'::text, 'image/jpeg'::text, 'image/png'::text]))":'CHECK (media_type = application/pdf)'}],rowCount:1};
     if(statement.startsWith('INSERT INTO admission_documents')) {
-      const document={id:params[0],title:params[4],original_filename:params[5],media_type:'application/pdf',size_bytes:String(params[6]),checksum_sha256:params[7],uploaded_at:'2026-10-25T00:00:00Z',file_content:params[8],content_nonce:params[9],content_auth_tag:params[10]};
+      const document={id:params[0],title:params[4],original_filename:params[5],media_type:params[6],size_bytes:String(params[7]),checksum_sha256:params[8],uploaded_at:'2026-10-25T00:00:00Z',file_content:params[9],content_nonce:params[10],content_auth_tag:params[11]};
       FakeClient.documents.set(document.id,document);return{rows:[document],rowCount:1};
     }
     if(statement.startsWith('SELECT id,title,original_filename,media_type,size_bytes,checksum_sha256,file_content,content_nonce,content_auth_tag')) {const d=FakeClient.documents.get(params[2]);return d&&!d.deleted?{rows:[d],rowCount:1}:{rows:[],rowCount:0};}
@@ -45,10 +46,20 @@ test('applicant PDF is encrypted, integrity-checked, private, audited and downlo
   const upload=await fetch(`${url}/api/operations/admissions/${applicationId}/documents?${params}`,{method:'POST',headers:{...csrf,'Content-Type':'application/pdf'},body:pdf});
   assert.equal(upload.status,201);const saved=(await upload.json()).document;assert.equal(saved.title,'Birth certificate');
   const insert=clients[0].statements.find(x=>x.statement.startsWith('INSERT INTO admission_documents'));
-  assert.ok(Buffer.isBuffer(insert.params[8]));assert.notDeepEqual(insert.params[8],pdf);
+  assert.equal(insert.params[6],'application/pdf');assert.ok(Buffer.isBuffer(insert.params[9]));assert.notDeepEqual(insert.params[9],pdf);
   const download=await fetch(`${url}/api/operations/admissions/${applicationId}/documents/${saved.id}/content`);
   assert.equal(download.status,200);assert.equal(download.headers.get('cache-control'),'no-store, private');assert.deepEqual(Buffer.from(await download.arrayBuffer()),pdf);
   assert.ok(clients.some(client=>client.statements.some(x=>x.statement.startsWith('INSERT INTO audit_events'))));
+}));
+
+test('guardian identification JPEG is encrypted, stored with image MIME type and downloaded as an image',async t=>withKey(async()=>{
+  FakeClient.documents.clear();const{url,clients}=await startServer(t);const params=new URLSearchParams({title:'Guardian ID photo',categoryId,fileName:'guardian-id.jpg'});
+  const upload=await fetch(`${url}/api/operations/admissions/${applicationId}/documents?${params}`,{method:'POST',headers:{...csrf,'Content-Type':'image/jpeg'},body:jpeg});
+  assert.equal(upload.status,201);const saved=(await upload.json()).document;assert.equal(saved.media_type,'image/jpeg');
+  const insert=clients[0].statements.find(x=>x.statement.startsWith('INSERT INTO admission_documents'));
+  assert.equal(insert.params[6],'image/jpeg');assert.ok(Buffer.isBuffer(insert.params[9]));assert.notDeepEqual(insert.params[9],jpeg);
+  const download=await fetch(`${url}/api/operations/admissions/${applicationId}/documents/${saved.id}/content`);
+  assert.equal(download.status,200);assert.equal(download.headers.get('content-type'),'image/jpeg');assert.deepEqual(Buffer.from(await download.arrayBuffer()),jpeg);
 }));
 
 test('applicant document upload requires restricted-record permission',async t=>withKey(async()=>{
@@ -60,6 +71,8 @@ test('applicant document upload requires restricted-record permission',async t=>
 test('applicant document upload refuses invalid PDF and unavailable schema',async t=>withKey(async()=>{
   const bad=await startServer(t);let response=await fetch(`${bad.url}/api/operations/admissions/${applicationId}/documents?title=Record&fileName=record.pdf`,{method:'POST',headers:{...csrf,'Content-Type':'application/pdf'},body:Buffer.from('not pdf')});assert.equal(response.status,400);
   const missing=await startServer(t,{schemaReady:false});response=await fetch(`${missing.url}/api/operations/admissions/${applicationId}/documents?title=Record&fileName=record.pdf`,{method:'POST',headers:{...csrf,'Content-Type':'application/pdf'},body:pdf});assert.equal(response.status,503);
+  const imagesNotMigrated=await startServer(t,{schemaReady:'pdf-only'});response=await fetch(`${imagesNotMigrated.url}/api/operations/admissions/${applicationId}/documents?title=Photo&fileName=photo.jpg`,{method:'POST',headers:{...csrf,'Content-Type':'image/jpeg'},body:jpeg});assert.equal(response.status,503);
+  const badImage=await fetch(`${bad.url}/api/operations/admissions/${applicationId}/documents?title=Photo&fileName=photo.jpg`,{method:'POST',headers:{...csrf,'Content-Type':'image/jpeg'},body:Buffer.from('not jpeg')});assert.equal(badImage.status,400);
 }));
 
 test('applicant document removal is a permission-checked audited soft delete',async t=>withKey(async()=>{
