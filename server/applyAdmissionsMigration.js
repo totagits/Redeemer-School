@@ -9,7 +9,7 @@ const version = '018_public_admissions_intake.sql';
 
 function dbIdentity(value) {
   const url = new URL(value);
-  return [url.hostname.toLowerCase(), url.port || '5432', url.pathname.replace(/^\\//, '')].join('|');
+  return [url.hostname.toLowerCase(), url.port || '5432', url.pathname.slice(1)].join('|');
 }
 
 export async function applyAdmissionsMigrationIfRequested() {
