@@ -125,3 +125,34 @@ export const DigitalStudentId: React.FC<{ studentId?: string; csrfToken?: string
     </>}
   </section>;
 };
+
+export const DigitalStudentIdVerifier: React.FC<{csrfToken:string}> = ({csrfToken}) => {
+  const [token,setToken]=useState('');
+  const [purpose,setPurpose]=useState('GENERAL');
+  const [busy,setBusy]=useState(false);
+  const [result,setResult]=useState<{valid:boolean;student?:{name:string;studentNumber:string;className:string|null}}|null>(null);
+  const [error,setError]=useState('');
+  const verify=async(event:React.FormEvent<HTMLFormElement>)=>{
+    event.preventDefault();setBusy(true);setError('');setResult(null);
+    try{
+      const response=await fetch('/api/student-id/verify',{method:'POST',credentials:'same-origin',
+        headers:{'Content-Type':'application/json','X-CSRF-Token':csrfToken},
+        body:JSON.stringify({token:token.trim(),purpose})});
+      const body=await response.json();
+      if(!response.ok)throw new Error(body.error||'Could not verify ID.');
+      setResult(body);
+    }catch(cause){setError(cause instanceof Error?cause.message:'Could not verify ID.');}
+    finally{setBusy(false);}
+  };
+  return <details className="rounded-2xl border border-slate-200 bg-white p-4 shadow-sm">
+    <summary className="cursor-pointer font-extrabold text-slate-900">Verify a Digital Student ID (authorized staff)</summary>
+    <p className="mt-2 text-xs text-slate-600">Scan a student QR using a compatible scanner that types the code, or paste its decoded RIA1 credential below. This confirms identity only; library, meal and event entitlements require their own checks.</p>
+    <form onSubmit={verify} className="mt-3 grid gap-3 sm:grid-cols-3">
+      <label className="text-sm font-semibold sm:col-span-2">Scanned credential<input required value={token} onChange={e=>setToken(e.target.value)} autoComplete="off" placeholder="RIA1.…" className="mt-1 w-full rounded-lg border px-3 py-2 font-mono text-xs"/></label>
+      <label className="text-sm font-semibold">Verification purpose<select value={purpose} onChange={e=>setPurpose(e.target.value)} className="mt-1 w-full rounded-lg border px-3 py-2"><option value="GENERAL">School identity</option><option value="LIBRARY">Library entry</option><option value="MEAL">Meal service</option><option value="EVENT">Campus event</option></select></label>
+      <button disabled={busy} className="rounded-lg bg-blue-700 px-4 py-2 text-sm font-bold text-white disabled:opacity-40 sm:col-span-3">{busy?'Verifying…':'Verify credential'}</button>
+    </form>
+    {error&&<p role="alert" className="mt-3 rounded-lg bg-red-50 p-3 text-sm text-red-800">{error}</p>}
+    {result&&<p role="status" className={`mt-3 rounded-lg p-3 text-sm ${result.valid?'bg-emerald-50 text-emerald-900':'bg-red-50 text-red-900'}`}>{result.valid?`Valid school ID: ${result.student?.name} · ${result.student?.studentNumber} · ${result.student?.className||'Class not assigned'}. Check service eligibility separately.`:'ID invalid, expired or revoked. Do not treat this scan as valid identification.'}</p>}
+  </details>;
+};
