@@ -6,6 +6,7 @@ import pg from 'pg';
 import { createAuthRouter } from './auth.js';
 import { createOperationsRouter } from './operations.js';
 import { createPublicAdmissionsRouter } from './publicAdmissions.js';
+import { createDigitalStudentIdRouter } from './studentDigitalId.js';
 import { isStrongSessionSecret } from './authCrypto.js';
 import { applyAdmissionsMigrationIfRequested } from './applyAdmissionsMigration.js';
 
@@ -14,6 +15,8 @@ await applyAdmissionsMigrationIfRequested();
 // Only executes after explicit opt-in and staging backup confirmation.
 const { applyStudentPhotoMigrationIfRequested } = await import('./applyStudentPhotoMigration.js');
 await applyStudentPhotoMigrationIfRequested();
+const { applyDigitalStudentIdMigrationIfRequested } = await import('./applyDigitalStudentIdMigration.js');
+await applyDigitalStudentIdMigrationIfRequested();
 
 const { Pool } = pg;
 const app = express();
@@ -96,6 +99,7 @@ const authRouter = createAuthRouter({
 });
 app.use('/api/auth', authRouter);
 app.use('/api/operations', createOperationsRouter({ authenticate: authRouter.requireAuth, pool: runtimePool }));
+app.use('/api/student-id', createDigitalStudentIdRouter({ authenticate: authRouter.requireAuth }));
 app.use('/api/public/admissions', createPublicAdmissionsRouter({ pool: runtimePool }));
 
 app.use('/api', (_req, res) => {
