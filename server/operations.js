@@ -122,6 +122,9 @@ async function fail(req, res, error) {
     method: req.method,
     route: req.route?.path || req.path,
     code: typeof error?.code === 'string' ? error.code : null,
+    // PostgreSQL 42703 names only an undefined SQL column; do not log request data.
+    missingColumn: error?.code === '42703' ? String(error.message || '').slice(0, 180) : null,
+    sqlPosition: error?.code === '42703' ? String(error.position || '') : null,
     category: error?.name || 'Error',
     table: error?.table || null,
     column: error?.column || null,
