@@ -1,4 +1,4 @@
-import { randomBytes, randomUUID, timingSafeEqual } from 'node:crypto';
+import { createCipheriv, createDecipheriv, createHash, randomBytes, randomUUID, timingSafeEqual } from 'node:crypto';
 import express from 'express';
 import { hashPassword } from './authCrypto.js';
 import { createInvitationSecret, InvitationDeliveryError, sendAccountInvitation } from './invitations.js';
@@ -40,6 +40,32 @@ function sameSecret(left, right) {
   const a = Buffer.from(left);
   const b = Buffer.from(right);
   return a.length === b.length && timingSafeEqual(a, b);
+}
+function studentDocumentEncryptionKey() {
+  const configured = process.env.STUDENT_DOCUMENT_ENCRYPTION_KEY || '';
+  if (!/^[A-Za-z0-9+/]{43}=$/.test(configured)) return null;
+  try {
+    const key = Buffer.from(configured, 'base64');
+    return key.length === 32 && key.toString('base64') === configured ? key : null;
+  } catch { return null; }
+}
+function encryptStudentDocument(data, key, associatedData) {
+  const nonce = randomBytes(12);
+  const cipher = createCipheriv('aes-256-gcm', key, nonce);
+  cipher.setAAD(Buffer.from(associatedData));
+  const content = Buffer.concat([cipher.update(data), cipher.final()]);
+  return { content, nonce, authTag: cipher.getAuthTag() };
+}
+function decryptStudentDocument(document, key, associatedData) {
+  const decipher = createDecipheriv('aes-256-gcm', key, document.content_nonce);
+  decipher.setAAD(Buffer.from(associatedData));
+  decipher.setAuthTag(document.content_auth_tag);
+  return Buffer.concat([decipher.update(document.file_content), decipher.final()]);
+}
+async function hasStudentDocumentStorageSchema(client) {
+  const result = await client.query(`SELECT count(*)::int AS column_count FROM information_schema.columns
+    WHERE table_schema=current_schema() AND table_name='student_documents' AND column_name=ANY($1::text[])`, [['file_content','content_nonce','content_auth_tag']]);
+  return Number(result.rows[0]?.column_count || 0) === 3;
 }
 
 async function close(req, commit) {
@@ -415,7 +441,7 @@ export function createOperationsRouter({ authenticate, sendInvitation = sendAcco
             WHERE c.school_id = $1 ORDER BY y.starts_on DESC, c.grade_level, c.name`, [schoolId])
         : { rows: [] };
       await close(req, true);
-      return res.json({ students: students.rows, classes: classes.rows, canEnroll: req.auth.account.permissions.includes('students.write') });
+      return res.json({ students: students.rows, classes: classes.rows, canEnroll: req.auth.account.permissions.includes('students.write'), canReadDocuments: req.auth.account.permissions.includes('students.sensitive.read') });
     } catch (error) { return fail(req, res, error); }
   });
 
@@ -444,12 +470,22 @@ export function createOperationsRouter({ authenticate, sendInvitation = sendAcco
           WHERE sg.school_id = $1 AND sg.student_id = $2 ORDER BY sg.is_primary DESC, g.last_name, g.first_name`, [schoolId, req.params.studentId]);
       const student = studentResult.rows[0];
       const canReadSensitive = req.auth.account.permissions.includes('students.sensitive.read');
+      let documents = []; let documentCategories = []; let documentStorageReady = false;
+      if (canReadSensitive) {
+        documentStorageReady = await hasStudentDocumentStorageSchema(req.auth.client) && Boolean(studentDocumentEncryptionKey());
+        documentCategories = (await req.auth.client.query(`SELECT id,code,name,required_for_admission FROM document_categories
+          WHERE school_id=$1 AND active ORDER BY name`, [schoolId])).rows;
+        if (documentStorageReady) documents = (await req.auth.client.query(`SELECT d.id,d.title,d.original_filename,d.media_type,d.size_bytes,d.checksum_sha256,d.visibility,d.uploaded_at,u.full_name AS uploaded_by,c.name AS category_name
+          FROM student_documents d JOIN user_accounts u ON u.school_id=d.school_id AND u.id=d.uploaded_by
+          LEFT JOIN document_categories c ON c.school_id=d.school_id AND c.id=d.category_id
+          WHERE d.school_id=$1 AND d.student_id=$2 AND d.deleted_at IS NULL ORDER BY d.uploaded_at DESC`, [schoolId, req.params.studentId])).rows;
+      }
       if (!canReadSensitive) {
         student.date_of_birth = null; student.sex = null; student.external_learner_id = null;
         for (const guardian of guardianResult.rows) { guardian.phone = null; guardian.email = null; }
       }
       await close(req, true);
-      return res.json({ student: { ...student, guardians: guardianResult.rows } });
+      return res.json({ student: { ...student, guardians: guardianResult.rows, documents, documentCategories, documentStorageReady } });
     } catch (error) { return fail(req, res, error); }
   });
 
@@ -945,6 +981,71 @@ export function createOperationsRouter({ authenticate, sendInvitation = sendAcco
       res.setHeader('Content-Disposition', `attachment; filename="redeemer-emis-roster-draft-${date}.csv"`);
       return res.send(`\uFEFF${csv}\r\n`);
     } catch (error) { return fail(req, res, error); }
+  });
+
+  router.post('/students/:studentId/documents', needsPermission('students.write'), csrf,
+    express.raw({ type: 'application/pdf', limit: '10mb' }), async (req, res) => {
+      if (!req.auth.account.permissions.includes('students.sensitive.read')) { await close(req, false); return res.status(403).json({ error: 'Restricted learner-document access is required to upload records.' }); }
+      const key = studentDocumentEncryptionKey();
+      if (!key) { await close(req, false); return res.status(503).json({ error: 'Encrypted document storage is not configured for this environment.' }); }
+      if (!Buffer.isBuffer(req.body) || req.body.length < 8 || !req.body.subarray(0, 5).equals(Buffer.from('%PDF-'))) { await close(req, false); return res.status(400).json({ error: 'Select a valid PDF file under 10 MB.' }); }
+      const title = text(req.query.title, 120); const categoryId = text(req.query.categoryId, 50) || null;
+      const originalFilename = text(req.query.fileName, 255).replace(/[\\/]/g, '_').replace(/[\u0000-\u001f\u007f]/g, '').trim();
+      const visibility = text(req.query.visibility, 30).toUpperCase() || 'RESTRICTED';
+      if (!title || !originalFilename || visibility !== 'RESTRICTED') { await close(req, false); return res.status(400).json({ error: 'Enter a document title and file name. Learner documents must remain restricted to authorized school staff.' }); }
+      try {
+        if (!await hasStudentDocumentStorageSchema(req.auth.client)) { await close(req, false); return res.status(503).json({ error: 'The student-document database migration must be applied before uploads can be used.' }); }
+        const schoolId = req.auth.claims.schoolId; const studentId = req.params.studentId; const documentId = randomUUID();
+        const checksum = createHash('sha256').update(req.body).digest('hex');
+        const associatedData = `${schoolId}:${studentId}:${documentId}`;
+        const encrypted = encryptStudentDocument(req.body, key, associatedData);
+        const result = await req.auth.client.query(`INSERT INTO student_documents
+            (id,school_id,student_id,category_id,title,object_storage_key,original_filename,media_type,size_bytes,checksum_sha256,visibility,uploaded_by,file_content,content_nonce,content_auth_tag)
+          SELECT $1,st.school_id,st.id,c.id,$5,$6,$7,'application/pdf',$8,$9,$10,$11,$12,$13,$14
+          FROM students st LEFT JOIN document_categories c ON c.school_id=st.school_id AND c.id=$4
+          WHERE st.school_id=$2 AND st.id=$3 AND ($4::uuid IS NULL OR c.id IS NOT NULL)
+          RETURNING id,title,original_filename,media_type,size_bytes,checksum_sha256,visibility,uploaded_at`,
+        [documentId,schoolId,studentId,categoryId,title,`db-encrypted:${documentId}`,originalFilename,req.body.length,checksum,visibility,req.auth.claims.userId,encrypted.content,encrypted.nonce,encrypted.authTag]);
+        if (!result.rowCount) { await close(req, false); return res.status(400).json({ error: 'The learner or document category was not found in this school.' }); }
+        await audit(req,'STUDENT_DOCUMENT_UPLOADED','STUDENT_DOCUMENT',documentId,{studentId,title,categoryId,visibility,sizeBytes:req.body.length,checksum});
+        return done(req,res,201,{document:result.rows[0]});
+      } catch (error) { return fail(req, res, error); }
+    });
+
+  router.get('/students/:studentId/documents/:documentId/content', needsPermission('students.read'), async (req, res) => {
+    if (!req.auth.account.permissions.includes('students.sensitive.read')) { await close(req, false); return res.status(403).json({ error: 'Restricted learner-document access is required to open this file.' }); }
+    const key = studentDocumentEncryptionKey();
+    if (!key) { await close(req, false); return res.status(503).json({ error: 'Encrypted document storage is not configured for this environment.' }); }
+    try {
+      if (!await hasStudentDocumentStorageSchema(req.auth.client)) { await close(req, false); return res.status(503).json({ error: 'The student-document database migration must be applied before files can be opened.' }); }
+      const schoolId = req.auth.claims.schoolId; const studentId = req.params.studentId; const documentId = req.params.documentId;
+      const result = await req.auth.client.query(`SELECT id,title,original_filename,media_type,size_bytes,checksum_sha256,file_content,content_nonce,content_auth_tag
+        FROM student_documents WHERE school_id=$1 AND student_id=$2 AND id=$3 AND deleted_at IS NULL`,[schoolId,studentId,documentId]);
+      if (!result.rowCount) { await close(req,false); return res.status(404).json({error:'The document was not found for this learner.'}); }
+      const document = result.rows[0];
+      if (!document.file_content || !document.content_nonce || !document.content_auth_tag) { await close(req,false); return res.status(410).json({error:'This older document has no encrypted database copy and cannot be opened here.'}); }
+      const plaintext = decryptStudentDocument(document,key,`${schoolId}:${studentId}:${documentId}`);
+      if (createHash('sha256').update(plaintext).digest('hex') !== document.checksum_sha256) { await close(req,false); return res.status(500).json({error:'Document integrity verification failed. Ask the school administrator for help.'}); }
+      await audit(req,'STUDENT_DOCUMENT_DOWNLOADED','STUDENT_DOCUMENT',documentId,{studentId,sizeBytes:Number(document.size_bytes)});
+      await close(req,true);
+      const filename = String(document.original_filename).replace(/[\\"\r\n]/g,'_');
+      const asciiFilename = filename.replace(/[^\x20-\x7e]/g,'_');
+      res.setHeader('Cache-Control','no-store, private'); res.setHeader('Content-Type','application/pdf');
+      res.setHeader('Content-Disposition',`attachment; filename="${asciiFilename}"; filename*=UTF-8''${encodeURIComponent(filename)}`);
+      res.setHeader('Content-Length',String(plaintext.length));
+      return res.send(plaintext);
+    } catch (error) { return fail(req,res,error); }
+  });
+
+  router.post('/students/:studentId/documents/:documentId/delete', needsPermission('students.write'), csrf, async (req,res) => {
+    if (!req.auth.account.permissions.includes('students.sensitive.read')) { await close(req,false); return res.status(403).json({error:'Restricted learner-document access is required to remove this file.'}); }
+    try {
+      const schoolId=req.auth.claims.schoolId; const studentId=req.params.studentId; const documentId=req.params.documentId;
+      const result=await req.auth.client.query(`UPDATE student_documents SET deleted_at=now() WHERE school_id=$1 AND student_id=$2 AND id=$3 AND deleted_at IS NULL RETURNING id,title`,[schoolId,studentId,documentId]);
+      if(!result.rowCount){await close(req,false);return res.status(404).json({error:'The document was not found for this learner.'});}
+      await audit(req,'STUDENT_DOCUMENT_SOFT_DELETED','STUDENT_DOCUMENT',documentId,{studentId,title:result.rows[0].title});
+      return done(req,res,200,{deleted:true});
+    } catch(error){return fail(req,res,error);}
   });
 
   router.post('/students/:studentId/transfer', needsPermission('students.write'), csrf, async (req, res) => {
@@ -2268,5 +2369,12 @@ export function createOperationsRouter({ authenticate, sendInvitation = sendAcco
     } catch (error) { return fail(req, res, error); }
   });
 
+  router.use((error, req, res, next) => {
+    if (error?.type === 'entity.too.large') {
+      void close(req, false).catch(() => {});
+      return res.status(413).json({ error: 'PDF files must be 10 MB or smaller.' });
+    }
+    return fail(req,res,error);
+  });
   return router;
 }

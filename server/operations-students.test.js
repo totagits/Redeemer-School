@@ -17,6 +17,8 @@ class FakeClient {
     if (['BEGIN', 'COMMIT', 'ROLLBACK'].includes(normalized)) return { rows: [], rowCount: 0 };
     if (normalized.startsWith('SELECT st.id, st.student_number') && normalized.includes('WHERE st.school_id = $1 AND st.id = $2')) return this.studentFound ? { rows: [{ id: studentId, student_number: 'RIA-001', first_name: 'Test', middle_name: null, last_name: 'Learner', preferred_name: null, status: 'ACTIVE', date_of_birth: '2015-01-01', sex: 'FEMALE', external_learner_id: 'MOE-01', class_name: 'Grade 1', class_group_id: 'class-1', academic_year_name: '2026-2027', enrolled_on: '2026-09-01', enrollment_status: 'ACTIVE', attendance_records: 3, open_invoices: 1 }], rowCount: 1 } : { rows: [], rowCount: 0 };
     if (normalized.startsWith('SELECT g.id, g.first_name')) return { rows: [{ id: 'guardian-1', first_name: 'Family', last_name: 'Member', email: 'family@example.test', phone: '+231000000000', relationship: 'Parent', is_primary: true }], rowCount: 1 };
+    if (normalized.startsWith('SELECT count(*)::int AS column_count FROM information_schema.columns')) return { rows: [{ column_count: 0 }], rowCount: 1 };
+    if (normalized.startsWith('SELECT id,code,name,required_for_admission FROM document_categories')) return { rows: [], rowCount: 0 };
     if (normalized.startsWith('SELECT cs.scheduled_at')) return { rows: [], rowCount: 0 };
     if (normalized.startsWith('SELECT a.title')) return { rows: [], rowCount: 0 };
     if (normalized.startsWith('SELECT fi.invoice_number')) return { rows: [], rowCount: 0 };

@@ -11,6 +11,7 @@
     "db:migrate": "node server/migrate.js",
     "db:bootstrap-admin": "node server/bootstrapAdmin.js",
     "keys:vapid": "node server/generateVapidKeys.js",
+    "keys:student-documents": "node server/generateStudentDocumentKey.js",
     "test": "node --import tsx --test src/logic/*.test.ts server/*.test.js",
     "clean": "rm -rf dist server.js",
     "lint": "tsc --noEmit"
