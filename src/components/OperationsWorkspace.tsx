@@ -218,7 +218,17 @@ export const OperationsWorkspace: React.FC<Props> = ({ account, csrfToken, busy:
     { id: 'student-id', label: 'My Digital ID', icon: GraduationCap, status: 'available' as const },
     { id: 'student-messages', label: 'Messages', icon: MessageSquare, status: 'available' as const },
     { id: 'student-alerts', label: 'Alerts', icon: Bell, status: 'available' as const },
-  ] : isPortalUser ? [{ id: 'overview', label: 'My learning', icon: GraduationCap, status: 'available' as const },{ id: 'family-photos', label: 'Family photographs', icon: Users, status: 'available' as const }] : [
+  ] : isPortalUser ? [
+    {id:'overview',label:'Dashboard',icon:LayoutDashboard,status:'available' as const},
+    {id:'parent-children',label:'My children',icon:Users,status:'available' as const},
+    {id:'parent-classes',label:'Subjects & timetable',icon:BookOpen,status:'available' as const},
+    {id:'parent-grades',label:'Grades & report cards',icon:GraduationCap,status:'available' as const},
+    {id:'parent-attendance',label:'Attendance',icon:Check,status:'available' as const},
+    {id:'parent-materials',label:'Learning materials',icon:ClipboardList,status:'available' as const},
+    {id:'parent-fees',label:'Tuition & payments',icon:Wallet,status:'available' as const},
+    {id:'parent-notices',label:'Notices & notifications',icon:Bell,status:'available' as const},
+    {id:'family-photos',label:'Family photographs',icon:Users,status:'available' as const}
+  ] : [
     { id: 'overview', label: 'Overview', icon: LayoutDashboard, status: 'available' as const },
     ...(canConfigure ? [{ id: 'academics', label: 'School setup', icon: Settings2, status: 'available' as const }] : []),
     ...(canManageCurriculum || account.permissions.includes('curriculum.read') ? [{ id: 'curriculum', label: 'Curriculum & timetable', icon: BookOpen, status: canManageCurriculum ? 'available' as const : 'connecting' as const }] : []),
@@ -1022,7 +1032,30 @@ const AssessmentGradebook: React.FC<{ setup: Setup; account: SchoolAccount; csrf
 const PortalDashboard: React.FC<{ portal: Portal; activeWorkspace: string; csrfToken: string }> = ({ portal, activeWorkspace, csrfToken }) => {
   const card = 'rounded-2xl border border-slate-200 bg-white p-5 shadow-sm';
   const isStudent = portal.role === 'STUDENT';
-  const show = (area: string) => !isStudent || activeWorkspace === `student-${area}`;
+  const [selectedChildId,setSelectedChildId]=useState<string>('');
+  const selectedChild=portal.children?.find(child=>child.id===selectedChildId)||portal.children?.[0];
+  const show = (area: string) => isStudent ? activeWorkspace === `student-${area}` : activeWorkspace === `parent-${area}`;
+  const monetaryTotals=(child:PortalChildData)=>Object.entries((child.invoices||[]).reduce<Record<string,number>>((totals,invoice)=>{
+    const currency=String(invoice.currency||'');const amount=Number(invoice.balance);
+    if(currency&&Number.isFinite(amount))totals[currency]=(totals[currency]||0)+amount;
+    return totals;
+  },{})).filter(([,balance])=>balance>0);
+  const parentSummary=selectedChild&&portal.role==='PARENT'?<section className="space-y-4">
+    <div className="flex flex-wrap items-center justify-between gap-3 rounded-2xl border border-slate-200 bg-white p-4">
+      <div><p className="text-xs font-bold uppercase tracking-wider text-slate-500">Selected learner</p><p className="mt-1 text-lg font-extrabold">{selectedChild.first_name} {selectedChild.last_name}</p><p className="text-sm text-slate-600">{selectedChild.class_name||'Class not assigned'} · {selectedChild.student_number||'ID not recorded'}</p></div>
+      {(portal.children?.length||0)>1&&<label className="text-xs font-bold text-slate-600">Switch child<select aria-label="Select learner" className="mt-1 block rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm" value={selectedChild.id||''} onChange={event=>setSelectedChildId(event.target.value)}>{portal.children?.map(child=><option key={child.id} value={child.id}>{child.first_name} {child.last_name}</option>)}</select></label>}
+    </div>
+    {activeWorkspace==='overview'&&<div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
+      <div className={card}><p className="text-xs font-bold uppercase text-slate-500">Tuition balance</p>{selectedChild.financeVisible ? monetaryTotals(selectedChild).length ? monetaryTotals(selectedChild).map(([currency,balance])=><p key={currency} className="mt-2 text-lg font-extrabold">{currency} {new Intl.NumberFormat(undefined,{minimumFractionDigits:2,maximumFractionDigits:2}).format(balance)}</p>) : <p className="mt-2 text-sm font-semibold">No outstanding invoice balance recorded</p> : <p className="mt-2 text-sm text-slate-600">Access not enabled</p>}</div>
+      <div className={card}><p className="text-xs font-bold uppercase text-slate-500">Published grades</p><p className="mt-2 text-2xl font-extrabold">{selectedChild.can_view_results ? (selectedChild.grades||[]).length : 'Restricted'}</p><p className="text-xs text-slate-500">{selectedChild.can_view_results ? (selectedChild.grades||[]).length?'Assessments available':'Awaiting published grades':'Contact school for access'}</p></div>
+      <div className={card}><p className="text-xs font-bold uppercase text-slate-500">Attendance</p><p className="mt-2 text-2xl font-extrabold">{(selectedChild.attendance||[]).length}</p><p className="text-xs text-slate-500">Recorded attendance entries</p></div>
+      <div className={card}><p className="text-xs font-bold uppercase text-slate-500">School notices</p><p className="mt-2 text-2xl font-extrabold">{(selectedChild.announcements||[]).length}</p><p className="text-xs text-slate-500">Published announcements</p></div>
+    </div>}
+    {activeWorkspace==='overview'&&<div className="grid gap-3 lg:grid-cols-2">
+      <div className={card}><h3 className="font-extrabold">Recent attendance</h3>{selectedChild.attendance?.length?<ul className="mt-2 divide-y">{selectedChild.attendance.slice(0,4).map((item,i)=><li key={i} className="flex justify-between gap-3 py-2 text-sm"><span>{String(item.scheduled_at||'').slice(0,10)} · {item.subject_name}</span><strong>{item.status}</strong></li>)}</ul>:<p className="mt-2 text-sm text-slate-500">No attendance recorded.</p>}</div>
+      <div className={card}><h3 className="font-extrabold">Academic snapshot</h3>{!selectedChild.can_view_results?<p className="mt-2 text-sm text-slate-500">Published results are not enabled for this guardian.</p>:selectedChild.grades?.length?<ul className="mt-2 divide-y">{selectedChild.grades.slice(0,4).map((item,i)=><li key={i} className="flex justify-between gap-3 py-2 text-sm"><span>{item.subject_name} · {item.title}</span><strong>{item.score}/{item.max_score}</strong></li>)}</ul>:<p className="mt-2 text-sm text-slate-500">Awaiting published grades.</p>}</div>
+    </div>}
+  </section>:null;
   const childView = (student: PortalLearnerSummary, data: PortalBundle, canViewResults: boolean) => <div key={student.id} className="space-y-5">
     {isStudent && activeWorkspace === 'student-id' && <DigitalStudentId />}
     {isStudent && activeWorkspace === 'overview' && <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
@@ -1042,7 +1075,9 @@ const PortalDashboard: React.FC<{ portal: Portal; activeWorkspace: string; csrfT
     {!portal.linked && portal.role === 'STUDENT' && <div className={card}><p className="font-semibold">{portal.message}</p><p className="mt-2 text-sm text-slate-600">Ask the school administrator to create and link your learner portal account.</p></div>}
     {portal.role === 'STUDENT' && portal.linked && portal.student && childView(portal.student, { ...portal.student, subjects: portal.subjects || [], timetable: portal.timetable || [], attendance: portal.attendance || [], grades: portal.grades || [], resources: portal.resources || [], announcements: portal.announcements || [], invoices: portal.invoices || [], receipts: portal.receipts || [], financeVisible: Boolean(portal.financeVisible) }, true)}
     {portal.role === 'PARENT' && portal.children?.length === 0 && <div className={card}><p className="font-semibold">No learners are linked to this guardian login.</p><p className="mt-2 text-sm text-slate-600">Ask the school administrator to connect your account to the correct learner records.</p></div>}
-    {portal.role === 'PARENT' && activeWorkspace === 'overview' && portal.children?.map(child => <section key={child.id} className="space-y-3"><div><h2 className="text-lg font-extrabold">{child.first_name} {child.last_name}</h2><p className="text-sm text-slate-600">{child.relationship} · {child.class_name || 'Class not assigned'}</p></div>{childView(child, child, Boolean(child.can_view_results))}{!child.financeVisible && <p className="rounded-lg bg-slate-50 p-3 text-xs text-slate-500">Fee information is not enabled for this guardian relationship. Contact the school office if you need access.</p>}</section>)}
+    {portal.role === 'PARENT' && activeWorkspace === 'parent-children' && portal.children?.map(child => <section key={child.id} className="space-y-3"><div><h2 className="text-lg font-extrabold">{child.first_name} {child.last_name}</h2><p className="text-sm text-slate-600">{child.relationship} · {child.class_name || 'Class not assigned'}</p></div>{childView(child, child, Boolean(child.can_view_results))}{!child.financeVisible && <p className="rounded-lg bg-slate-50 p-3 text-xs text-slate-500">Fee information is not enabled for this guardian relationship. Contact the school office if you need access.</p>}</section>)}
+    {portal.role === 'PARENT' && parentSummary}
+    {portal.role === 'PARENT' && selectedChild && ['parent-classes','parent-grades','parent-attendance','parent-materials','parent-fees','parent-notices'].includes(activeWorkspace) && <div className="space-y-4">{childView(selectedChild,selectedChild,Boolean(selectedChild.can_view_results))}{activeWorkspace==='parent-fees'&&!selectedChild.financeVisible&&<p className={card}>This guardian relationship has not been granted access to tuition information.</p>}</div>}
     {portal.role === 'PARENT' && activeWorkspace === 'family-photos' && <div className="space-y-4">{portal.children?.length ? portal.children.map(child=><ParentPhotoUploads key={child.id} studentId={String(child.id)} studentName={`${child.first_name} ${child.last_name}`} csrfToken={csrfToken}/>) : <p className={card}>No learners linked to this parent account.</p>}</div>}
   </div>;
 };
