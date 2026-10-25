@@ -4,7 +4,7 @@ import { hashPassword } from './authCrypto.js';
 import { createInvitationSecret, InvitationDeliveryError, sendAccountInvitation } from './invitations.js';
 import { createMomoClient, MomoProviderError } from './mtnMomo.js';
 import { sendWebPush } from './webPush.js';
-import { sendSchoolSms, smsReadiness } from './sms.js';
+import { sendSchoolSms, smsProviderName, smsReadiness } from './sms.js';
 
 const NAME_LIMIT = 120;
 const EMAIL_RE = /^\S+@\S+\.\S+$/;
@@ -1079,7 +1079,7 @@ export function createOperationsRouter({ authenticate, sendInvitation = sendAcco
       req.auth.client.query(`SELECT a.id,a.title,a.body,a.audience,a.status,a.created_at,a.published_at,u.full_name AS author FROM announcements a JOIN user_accounts u ON u.school_id=a.school_id AND u.id=a.created_by WHERE a.school_id=$1 ORDER BY a.created_at DESC LIMIT 200`,[schoolId]),
       req.auth.client.query(`SELECT nd.id,nd.announcement_id,a.title,nd.channel,nd.status,count(*) OVER(PARTITION BY nd.announcement_id,nd.channel) AS audience_count,nd.queued_at,nd.sent_at,nd.error_code FROM notification_deliveries nd LEFT JOIN announcements a ON a.school_id=nd.school_id AND a.id=nd.announcement_id WHERE nd.school_id=$1 ORDER BY nd.queued_at DESC LIMIT 100`,[schoolId]),
       req.auth.client.query(`SELECT id,name,grade_level FROM class_groups WHERE school_id=$1 ORDER BY grade_level,name`,[schoolId])
-    ]);await close(req,true);return res.json({announcements:announcements.rows,deliveries:deliveries.rows,classes:classes.rows,canWrite:req.auth.account.permissions.includes('communications.write'),canSendSms:req.auth.account.permissions.includes('communications.sms.send'),smsConfigured:smsReadiness()});}catch(error){return fail(req,res,error);}
+    ]);await close(req,true);return res.json({announcements:announcements.rows,deliveries:deliveries.rows,classes:classes.rows,canWrite:req.auth.account.permissions.includes('communications.write'),canSendSms:req.auth.account.permissions.includes('communications.sms.send'),smsConfigured:smsReadiness(),smsProvider:smsProviderName()});}catch(error){return fail(req,res,error);}
   });
 
   router.post('/communications', needsPermission('communications.write'), csrf, async(req,res)=>{
@@ -1093,7 +1093,8 @@ export function createOperationsRouter({ authenticate, sendInvitation = sendAcco
   });
 
   router.post('/communications/:announcementId/send-sms', needsPermission('communications.sms.send'), csrf, async(req,res)=>{
-    if(!smsReadiness()){await close(req,false);return res.status(503).json({error:'SMS delivery is not configured. Add the school SMS gateway URL, token, and sender ID in Coolify before sending.'});}
+    if(!smsReadiness()){await close(req,false);return res.status(503).json({error:'SMS delivery is not ready. Check the selected provider’s credentials and live-send setting in the app environment.'});}
+
     try{const schoolId=req.auth.claims.schoolId;const announcement=await req.auth.client.query(`SELECT id,title,body,status FROM announcements WHERE school_id=$1 AND id=$2`,[schoolId,req.params.announcementId]);if(!announcement.rowCount||announcement.rows[0].status!=='PUBLISHED'){await close(req,false);return res.status(409).json({error:'Publish this school announcement before sending SMS.'});}
       await queueAnnouncementSms(req.auth.client,schoolId,announcement.rows[0].id);
       const queued=await req.auth.client.query(`SELECT id,recipient_ref FROM notification_deliveries WHERE school_id=$1 AND announcement_id=$2 AND channel='SMS' AND status IN ('QUEUED','FAILED') ORDER BY queued_at LIMIT 300`,[schoolId,announcement.rows[0].id]);
