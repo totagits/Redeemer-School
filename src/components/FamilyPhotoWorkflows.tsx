@@ -1,15 +1,26 @@
 import React,{useEffect,useState} from 'react';
 type Item={id:string;student_id?:string;subject_type:'STUDENT'|'GUARDIAN';status:string;original_filename:string;submitted_at:string;reviewed_at?:string;review_note?:string;student_first_name?:string;student_last_name?:string;guardian_first_name?:string;guardian_last_name?:string;student_number?:string};
 const field='w-full rounded-lg border border-slate-300 px-3 py-2 text-sm';
+async function responseJson(response:Response){
+ const contentType=response.headers.get('content-type')||'';
+ if(!contentType.toLowerCase().includes('application/json')){
+   const explanation=response.status===413?'The image exceeded the server upload limit. Choose a smaller JPG or PNG.':response.status===404?'The photo-upload API was not found on this deployment. Check the active application version.':response.status>=500?'The upload service returned a server or proxy error. Check Coolify Runtime Logs.':'The photo-upload service returned a webpage instead of an API response.';
+   throw new Error(`${explanation} (HTTP ${response.status})`);
+ }
+ const result=await response.json();
+ if(!response.ok)throw new Error(result?.error||`Photo request failed (HTTP ${response.status}).`);
+ return result;
+}
+
 export const ParentPhotoUploads:React.FC<{studentId:string;studentName:string;csrfToken:string}>=({studentId,studentName,csrfToken})=>{
  const [items,setItems]=useState<Item[]>([]),[busy,setBusy]=useState(false),[error,setError]=useState(''),[notice,setNotice]=useState('');
- const load=async()=>{try{const response=await fetch(`/api/portal-photos/mine/${encodeURIComponent(studentId)}`,{credentials:'same-origin',cache:'no-store'});const body=await response.json();if(!response.ok)throw new Error(body.error||'Could not load photograph submissions.');setItems(body.submissions||[]);}catch(e){setError(e instanceof Error?e.message:'Unable to load submissions.')}};
+ const load=async()=>{try{const response=await fetch(`/api/portal-photos/mine/${encodeURIComponent(studentId)}`,{credentials:'same-origin',cache:'no-store'});const body=await responseJson(response);setItems(body.submissions||[]);}catch(e){setError(e instanceof Error?e.message:'Unable to load submissions.')}};
  useEffect(()=>{void load()},[studentId]);
  const submit=async(event:React.FormEvent<HTMLFormElement>)=>{event.preventDefault();const form=event.currentTarget,data=new FormData(form),file=data.get('photo');if(!(file instanceof File)||!file.size)return;setError('');setNotice('');
  if(!['image/jpeg','image/png'].includes(file.type)||file.size>3*1024*1024){setError('Choose a JPG or PNG file up to 3 MB.');return;}
  setBusy(true);try{const query=new URLSearchParams({subject:String(data.get('subject')),filename:file.name});
  const response=await fetch(`/api/portal-photos/mine/${encodeURIComponent(studentId)}?${query}`,{method:'POST',credentials:'same-origin',headers:{'Content-Type':file.type,'X-CSRF-Token':csrfToken},body:file});
- const result=await response.json();if(!response.ok)throw new Error(result.error||'Submission failed.');
+ const result=await responseJson(response);
  setNotice('Photograph submitted securely. The school must review it before use.');form.reset();await load();
  }catch(e){setError(e instanceof Error?e.message:'Could not submit photograph.')}finally{setBusy(false)}};
  return <section className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
@@ -39,7 +50,7 @@ export const FamilyPhotoReviewQueue:React.FC<{csrfToken:string}>=({csrfToken})=>
  if(decision==='REJECTED'&&!note?.trim())return;
  if(decision==='APPROVED'&&!window.confirm(`Approve this ${item.subject_type.toLowerCase()} photo? For a student, this replaces the official photo and revokes the previous Digital ID.`))return;
  setWorking(item.id);setError('');setNotice('');
- try{const response=await fetch(`/api/portal-photos/${encodeURIComponent(item.id)}/review`,{method:'POST',credentials:'same-origin',headers:{'Content-Type':'application/json','X-CSRF-Token':csrfToken},body:JSON.stringify({decision,note})});const body=await response.json();if(!response.ok)throw new Error(body.error||'Review failed.');
+ try{const response=await fetch(`/api/portal-photos/${encodeURIComponent(item.id)}/review`,{method:'POST',credentials:'same-origin',headers:{'Content-Type':'application/json','X-CSRF-Token':csrfToken},body:JSON.stringify({decision,note})});const body=await responseJson(response);
  setNotice(decision==='APPROVED'?(body.digitalIdRequiresReissue?'Student photo approved; the old Digital ID was revoked. Review and reissue the ID.':'Guardian photo approved and stored securely.'):'Photo rejected; guardian can see the reason.');await load();
  }catch(e){setError(e instanceof Error?e.message:'Review failed.')}finally{setWorking('')}};
  return <details className="rounded-xl border border-slate-200 bg-white p-4 shadow-sm">
