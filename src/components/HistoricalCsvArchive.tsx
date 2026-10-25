@@ -11,7 +11,7 @@ function comparisonYears(archive:ArchiveRow[],systemRows:SystemHistoryRow[]):Com
  const years=[...new Set([...archive.map(r=>r.academic_year),...systemRows.map(r=>r.academic_year)])].sort((a,b)=>a.localeCompare(b));
  return years.map(year=>({year,archive:sumRows(archive.filter(r=>r.academic_year===year)),system:sumRows(systemRows.filter(r=>r.academic_year===year))}));
 }
-function downloadHistoricalComparison(years:CombinedYear[],archive:ArchiveRow[],systemRows:SystemHistoryRow[]){
+function downloadHistoricalComparison(archive:ArchiveRow[],systemRows:SystemHistoryRow[]){
  const columns=['source','academic_year','class_name','learners','male','female','sex_unrecorded','source_filename','imported_at'];
  const rowData=[
  ...archive.map(r=>['ARCHIVED_CSV',r.academic_year,r.class_name,r.learners,r.male,r.female,r.sex_unrecorded,r.source_filename,r.imported_at]),
@@ -79,12 +79,12 @@ export const HistoricalCsvArchive:React.FC<{csrfToken:string;systemHistory?:Syst
  {notice&&<p role="status" className="mt-3 rounded-lg bg-green-50 p-3 text-sm text-green-800">{notice}</p>}
  <section className="mt-6 rounded-xl border border-blue-100 bg-blue-50/40 p-4" aria-label="Historical enrollment comparison">
  <div className="flex flex-wrap items-start justify-between gap-3"><div><h5 className="font-extrabold">Historical enrollment comparison</h5><p className="mt-1 text-xs leading-5 text-slate-600">Compare imported class totals with historical learner enrollments recorded directly in the ERP. These are different sources and may overlap. They are <strong>never added together</strong>.</p></div>
- <button type="button" disabled={!archive.length&&!systemHistory.length} onClick={()=>downloadHistoricalComparison(comparisonYears(archive,systemHistory),archive,systemHistory)} className="rounded-lg border border-blue-300 bg-white px-3 py-2 text-xs font-bold text-blue-800 disabled:opacity-50">Export source-separated comparison CSV</button></div>
+ <button type="button" disabled={!archive.length&&!systemHistory.length} onClick={()=>downloadHistoricalComparison(archive,systemHistory)} className="rounded-lg border border-blue-300 bg-white px-3 py-2 text-xs font-bold text-blue-800 disabled:opacity-50">Export source-separated comparison CSV</button></div>
  {comparisonYears(archive,systemHistory).length?<>
  <div className="mt-4 space-y-3">{comparisonYears(archive,systemHistory).map(entry=><div key={entry.year} className="rounded-lg border border-slate-200 bg-white p-3">
  <p className="mb-2 text-sm font-bold">{entry.year}</p>
  {([['Imported historical archive',entry.archive,'bg-blue-700'],['ERP enrollment history',entry.system,'bg-emerald-600']] as const).map(([label,data,color])=><div key={label} className="mb-2 grid grid-cols-[minmax(125px,1fr)_minmax(120px,3fr)_42px] items-center gap-2 text-xs">
- <span className="text-slate-700">{label}</span><div className="h-3 overflow-hidden rounded-full bg-slate-100">{data&&<div className={'h-full rounded-full '+color} style={{width:(comparisonYears(archive,systemHistory).reduce((max,row)=>Math.max(max,row.archive?.learners||0,row.system?.learners||0),1)===0?0:Math.max(0,Math.min(100,100*data.learners/Math.max(1,...comparisonYears(archive,systemHistory).flatMap(row=>[row.archive?.learners||0,row.system?.learners||0])))))+'%'}}/>}</div>
+ <span className="text-slate-700">{label}</span><div className="h-3 overflow-hidden rounded-full bg-slate-100">{data&&<div className={'h-full rounded-full '+color} style={{width:(100*data.learners/Math.max(1,...archive.map(row=>Number(row.learners)),...systemHistory.map(row=>Number(row.learners))))+'%'}}/>}</div>
  <span className="text-right font-semibold">{data?data.learners:'—'}</span></div>)}</div>)}</div>
  <div className="mt-4 overflow-x-auto rounded-lg border border-slate-200 bg-white"><table className="w-full min-w-[600px] text-left text-xs"><thead className="bg-slate-100"><tr>{['Academic year','Source','Learners','Male','Female','Unrecorded'].map(h=><th key={h} className="p-2">{h}</th>)}</tr></thead><tbody>{comparisonYears(archive,systemHistory).flatMap(entry=>[['Imported CSV archive',entry.archive],['ERP enrollment history',entry.system]].filter(([,data])=>Boolean(data)).map(([source,data])=><tr key={entry.year+String(source)} className="border-t"><td className="p-2">{entry.year}</td><td className="p-2">{source as string}</td><td className="p-2">{(data as HistoricalRow).learners}</td><td className="p-2">{(data as HistoricalRow).male}</td><td className="p-2">{(data as HistoricalRow).female}</td><td className="p-2">{(data as HistoricalRow).sex_unrecorded}</td></tr>))}</tbody></table></div>
  </>:<p className="mt-3 text-xs text-slate-600">No historical data available for comparison yet.</p>}
