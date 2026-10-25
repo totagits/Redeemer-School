@@ -1007,7 +1007,7 @@ export function createOperationsRouter({ authenticate, sendInvitation = sendAcco
   });
 
   router.post('/students/:studentId/documents', needsPermission('students.write'), csrf,
-    express.raw({ type: 'application/pdf', limit: '10mb' }), async (req, res) => {
+    express.raw({ type: ['application/pdf','image/jpeg','image/png'], limit: '10mb' }), async (req, res) => {
       if (!req.auth.account.permissions.includes('students.sensitive.read')) { await close(req, false); return res.status(403).json({ error: 'Restricted learner-document access is required to upload records.' }); }
       const key = studentDocumentEncryptionKey();
       if (!key) { await close(req, false); return res.status(503).json({ error: 'Encrypted document storage is not configured for this environment.' }); }
@@ -1028,11 +1028,11 @@ export function createOperationsRouter({ authenticate, sendInvitation = sendAcco
         const encrypted = encryptStudentDocument(req.body, key, associatedData);
         const result = await req.auth.client.query(`INSERT INTO student_documents
             (id,school_id,student_id,category_id,title,object_storage_key,original_filename,media_type,size_bytes,checksum_sha256,visibility,uploaded_by,file_content,content_nonce,content_auth_tag)
-          SELECT $1,st.school_id,st.id,c.id,$5,$6,$7,'application/pdf',$8,$9,$10,$11,$12,$13,$14
+          SELECT $1,st.school_id,st.id,c.id,$5,$6,$7,$15,$8,$9,$10,$11,$12,$13,$14
           FROM students st LEFT JOIN document_categories c ON c.school_id=st.school_id AND c.id=$4
           WHERE st.school_id=$2 AND st.id=$3 AND ($4::uuid IS NULL OR c.id IS NOT NULL)
           RETURNING id,title,original_filename,media_type,size_bytes,checksum_sha256,visibility,uploaded_at`,
-        [documentId,schoolId,studentId,categoryId,title,`db-encrypted:${documentId}`,originalFilename,req.body.length,checksum,visibility,req.auth.claims.userId,encrypted.content,encrypted.nonce,encrypted.authTag]);
+        [documentId,schoolId,studentId,categoryId,title,`db-encrypted:${documentId}`,originalFilename,req.body.length,checksum,visibility,req.auth.claims.userId,encrypted.content,encrypted.nonce,encrypted.authTag,mediaType]);
         if (!result.rowCount) { await close(req, false); return res.status(400).json({ error: 'The learner or document category was not found in this school.' }); }
         await audit(req,'STUDENT_DOCUMENT_UPLOADED','STUDENT_DOCUMENT',documentId,{studentId,title,categoryId,visibility,sizeBytes:req.body.length,checksum});
         return done(req,res,201,{document:result.rows[0]});
@@ -1057,8 +1057,8 @@ export function createOperationsRouter({ authenticate, sendInvitation = sendAcco
       await close(req,true);
       const filename = String(document.original_filename).replace(/[\\"\r\n]/g,'_');
       const asciiFilename = filename.replace(/[^\x20-\x7e]/g,'_');
-      res.setHeader('Cache-Control','no-store, private'); res.setHeader('Content-Type','application/pdf');
-      res.setHeader('Content-Disposition',`attachment; filename="${asciiFilename}"; filename*=UTF-8''${encodeURIComponent(filename)}`);
+      res.setHeader('Cache-Control','no-store, private'); res.setHeader('Content-Type',document.media_type);
+      res.setHeader('Content-Disposition',`${req.query.disposition === 'inline' && ['image/jpeg','image/png'].includes(document.media_type) ? 'inline' : 'attachment'}; filename="${asciiFilename}"; filename*=UTF-8''${encodeURIComponent(filename)}`);
       res.setHeader('Content-Length',String(plaintext.length));
       return res.send(plaintext);
     } catch (error) { return fail(req,res,error); }
