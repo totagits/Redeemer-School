@@ -947,6 +947,55 @@ export function createOperationsRouter({ authenticate, sendInvitation = sendAcco
     } catch (error) { return fail(req, res, error); }
   });
 
+  router.post('/students/:studentId/transfer', needsPermission('students.write'), csrf, async (req, res) => {
+    const classGroupId = text(req.body?.classGroupId, 50);
+    const reason = text(req.body?.reason, 500);
+    const effectiveOn = req.body?.effectiveOn || new Date().toISOString().slice(0, 10);
+    const today = new Date().toISOString().slice(0, 10);
+    if (!classGroupId || !reason || !validDate(effectiveOn) || effectiveOn > today) {
+      await close(req, false);
+      return res.status(400).json({ error: 'Choose the destination class, provide a reason, and enter a valid effective date no later than today.' });
+    }
+    try {
+      const schoolId = req.auth.claims.schoolId;
+      const student = await req.auth.client.query(`SELECT id FROM students WHERE school_id=$1 AND id=$2 FOR UPDATE`, [schoolId, req.params.studentId]);
+      if (!student.rowCount) { await close(req, false); return res.status(404).json({ error: 'Student not found in this school.' }); }
+      const current = await req.auth.client.query(`SELECT ce.class_group_id, ce.enrolled_on, cg.academic_year_id, cg.campus_id, cg.name AS class_name
+        FROM class_enrollments ce JOIN class_groups cg ON cg.school_id=ce.school_id AND cg.id=ce.class_group_id
+        WHERE ce.school_id=$1 AND ce.student_id=$2 AND ce.status='ACTIVE' FOR UPDATE OF ce`, [schoolId, req.params.studentId]);
+      if (!current.rowCount) { await close(req, false); return res.status(409).json({ error: 'This learner has no active class enrollment to transfer.' }); }
+      const from = current.rows[0];
+      if (String(from.class_group_id) === classGroupId) { await close(req, false); return res.status(400).json({ error: 'Choose a different destination class.' }); }
+      if (effectiveOn < String(from.enrolled_on).slice(0, 10)) { await close(req, false); return res.status(400).json({ error: 'The transfer date cannot be before the current class enrollment date.' }); }
+      const openHistory = await req.auth.client.query(`SELECT effective_on FROM student_enrollment_history
+        WHERE school_id=$1 AND student_id=$2 AND class_group_id=$3 AND ended_on IS NULL ORDER BY effective_on DESC LIMIT 1 FOR UPDATE`, [schoolId, req.params.studentId, from.class_group_id]);
+      if (openHistory.rowCount && effectiveOn < String(openHistory.rows[0].effective_on).slice(0, 10)) { await close(req, false); return res.status(400).json({ error: 'The transfer date cannot be before the recorded start of this class enrollment.' }); }
+      const target = await req.auth.client.query(`SELECT id, name, academic_year_id, campus_id FROM class_groups
+        WHERE school_id=$1 AND id=$2 FOR UPDATE`, [schoolId, classGroupId]);
+      if (!target.rowCount) { await close(req, false); return res.status(400).json({ error: 'Choose a destination class belonging to this school.' }); }
+      const oldEnrollment = await req.auth.client.query(`UPDATE class_enrollments SET status='COMPLETED'
+        WHERE school_id=$1 AND student_id=$2 AND class_group_id=$3 AND status='ACTIVE' RETURNING class_group_id`, [schoolId, req.params.studentId, from.class_group_id]);
+      if (!oldEnrollment.rowCount) { await close(req, false); return res.status(409).json({ error: 'The learner’s class changed while this form was open. Refresh and try again.' }); }
+      await req.auth.client.query(`INSERT INTO class_enrollments (school_id,student_id,class_group_id,enrolled_on,status)
+        VALUES($1,$2,$3,$4,'ACTIVE') ON CONFLICT (school_id,student_id,class_group_id)
+        DO UPDATE SET enrolled_on=EXCLUDED.enrolled_on,status='ACTIVE'`, [schoolId, req.params.studentId, classGroupId, effectiveOn]);
+      const closedHistory = await req.auth.client.query(`UPDATE student_enrollment_history SET status='TRANSFERRED_OUT',ended_on=$4,reason=$5
+        WHERE school_id=$1 AND student_id=$2 AND class_group_id=$3 AND ended_on IS NULL RETURNING id`, [schoolId, req.params.studentId, from.class_group_id, effectiveOn, reason]);
+      if (!closedHistory.rowCount) {
+        await req.auth.client.query(`INSERT INTO student_enrollment_history
+          (school_id,student_id,academic_year_id,campus_id,class_group_id,status,effective_on,ended_on,reason,recorded_by)
+          VALUES($1,$2,$3,$4,$5,'TRANSFERRED_OUT',$6,$7,$8,$9)`,
+        [schoolId, req.params.studentId, from.academic_year_id, from.campus_id, from.class_group_id, String(from.enrolled_on).slice(0, 10), effectiveOn, reason, req.auth.claims.userId]);
+      }
+      await req.auth.client.query(`INSERT INTO student_enrollment_history
+        (school_id,student_id,academic_year_id,campus_id,class_group_id,status,effective_on,reason,recorded_by)
+        VALUES($1,$2,$3,$4,$5,'TRANSFERRED_IN',$6,$7,$8)`,
+      [schoolId, req.params.studentId, target.rows[0].academic_year_id, target.rows[0].campus_id, target.rows[0].id, effectiveOn, reason, req.auth.claims.userId]);
+      await audit(req, 'STUDENT_CLASS_TRANSFERRED', 'STUDENT', req.params.studentId, { fromClassId: from.class_group_id, toClassId: target.rows[0].id, effectiveOn, reason });
+      return done(req, res, 200, { transfer: { fromClass: from.class_name, toClass: target.rows[0].name, effectiveOn } });
+    } catch (error) { return fail(req, res, error); }
+  });
+
   // Admissions, HR, stock control, and school announcements use the same
   // tenant-scoped transaction and audit trail as the academic workspaces.
   router.get('/admissions', needsPermission('admissions.read'), async (req, res) => {
