@@ -187,6 +187,29 @@ export const DigitalStudentIdVerifier: React.FC<{csrfToken:string}> = ({csrfToke
   const [busy,setBusy]=useState(false);
   const [result,setResult]=useState<{valid:boolean;student?:{name:string;studentNumber:string;className:string|null}}|null>(null);
   const [error,setError]=useState('');
+  const [scanning,setScanning]=useState(false);
+  const scanWithCamera=async()=>{
+    const Detector=(window as unknown as {BarcodeDetector?:new(options:{formats:string[]})=>{detect(source:ImageBitmap):Promise<Array<{rawValue:string}> >}}).BarcodeDetector;
+    if(!Detector){setError('This browser does not support camera QR decoding. Use a QR scanner that types the decoded credential or paste it here.');return;}
+    setError('');
+    const picker=document.createElement('input');
+    picker.type='file';picker.accept='image/*';picker.capture='environment';
+    picker.onchange=async()=>{
+      const file=picker.files?.[0];if(!file)return;
+      setScanning(true);
+      try{
+        const image=await createImageBitmap(file);
+        try{
+          const results=await new Detector({formats:['qr_code']}).detect(image);
+          const scanned=results.find(item=>item.rawValue.startsWith('RIA1.'));
+          if(!scanned)throw new Error('No valid school QR was detected in this image.');
+          setToken(scanned.rawValue);setResult(null);
+        }finally{image.close();}
+      }catch(cause){setError(cause instanceof Error?cause.message:'Could not read QR code.');}
+      finally{setScanning(false);}
+    };
+    picker.click();
+  };
   const verify=async(event:React.FormEvent<HTMLFormElement>)=>{
     event.preventDefault();setBusy(true);setError('');setResult(null);
     try{
@@ -207,6 +230,8 @@ export const DigitalStudentIdVerifier: React.FC<{csrfToken:string}> = ({csrfToke
       <label className="text-sm font-semibold">Verification purpose<select value={purpose} onChange={e=>setPurpose(e.target.value)} className="mt-1 w-full rounded-lg border px-3 py-2"><option value="GENERAL">School identity</option><option value="LIBRARY">Library entry</option><option value="MEAL">Meal service</option><option value="EVENT">Campus event</option></select></label>
       <button disabled={busy} className="rounded-lg bg-blue-700 px-4 py-2 text-sm font-bold text-white disabled:opacity-40 sm:col-span-3">{busy?'Verifying…':'Verify credential'}</button>
     </form>
+    <button type="button" disabled={scanning||busy} onClick={()=>void scanWithCamera()} className="mt-2 rounded-lg border border-blue-300 px-3 py-2 text-xs font-bold text-blue-800 disabled:opacity-40">{scanning?'Reading QR…':'Use camera / QR photo'}</button>
+    <p className="mt-1 text-xs text-slate-500">After capturing a QR, click Verify credential. Camera capture and QR decoding depend on browser support.</p>
     {error&&<p role="alert" className="mt-3 rounded-lg bg-red-50 p-3 text-sm text-red-800">{error}</p>}
     {result&&<p role="status" className={`mt-3 rounded-lg p-3 text-sm ${result.valid?'bg-emerald-50 text-emerald-900':'bg-red-50 text-red-900'}`}>{result.valid?`Valid school ID: ${result.student?.name} · ${result.student?.studentNumber} · ${result.student?.className||'Class not assigned'}. Check service eligibility separately.`:'ID invalid, expired or revoked. Do not treat this scan as valid identification.'}</p>}
   </details>;
