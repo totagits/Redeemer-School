@@ -67,6 +67,20 @@ async function hasStudentDocumentStorageSchema(client) {
     WHERE table_schema=current_schema() AND table_name='student_documents' AND column_name=ANY($1::text[])`, [['file_content','content_nonce','content_auth_tag']]);
   return Number(result.rows[0]?.column_count || 0) === 3;
 }
+// Any portrait change invalidates previously printed / saved student QR credentials.
+// Called inside the same tenant-scoped transaction as the document change.
+async function revokeDigitalIdForPortraitChange(req, schoolId, studentId, reason) {
+  const changed = await req.auth.client.query(`UPDATE student_id_credentials
+    SET revoked_at=now(), revoked_by=$3
+    WHERE school_id=$1 AND student_id=$2 AND revoked_at IS NULL
+    RETURNING id`, [schoolId, studentId, req.auth.claims.userId]);
+  if (changed.rowCount) {
+    await audit(req,'STUDENT_DIGITAL_ID_REVOKED','STUDENT',studentId,{
+      reason, revokedCredentialCount:changed.rowCount,
+    });
+  }
+  return changed.rowCount;
+}
 async function hasAdmissionDocumentStorageSchema(client) {
   const result = await client.query(`SELECT count(*)::int AS column_count,
       (SELECT pg_get_constraintdef(oid) FROM pg_constraint
@@ -1028,6 +1042,13 @@ export function createOperationsRouter({ authenticate, sendInvitation = sendAcco
           const photoCategory = await req.auth.client.query("SELECT id FROM document_categories WHERE school_id=$1 AND id=$2 AND code='STUDENT_PHOTO'", [schoolId,categoryId]);
           if (!photoCategory.rowCount) { await close(req, false); return res.status(400).json({ error: 'Select the Student identification photograph category for photo uploads.' }); }
         }
+        if (isJpeg || isPng) {
+          // Serialize photograph replacement with ID issuance for this learner.
+          const exists = await req.auth.client.query(
+            'SELECT id FROM students WHERE school_id=$1 AND id=$2 FOR UPDATE',
+            [schoolId,studentId]);
+          if (!exists.rowCount) { await close(req,false); return res.status(404).json({error:'Student record not found.'}); }
+        }
         const checksum = createHash('sha256').update(req.body).digest('hex');
         const associatedData = `${schoolId}:${studentId}:${documentId}`;
         const encrypted = encryptStudentDocument(req.body, key, associatedData);
@@ -1039,6 +1060,15 @@ export function createOperationsRouter({ authenticate, sendInvitation = sendAcco
           RETURNING id,title,original_filename,media_type,size_bytes,checksum_sha256,visibility,uploaded_at`,
         [documentId,schoolId,studentId,categoryId,title,`db-encrypted:${documentId}`,originalFilename,req.body.length,checksum,visibility,req.auth.claims.userId,encrypted.content,encrypted.nonce,encrypted.authTag,mediaType]);
         if (!result.rowCount) { await close(req, false); return res.status(400).json({ error: 'The learner or document category was not found in this school.' }); }
+        if (isJpeg || isPng) {
+          // The newly uploaded portrait becomes the active photo. Remove older
+          // learner portraits from normal access while retaining audit records.
+          await req.auth.client.query(`UPDATE student_documents
+            SET deleted_at=now()
+            WHERE school_id=$1 AND student_id=$2 AND category_id=$3
+              AND id<>$4 AND deleted_at IS NULL`,[schoolId,studentId,categoryId,documentId]);
+          await revokeDigitalIdForPortraitChange(req,schoolId,studentId,'STUDENT_PHOTO_CHANGED');
+        }
         await audit(req,'STUDENT_DOCUMENT_UPLOADED','STUDENT_DOCUMENT',documentId,{studentId,title,categoryId,visibility,sizeBytes:req.body.length,checksum});
         return done(req,res,201,{document:result.rows[0]});
       } catch (error) { return fail(req, res, error); }
@@ -1073,8 +1103,15 @@ export function createOperationsRouter({ authenticate, sendInvitation = sendAcco
     if (!req.auth.account.permissions.includes('students.sensitive.read')) { await close(req,false); return res.status(403).json({error:'Restricted learner-document access is required to remove this file.'}); }
     try {
       const schoolId=req.auth.claims.schoolId; const studentId=req.params.studentId; const documentId=req.params.documentId;
-      const result=await req.auth.client.query(`UPDATE student_documents SET deleted_at=now() WHERE school_id=$1 AND student_id=$2 AND id=$3 AND deleted_at IS NULL RETURNING id,title`,[schoolId,studentId,documentId]);
+      const studentLock=await req.auth.client.query('SELECT id FROM students WHERE school_id=$1 AND id=$2 FOR UPDATE',[schoolId,studentId]);
+      if(!studentLock.rowCount){await close(req,false);return res.status(404).json({error:'Student not found.'});}
+      const result=await req.auth.client.query(`UPDATE student_documents d SET deleted_at=now()
+        FROM document_categories category
+        WHERE d.school_id=$1 AND d.student_id=$2 AND d.id=$3 AND d.deleted_at IS NULL
+          AND category.school_id=d.school_id AND category.id=d.category_id
+        RETURNING d.id,d.title,category.code AS category_code`,[schoolId,studentId,documentId]);
       if(!result.rowCount){await close(req,false);return res.status(404).json({error:'The document was not found for this learner.'});}
+      if(result.rows[0].category_code==='STUDENT_PHOTO') await revokeDigitalIdForPortraitChange(req,schoolId,studentId,'STUDENT_PHOTO_REMOVED');
       await audit(req,'STUDENT_DOCUMENT_SOFT_DELETED','STUDENT_DOCUMENT',documentId,{studentId,title:result.rows[0].title});
       return done(req,res,200,{deleted:true});
     } catch(error){return fail(req,res,error);}
