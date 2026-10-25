@@ -27,7 +27,7 @@ type InventoryOrder = Row & { id: string; purchase_order_number: string; vendor_
 type InventoryWorkspaceData = { items: Row[]; locations: Row[]; movements: Row[]; requests: InventoryRequest[]; orders: InventoryOrder[]; canWrite: boolean; canApprove: boolean };
 type CommunicationsWorkspaceData = { announcements: Row[]; deliveries: Row[]; classes: Row[]; canWrite: boolean; canSendSms?: boolean; smsConfigured?: boolean; smsProvider?: string };
 type ManagedAccount = { id: string; email: string; full_name: string; role: string; status: string; invitation_pending: boolean; must_reset_password: boolean; created_at: string; last_login_at: string | null };
-type AccountsWorkspaceData = { accounts: ManagedAccount[]; currentUserId: string };
+type AccountsWorkspaceData = { accounts: ManagedAccount[]; availableRoles: Array<{ code: string; name: string }>; currentUserId: string };
 type ManagedStaffRecord = { id: string; employee_number: string; first_name: string; middle_name: string | null; last_name: string; email: string | null; phone: string | null; job_title: string | null; department: string | null; hired_on: string | null; employment_status: string; user_id: string | null; role: string | null; account_status: string | null; last_login_at: string | null; invitation_pending: boolean };
 type PeopleWorkspaceData = { staffDirectory: ManagedStaffRecord[]; canManage: boolean };
 type OperationalWorkspaceData = StudentsWorkspaceData | FinanceWorkspaceData | ReportsWorkspaceData | AdmissionsWorkspaceData | HrWorkspaceData | InventoryWorkspaceData | CommunicationsWorkspaceData | AccountsWorkspaceData | PeopleWorkspaceData | null;
@@ -214,7 +214,7 @@ export const OperationsWorkspace: React.FC<Props> = ({ account, csrfToken, busy:
     ...(account.permissions.includes('inventory.read') ? [{ id: 'inventory', label: 'Inventory & procurement', icon: Boxes, status: 'available' as const }] : []),
     ...(account.permissions.includes('communications.read') ? [{ id: 'communications', label: 'Communications', icon: MessageSquareText, status: 'partial' as const }] : []),
     ...(account.permissions.includes('reports.read') || account.permissions.includes('emis.export') ? [{ id: 'reports', label: 'Reports & EMIS', icon: FileBarChart, status: 'partial' as const }] : []),
-    ...(account.permissions.includes('users.manage') ? [{ id: 'accounts', label: 'User access', icon: Settings2, status: 'partial' as const }] : []),
+    ...(account.permissions.includes('users.manage') ? [{ id: 'accounts', label: 'User access', icon: Settings2, status: 'available' as const }] : []),
   ];
   const quickWorkspaces = [
     { id: 'students', title: 'Student records', subtitle: 'Find learners and review enrollment', icon: GraduationCap },
@@ -431,6 +431,7 @@ const AccountsWorkspace: React.FC<{ data: AccountsWorkspaceData; post: PostOpera
   const [busyId, setBusyId] = useState('');
   const [error, setError] = useState('');
   const [notice, setNotice] = useState('');
+  const [selectedRoles, setSelectedRoles] = useState<Record<string, string>>({});
   const setStatus = async (account: ManagedAccount) => {
     const nextStatus = account.status === 'SUSPENDED' ? 'ACTIVE' : 'SUSPENDED';
     let reason = '';
@@ -447,10 +448,26 @@ const AccountsWorkspace: React.FC<{ data: AccountsWorkspaceData; post: PostOpera
     } catch (cause) { setError(cause instanceof Error ? cause.message : 'Could not update the account.'); }
     finally { setBusyId(''); }
   };
+  const changeRole = async (account: ManagedAccount, role: string) => {
+    if (role === account.role || !window.confirm(`Change ${account.full_name} from ${account.role.replaceAll('_', ' ')} to ${role.replaceAll('_', ' ')}? Their current sessions will end and their permissions will change after they sign in again.`)) return;
+    setBusyId(account.id); setError(''); setNotice('');
+    try {
+      const result = await post(`accounts/${account.id}/role`, { role });
+      setNotice(String(result.notice || 'Account role updated.'));
+      setSelectedRoles(current => ({ ...current, [account.id]: role }));
+      await onSaved();
+    } catch (cause) { setError(cause instanceof Error ? cause.message : 'Could not change the account role.'); }
+    finally { setBusyId(''); }
+  };
   return <div className="space-y-5"><WorkspaceFeedback error={error} notice={notice}/><section className={sectionClass}>
     <div className="flex flex-wrap items-start justify-between gap-3"><div><h2 className="text-lg font-extrabold text-slate-950">School user accounts</h2><p className="mt-1 text-sm text-slate-600">{data.accounts.length} accounts · role and sign-in status · school-scoped access controls</p></div><span className="rounded-full bg-blue-50 px-3 py-1 text-xs font-bold text-blue-800">{data.accounts.filter(account => account.status === 'ACTIVE').length} active</span></div>
-    <div className="mt-4 overflow-x-auto"><table className="w-full min-w-[850px] text-left text-sm"><thead className="border-b border-slate-200 text-xs uppercase text-slate-500"><tr><th className="py-3 pr-3">User</th><th className="py-3 pr-3">Role</th><th className="py-3 pr-3">Account status</th><th className="py-3 pr-3">Invitation / password</th><th className="py-3 pr-3">Last sign-in</th><th className="py-3">Action</th></tr></thead><tbody className="divide-y divide-slate-100">{data.accounts.map(account => <tr key={account.id}><td className="py-3 pr-3"><b>{account.full_name}</b><span className="block text-xs text-slate-500">{account.email}</span></td><td className="py-3 pr-3">{account.role.replaceAll('_', ' ')}</td><td className="py-3 pr-3"><span className={`rounded-full px-2 py-1 text-xs font-bold ${account.status === 'ACTIVE' ? 'bg-emerald-50 text-emerald-800' : 'bg-slate-100 text-slate-700'}`}>{account.status}</span></td><td className="py-3 pr-3">{account.invitation_pending ? 'Setup link pending' : account.must_reset_password ? 'Password setup required' : 'Password set'}</td><td className="py-3 pr-3">{account.last_login_at ? new Date(account.last_login_at).toLocaleString() : 'Never'}</td><td className="py-3">{account.id === data.currentUserId ? <span className="text-xs text-slate-500">Current account</span> : <button disabled={Boolean(busyId)} onClick={() => void setStatus(account)} className={`rounded-lg border px-3 py-2 text-xs font-bold disabled:opacity-50 ${account.status === 'SUSPENDED' ? 'border-emerald-300 text-emerald-800 hover:bg-emerald-50' : 'border-red-200 text-red-800 hover:bg-red-50'}`}>{busyId === account.id ? 'Saving…' : account.status === 'SUSPENDED' ? 'Reactivate' : 'Suspend'}</button>}</td></tr>)}</tbody></table>{!data.accounts.length && <p className="p-5 text-sm text-slate-500">No school user accounts found.</p>}</div>
-    <p className="mt-4 text-xs leading-5 text-slate-500">Suspending an account immediately ends its existing sessions. At least one active school administrator must remain. Creating accounts and sending invitation links is available in People & accounts.</p>
+    <div className="mt-3 rounded-lg border border-blue-100 bg-blue-50/60 p-3 text-xs leading-5 text-blue-950">Changing a staff role immediately ends that person’s sessions; their new permissions apply after they sign in again. Your own role and linked student/guardian roles are managed through separate protected workflows. To grant teaching access, use People & accounts → Teacher records so the teacher profile is created.</div>
+    <div className="mt-4 overflow-x-auto"><table className="w-full min-w-[1050px] text-left text-sm"><thead className="border-b border-slate-200 text-xs uppercase text-slate-500"><tr><th className="py-3 pr-3">User</th><th className="py-3 pr-3">Role management</th><th className="py-3 pr-3">Account status</th><th className="py-3 pr-3">Invitation / password</th><th className="py-3 pr-3">Last sign-in</th><th className="py-3">Access action</th></tr></thead><tbody className="divide-y divide-slate-100">{data.accounts.map(account => {
+      const selectedRole = selectedRoles[account.id] || account.role;
+      const portalRole = ['PARENT', 'STUDENT'].includes(account.role);
+      return <tr key={account.id}><td className="py-3 pr-3"><b>{account.full_name}</b><span className="block text-xs text-slate-500">{account.email}</span></td><td className="py-3 pr-3">{account.id === data.currentUserId ? <span className="text-xs text-slate-500">Current account · ask another administrator</span> : portalRole ? <span className="text-xs text-slate-500">Linked portal role</span> : <div className="flex items-center gap-2"><select aria-label={`Role for ${account.full_name}`} value={selectedRole} disabled={Boolean(busyId)} onChange={event => setSelectedRoles(current => ({ ...current, [account.id]: event.target.value }))} className="rounded-lg border border-slate-300 bg-white px-2 py-2 text-xs"><option value={account.role}>{account.role.replaceAll('_', ' ')}</option>{data.availableRoles.filter(role => role.code !== account.role).map(role => <option key={role.code} value={role.code}>{role.name}</option>)}</select>{selectedRole !== account.role&&<button disabled={Boolean(busyId)} onClick={()=>void changeRole(account,selectedRole)} className="rounded-lg bg-blue-700 px-2.5 py-2 text-xs font-bold text-white disabled:opacity-50">{busyId===account.id?'Saving…':'Save role'}</button>}</div>}</td><td className="py-3 pr-3"><span className={`rounded-full px-2 py-1 text-xs font-bold ${account.status === 'ACTIVE' ? 'bg-emerald-50 text-emerald-800' : 'bg-slate-100 text-slate-700'}`}>{account.status}</span></td><td className="py-3 pr-3">{account.invitation_pending ? 'Setup link pending' : account.must_reset_password ? 'Password setup required' : 'Password set'}</td><td className="py-3 pr-3">{account.last_login_at ? new Date(account.last_login_at).toLocaleString() : 'Never'}</td><td className="py-3">{account.id === data.currentUserId ? <span className="text-xs text-slate-500">Current account</span> : <button disabled={Boolean(busyId)} onClick={() => void setStatus(account)} className={`rounded-lg border px-3 py-2 text-xs font-bold disabled:opacity-50 ${account.status === 'SUSPENDED' ? 'border-emerald-300 text-emerald-800 hover:bg-emerald-50' : 'border-red-200 text-red-800 hover:bg-red-50'}`}>{busyId === account.id ? 'Saving…' : account.status === 'SUSPENDED' ? 'Reactivate' : 'Suspend'}</button>}</td></tr>;
+    })}</tbody></table>{!data.accounts.length && <p className="p-5 text-sm text-slate-500">No school user accounts found.</p>}</div>
+    <p className="mt-4 text-xs leading-5 text-slate-500">At least one active school administrator must remain. Creating accounts and sending invitation links is available in People & accounts; portal roles stay linked to their learner/guardian records.</p>
   </section></div>;
 };
 

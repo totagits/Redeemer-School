@@ -9,6 +9,7 @@ import { sendSchoolSms, smsProviderName, smsReadiness } from './sms.js';
 const NAME_LIMIT = 120;
 const EMAIL_RE = /^\S+@\S+\.\S+$/;
 const DATE_RE = /^\d{4}-\d{2}-\d{2}$/;
+const STAFF_ASSIGNABLE_ROLES = ['CAMPUS_ADMIN', 'PRINCIPAL', 'REGISTRAR', 'TEACHER', 'FINANCE', 'HR_MANAGER', 'INVENTORY_MANAGER', 'AUDITOR'];
 
 function text(value, limit = NAME_LIMIT) {
   return typeof value === 'string' ? value.trim().slice(0, limit) : '';
@@ -208,7 +209,7 @@ export function createOperationsRouter({ authenticate, sendInvitation = sendAcco
   router.get('/accounts', needsPermission('users.manage'), async (req, res) => {
     try {
       const schoolId = req.auth.claims.schoolId;
-      const result = await req.auth.client.query(`
+      const [result, roles] = await Promise.all([req.auth.client.query(`
         SELECT u.id, u.email, u.full_name, u.role, u.status, u.must_reset_password,
                u.created_at, u.last_login_at,
                EXISTS (
@@ -219,8 +220,9 @@ export function createOperationsRouter({ authenticate, sendInvitation = sendAcco
         FROM user_accounts u
         WHERE u.school_id=$1
         ORDER BY CASE WHEN u.status='ACTIVE' THEN 0 ELSE 1 END, lower(u.full_name), lower(u.email)
-      `, [schoolId]);
-      return done(req, res, 200, { accounts: result.rows, currentUserId: req.auth.claims.userId });
+      `, [schoolId]), req.auth.client.query(`SELECT code, name FROM school_roles
+        WHERE school_id=$1 AND active AND code=ANY($2::text[]) ORDER BY name`, [schoolId, STAFF_ASSIGNABLE_ROLES])]);
+      return done(req, res, 200, { accounts: result.rows, availableRoles: roles.rows, currentUserId: req.auth.claims.userId });
     } catch (error) { return fail(req, res, error); }
   });
 
@@ -288,9 +290,10 @@ export function createOperationsRouter({ authenticate, sendInvitation = sendAcco
     }
     try {
       const schoolId = req.auth.claims.schoolId;
+      await req.auth.client.query(`SELECT id FROM schools WHERE id=$1 FOR UPDATE`, [schoolId]);
       const target = await req.auth.client.query(`SELECT id, role, status FROM user_accounts WHERE school_id=$1 AND id=$2 FOR UPDATE`, [schoolId, accountId]);
       if (!target.rowCount) { await close(req, false); return res.status(404).json({ error: 'The account was not found in this school.' }); }
-      if (status === 'SUSPENDED' && target.rows[0].role === 'SCHOOL_ADMIN') {
+      if (status === 'SUSPENDED' && target.rows[0].status === 'ACTIVE' && target.rows[0].role === 'SCHOOL_ADMIN') {
         const admins = await req.auth.client.query(`SELECT count(*)::int AS active_count FROM user_accounts WHERE school_id=$1 AND role='SCHOOL_ADMIN' AND status='ACTIVE'`, [schoolId]);
         if (Number(admins.rows[0]?.active_count || 0) <= 1) {
           await close(req, false);
@@ -301,6 +304,58 @@ export function createOperationsRouter({ authenticate, sendInvitation = sendAcco
       if (status === 'SUSPENDED') await req.auth.client.query(`DELETE FROM auth_sessions WHERE school_id=$1 AND user_id=$2`, [schoolId, accountId]);
       await audit(req, status === 'SUSPENDED' ? 'ACCOUNT_SUSPENDED' : 'ACCOUNT_REACTIVATED', 'USER_ACCOUNT', accountId, { reason: status === 'SUSPENDED' ? reason : undefined });
       return done(req, res, 200, { account: updated.rows[0] });
+    } catch (error) { return fail(req, res, error); }
+  });
+
+  router.post('/accounts/:accountId/role', needsPermission('users.manage'), csrf, async (req, res) => {
+    const accountId = text(req.params.accountId, 50);
+    const role = text(req.body?.role, 40).toUpperCase();
+    if (!accountId || !STAFF_ASSIGNABLE_ROLES.includes(role)) {
+      await close(req, false);
+      return res.status(400).json({ error: 'Choose one of the school’s staff roles. Learner and guardian roles are managed through their linked portal accounts.' });
+    }
+    if (accountId === req.auth.claims.userId) {
+      await close(req, false);
+      return res.status(400).json({ error: 'You cannot change your own role. Ask another school administrator to make this change.' });
+    }
+    try {
+      const schoolId = req.auth.claims.schoolId;
+      await req.auth.client.query(`SELECT id FROM schools WHERE id=$1 FOR UPDATE`, [schoolId]);
+      const target = await req.auth.client.query(`SELECT id, role, status, campus_id FROM user_accounts WHERE school_id=$1 AND id=$2 FOR UPDATE`, [schoolId, accountId]);
+      if (!target.rowCount) { await close(req, false); return res.status(404).json({ error: 'The account was not found in this school.' }); }
+      if (['PARENT', 'STUDENT'].includes(target.rows[0].role)) {
+        await close(req, false);
+        return res.status(409).json({ error: 'Learner and guardian roles are managed through their linked portal account workflow.' });
+      }
+      if (target.rows[0].role === role) { await close(req, false); return res.status(409).json({ error: 'This account already has that role.' }); }
+      if (target.rows[0].role === 'SCHOOL_ADMIN' && target.rows[0].status === 'ACTIVE') {
+        const admins = await req.auth.client.query(`SELECT count(*)::int AS active_count FROM user_accounts WHERE school_id=$1 AND role='SCHOOL_ADMIN' AND status='ACTIVE'`, [schoolId]);
+        if (Number(admins.rows[0]?.active_count || 0) <= 1) {
+          await close(req, false);
+          return res.status(409).json({ error: 'The school must keep at least one active administrator.' });
+        }
+      }
+      const selectedRole = await req.auth.client.query(`SELECT id, code FROM school_roles WHERE school_id=$1 AND code=$2 AND active FOR SHARE`, [schoolId, role]);
+      if (!selectedRole.rowCount) { await close(req, false); return res.status(400).json({ error: 'That staff role is not active for this school.' }); }
+      if (role === 'TEACHER') {
+        const teacherProfile = await req.auth.client.query(`SELECT 1 FROM teacher_profiles WHERE school_id=$1 AND user_id=$2 AND active`, [schoolId, accountId]);
+        if (!teacherProfile.rowCount) {
+          await close(req, false);
+          return res.status(409).json({ error: 'Create or link this person through People & accounts → Teacher records so the required teacher profile is created before assigning teaching access.' });
+        }
+      }
+      await req.auth.client.query(`UPDATE user_role_assignments
+        SET ends_at=GREATEST(now(), starts_at + interval '1 microsecond')
+        WHERE school_id=$1 AND user_id=$2 AND starts_at <= now() AND (ends_at IS NULL OR ends_at > now())`, [schoolId, accountId]);
+      const cancelledFutureAssignments = await req.auth.client.query(`DELETE FROM user_role_assignments
+        WHERE school_id=$1 AND user_id=$2 AND starts_at > now()`, [schoolId, accountId]);
+      await req.auth.client.query(`INSERT INTO user_role_assignments (school_id, user_id, role_id, campus_id, assigned_by)
+        VALUES ($1,$2,$3,$4,$5)`, [schoolId, accountId, selectedRole.rows[0].id, target.rows[0].campus_id, req.auth.claims.userId]);
+      const updated = await req.auth.client.query(`UPDATE user_accounts SET role=$3, updated_at=now()
+        WHERE school_id=$1 AND id=$2 RETURNING id, email, full_name, role, status`, [schoolId, accountId, role]);
+      await req.auth.client.query(`DELETE FROM auth_sessions WHERE school_id=$1 AND user_id=$2`, [schoolId, accountId]);
+      await audit(req, 'ACCOUNT_ROLE_CHANGED', 'USER_ACCOUNT', accountId, { previousRole: target.rows[0].role, role, cancelledFutureAssignments: cancelledFutureAssignments.rowCount || 0 });
+      return done(req, res, 200, { account: updated.rows[0], notice: 'Role updated. The user’s existing sessions ended; they must sign in again to receive the new access.' });
     } catch (error) { return fail(req, res, error); }
   });
 
