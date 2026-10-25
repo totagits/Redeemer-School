@@ -22,7 +22,7 @@ type StudentDocumentCategory = { id: string; code: string; name: string; require
 type StudentProfile = { [key: string]: unknown; id?: string; student_number?: string; first_name?: string | null; middle_name?: string | null; last_name?: string | null; preferred_name?: string | null; status?: string; date_of_birth?: string | null; sex?: string | null; external_learner_id?: string | null; class_name?: string | null; class_group_id?: string | null; academic_year_name?: string | null; enrollment_status?: string | null; enrolled_on?: string | null; attendance_records?: number; open_invoices?: number; documents?: StudentDocument[]; documentCategories?: StudentDocumentCategory[]; documentStorageReady?: boolean };
 type StudentsWorkspaceData = { students: Row[]; classes: Row[]; canEnroll: boolean; canReadDocuments: boolean };
 type FinanceWorkspaceData = { invoices: Array<Row & { total: string; paid: string; balance: string }>; payments: Row[]; students: Row[]; years: Row[]; canWrite: boolean; momo: { enabled: boolean; environment: string; currency: string; feeRateBps: number; reason: string }; momoIntents: Row[] };
-type ReportsWorkspaceData = { reports: { students?: Row & { classes: Row[] }; attendance?: Row[]; finance?: Row[]; staff?: Row[] } };
+type ReportsWorkspaceData = { reports: { students?: Row & { classes: Row[] }; attendance?: Row[]; finance?: Row[]; staff?: Row[]; emis?: {schemaVersion:string; officialTemplateVerified:boolean; schoolName:string;schoolCode:string|null;generatedAt:string;completeness:{active_learners:number;missing_learner_id:number;missing_birth_date:number;missing_sex:number;missing_class:number};byClass:Array<{academic_year:string;class_name:string;learners:number;male:number;female:number;sex_unrecorded:number}>} } };
 type AdmissionsWorkspaceData = { applications: Array<Row & { id: string; status: string; application_number: string; application_source?: string; guardians?: Row[]; events?: Array<Row & { eventType: string; occurredAt: string; actor: string; details?: Row }>; requested_class_group_id?: string | null; converted_student_id?: string | null }>; levels: Row[]; classes: Row[]; canWrite: boolean; canReadDocuments?: boolean; documentStorageReady?: boolean; documentCategories?: StudentDocumentCategory[] };
 type HrWorkspaceData = { staff: Array<Row & { last_time_entry?: Row | null }>; leaveRequests: Row[]; timeEntries: Row[]; canManage: boolean; canReviewTime: boolean; canClock: boolean; staffId: string | null; openTimeEntry: Row | null };
 type InventoryRequestLine = Row & { itemId: string; itemName: string; sku: string; unit: string; quantity: string; estimatedUnitCost: string };
@@ -900,6 +900,20 @@ const StudentsWorkspace: React.FC<{ data: StudentsWorkspaceData; post: PostOpera
 
 const ReportsWorkspace: React.FC<{ data: ReportsWorkspaceData; canExportEmis: boolean }> = ({ data, canExportEmis }) => {
   const reports=data.reports;
+  const emis=reports.emis;
+  const [emisSummaryExportError,setEmisSummaryExportError]=useState('');
+  const [exportingSummary,setExportingSummary]=useState(false);
+  const exportEmisSummary=async()=>{
+    setExportingSummary(true);setEmisSummaryExportError('');
+    try{
+      const response=await fetch('/api/operations/reports/emis-summary.csv',{credentials:'same-origin'});
+      if(!response.ok){const body=await response.json().catch(()=>({}));throw new Error(body.error||'Unable to export draft EMIS summary.');}
+      const url=URL.createObjectURL(await response.blob());
+      const anchor=document.createElement('a');anchor.href=url;anchor.download='redeemer-emis-summary-draft.csv';anchor.click();
+      window.setTimeout(()=>URL.revokeObjectURL(url),1000);
+    }catch(error){setEmisSummaryExportError(error instanceof Error?error.message:'Unable to export draft EMIS summary.');}
+    finally{setExportingSummary(false);}
+  };
   const reportSummary=[
     ...(reports.students?[{label:'Active learners',value:String(reports.students.active_students??0),description:'Enrollment register'}]:[]),
     ...(reports.attendance?[{label:'Attendance records this month',value:String(reports.attendance.reduce((count,row)=>count+Number(row.count||0),0)),description:'All recorded statuses'}]:[]),
@@ -926,6 +940,26 @@ const ReportsWorkspace: React.FC<{ data: ReportsWorkspaceData; canExportEmis: bo
   return <div className="space-y-6"><section className={sectionClass}><p className="text-xs font-bold uppercase tracking-[0.14em] text-blue-700">Reports workspace</p><h2 className="mt-1 text-xl font-extrabold text-slate-950">School operations insights</h2><p className="mt-1 text-sm text-slate-600">Every figure below is calculated from records your role is permitted to view. Exports contain only the summary rows shown here.</p>
     {reportSummary.length>0&&<div className="mt-5 grid gap-3 sm:grid-cols-2 xl:grid-cols-4">{reportSummary.map(item=><div key={item.label} className="rounded-xl border border-slate-200 bg-slate-50 p-4"><p className="text-xs font-bold uppercase text-slate-500">{item.label}</p><p className="mt-2 text-2xl font-extrabold text-slate-900">{item.value}</p><p className="mt-1 text-xs text-slate-500">{item.description}</p></div>)}</div>}
     <p className="mt-4 rounded-lg bg-blue-50 px-4 py-3 text-xs leading-5 text-blue-900">These summaries reflect accessible school records, not certified Ministry EMIS statistics. Export permissions and official reporting templates are handled separately.</p>
+    {emis&&<section className="mt-6 rounded-xl border border-blue-200 bg-blue-50/40 p-4">
+      <div className="flex flex-wrap items-start justify-between gap-3">
+        <div><p className="text-xs font-bold uppercase tracking-widest text-blue-800">Education Management Information System</p>
+          <h3 className="mt-1 text-lg font-extrabold">EMIS data readiness & enrollment</h3>
+          <p className="mt-1 text-xs text-slate-600">{emis.schoolName} · School EMIS identifier: {emis.schoolCode||'Not recorded'} · Snapshot: {new Date(emis.generatedAt).toLocaleString()}</p>
+        </div>
+        <button type="button" onClick={()=>void exportEmisSummary()} disabled={exportingSummary} className="rounded-lg bg-blue-800 px-4 py-2 text-sm font-bold text-white disabled:opacity-50">{exportingSummary?'Exporting…':'Export draft EMIS summary CSV'}</button>
+      </div>
+      <p className="mt-3 rounded-lg bg-amber-50 p-3 text-sm text-amber-900">Working school EMIS dataset only. An approved Ministry template and submission method have not been confirmed. Do not submit this draft as an official return.</p>
+      <div className="mt-4 grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
+        {([['Active learners',emis.completeness.active_learners],['Missing learner ID',emis.completeness.missing_learner_id],['Missing date of birth',emis.completeness.missing_birth_date],['Missing sex',emis.completeness.missing_sex],['Missing current class',emis.completeness.missing_class]] as const).map(([label,value])=><div key={label} className="rounded-xl border border-slate-200 bg-white p-4"><p className="text-xs font-bold uppercase text-slate-500">{label}</p><p className="mt-2 text-2xl font-extrabold">{value}</p></div>)}
+        <div className="rounded-xl border border-slate-200 bg-white p-4"><p className="text-xs font-bold uppercase text-slate-500">School EMIS code</p><p className="mt-2 text-sm font-bold">{emis.schoolCode?'Recorded':'Missing / awaiting assignment'}</p></div>
+      </div>
+      <h4 className="mt-5 font-extrabold">Enrollment by academic year, class and recorded sex</h4>
+      <div className="mt-3 overflow-x-auto rounded-xl border border-slate-200 bg-white"><table className="w-full min-w-[650px] text-left text-sm">
+        <thead className="bg-slate-100 text-xs uppercase text-slate-600"><tr><th className="p-3">Academic year</th><th className="p-3">Class</th><th className="p-3">Learners</th><th className="p-3">Male</th><th className="p-3">Female</th><th className="p-3">Not recorded / other</th></tr></thead>
+        <tbody className="divide-y divide-slate-100">{emis.byClass.map((row,i)=><tr key={row.academic_year+row.class_name+i}><td className="p-3">{row.academic_year}</td><td className="p-3">{row.class_name}</td><td className="p-3 font-bold">{row.learners}</td><td className="p-3">{row.male}</td><td className="p-3">{row.female}</td><td className="p-3">{row.sex_unrecorded}</td></tr>)}</tbody>
+      </table>{!emis.byClass.length&&<p className="p-4 text-sm text-slate-600">No active learner enrollments recorded.</p>}</div>
+      {emisSummaryExportError&&<p role="alert" className="mt-3 text-sm text-red-800">{emisSummaryExportError}</p>}
+    </section>}
     {!reports.students&&!reports.attendance&&!reports.finance&&!reports.staff&&<p className="mt-5 rounded-xl border border-amber-200 bg-amber-50 p-4 text-sm leading-6 text-amber-900">Your account can open this reporting workspace, but no report dataset is currently included in its permissions. Ask a school administrator to grant the specific report permissions you need.</p>}
     {reports.students&&<div className="mt-5"><h3 className="font-bold text-slate-900">Enrollment</h3><div className="mt-3 grid gap-3 sm:grid-cols-2"><div className="rounded-xl bg-slate-50 p-4"><p className="text-sm text-slate-500">Active students</p><p className="mt-1 text-2xl font-extrabold">{reports.students.active_students||'0'}</p></div><div className="rounded-xl bg-slate-50 p-4"><p className="text-sm text-slate-500">Inactive students</p><p className="mt-1 text-2xl font-extrabold">{reports.students.inactive_students||'0'}</p></div></div><div className="mt-4 flex items-center justify-between"><h4 className="font-semibold">Students by class</h4><button onClick={()=>download('redeemer-students-by-class.csv',['Class','Students'],(reports.students?.classes||[]).map(row=>[row.class_name||'',row.students||0]))} className="rounded-lg border border-slate-300 px-3 py-2 text-xs font-bold text-blue-800">Export CSV</button></div><div className="mt-2 divide-y divide-slate-100">{(reports.students.classes||[]).map(row=><div key={row.class_name} className="flex justify-between py-2 text-sm"><span>{row.class_name}</span><b>{row.students}</b></div>)}</div></div>}
     {reports.attendance&&<div className="mt-6"><div className="flex items-center justify-between"><h3 className="font-bold text-slate-900">Attendance recorded this month</h3><button onClick={()=>download('redeemer-monthly-attendance.csv',['Status','Records'],reports.attendance!.map(row=>[row.status||'',row.count||0]))} className="rounded-lg border border-slate-300 px-3 py-2 text-xs font-bold text-blue-800">Export CSV</button></div><div className="mt-3 grid gap-3 sm:grid-cols-2 lg:grid-cols-4">{reports.attendance.length?reports.attendance.map(row=><div key={row.status} className="rounded-xl bg-slate-50 p-4"><p className="text-sm text-slate-500">{row.status}</p><p className="mt-1 text-2xl font-extrabold">{row.count}</p></div>):<p className="text-sm text-slate-500">No attendance entries this month.</p>}</div></div>}
