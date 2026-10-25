@@ -507,6 +507,20 @@ export function createOperationsRouter({ authenticate, sendInvitation = sendAcco
           WHERE sg.school_id = $1 AND sg.student_id = $2 ORDER BY sg.is_primary DESC, g.last_name, g.first_name`, [schoolId, req.params.studentId]);
       const student = studentResult.rows[0];
       const canReadSensitive = req.auth.account.permissions.includes('students.sensitive.read');
+      // The same student_guardians rows power both the family portal and staff records.
+      // Associate the most recent school-approved guardian portrait, never a pending photo.
+      if(canReadSensitive && guardianResult.rowCount) {
+        const photoRecords=await req.auth.client.query(`SELECT DISTINCT ON (guardian_id)
+          id,guardian_id,reviewed_at FROM portal_photo_submissions
+          WHERE school_id=$1 AND student_id=$2 AND subject_type='GUARDIAN' AND status='APPROVED'
+          ORDER BY guardian_id,reviewed_at DESC,id DESC`,[schoolId,req.params.studentId]);
+        const photos=new Map(photoRecords.rows.map(photo=>[photo.guardian_id,photo]));
+        for(const guardian of guardianResult.rows) {
+          const photo=photos.get(guardian.id);
+          guardian.approved_photo_id=photo?.id||null;
+          guardian.approved_photo_at=photo?.reviewed_at||null;
+        }
+      }
       let documents = []; let documentCategories = []; let documentStorageReady = false;
       if (canReadSensitive) {
         documentStorageReady = await hasStudentDocumentStorageSchema(req.auth.client) && Boolean(studentDocumentEncryptionKey());
@@ -522,7 +536,7 @@ export function createOperationsRouter({ authenticate, sendInvitation = sendAcco
         for (const guardian of guardianResult.rows) { guardian.phone = null; guardian.email = null; }
       }
       await close(req, true);
-      return res.json({ student: { ...student, guardians: guardianResult.rows, documents, documentCategories, documentStorageReady } });
+      return res.json({ student: { ...student, guardians: guardianResult.rows, documents, documentCategories, documentStorageReady, sensitiveFieldsVisible: canReadSensitive } });
     } catch (error) { return fail(req, res, error); }
   });
 
