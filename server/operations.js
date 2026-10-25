@@ -18,6 +18,11 @@ function validDate(value) {
   const date = new Date(`${value}T00:00:00Z`);
   return Number.isFinite(date.valueOf()) && date.toISOString().slice(0, 10) === value;
 }
+function csvCell(value) {
+  let text = value == null ? '' : String(value);
+  if (/^[\s\u0000-\u001f]*[=+\-@]/u.test(text)) text = `'${text}`;
+  return `"${text.replaceAll('"', '""')}"`;
+}
 function sameSecret(left, right) {
   if (typeof left !== 'string' || typeof right !== 'string') return false;
   const a = Buffer.from(left);
@@ -822,6 +827,40 @@ export function createOperationsRouter({ authenticate, sendInvitation = sendAcco
       }
       await close(req, true);
       return res.json({ reports });
+    } catch (error) { return fail(req, res, error); }
+  });
+
+  router.get('/reports/emis-roster.csv', needsPermission('emis.export'), async (req, res) => {
+    try {
+      const schoolId = req.auth.claims.schoolId;
+      const [school, learners] = await Promise.all([
+        req.auth.client.query(`SELECT name, moe_school_emis_code FROM schools WHERE id = $1`, [schoolId]),
+        req.auth.client.query(`SELECT s.student_number, s.external_learner_id, s.first_name, s.middle_name, s.last_name,
+            s.sex, s.date_of_birth, current_class.class_name, current_class.academic_year, current_class.enrolled_on
+          FROM students s
+          LEFT JOIN LATERAL (
+            SELECT cg.name AS class_name, ay.name AS academic_year, ce.enrolled_on
+            FROM class_enrollments ce
+            JOIN class_groups cg ON cg.school_id = ce.school_id AND cg.id = ce.class_group_id
+            JOIN academic_years ay ON ay.school_id = cg.school_id AND ay.id = cg.academic_year_id
+            WHERE ce.school_id = s.school_id AND ce.student_id = s.id AND ce.status = 'ACTIVE'
+            ORDER BY (ay.status = 'ACTIVE') DESC, ay.starts_on DESC, ce.enrolled_on DESC
+            LIMIT 1
+          ) current_class ON true
+          WHERE s.school_id = $1 AND s.status = 'ACTIVE'
+          ORDER BY s.student_number`, [schoolId]),
+      ]);
+      if (!school.rowCount) { await close(req, false); return res.status(404).json({ error: 'School record was not found.' }); }
+      const headers = ['school_emis_code', 'academic_year', 'learner_id', 'student_number', 'first_name', 'middle_name', 'last_name', 'sex', 'date_of_birth', 'class', 'enrolled_on'];
+      const rows = learners.rows.map(row => [school.rows[0].moe_school_emis_code, row.academic_year, row.external_learner_id, row.student_number,
+        row.first_name, row.middle_name, row.last_name, row.sex, row.date_of_birth, row.class_name, row.enrolled_on]);
+      await audit(req, 'EMIS_DRAFT_LEARNER_ROSTER_EXPORTED', 'SCHOOL', schoolId, { rowCount: rows.length, schoolCodePresent: Boolean(school.rows[0].moe_school_emis_code), mapping: 'redeemer-draft-roster-v1', ministryTemplateVerified: false });
+      await close(req, true);
+      const csv = [headers, ...rows].map(row => row.map(csvCell).join(',')).join('\r\n');
+      const date = new Date().toISOString().slice(0, 10);
+      res.setHeader('Content-Type', 'text/csv; charset=utf-8');
+      res.setHeader('Content-Disposition', `attachment; filename="redeemer-emis-roster-draft-${date}.csv"`);
+      return res.send(`\uFEFF${csv}\r\n`);
     } catch (error) { return fail(req, res, error); }
   });
 
