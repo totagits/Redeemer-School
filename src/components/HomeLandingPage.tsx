@@ -20,6 +20,7 @@ import { SCHOOL_CONTACT } from '../data/schoolContact.ts';
 interface HomeLandingPageProps {
   onSignIn: (workspace?: string) => void;
   onPortalSignIn: () => void;
+  onApply: () => void;
 }
 
 const capabilities = [
@@ -56,7 +57,7 @@ const capabilityTone: Record<string, string> = {
   amber: 'bg-amber-50 text-amber-700 ring-amber-100',
 };
 
-export const HomeLandingPage: React.FC<HomeLandingPageProps> = ({ onSignIn, onPortalSignIn }) => (
+export const HomeLandingPage: React.FC<HomeLandingPageProps> = ({ onSignIn, onPortalSignIn, onApply }) => (
   <div className="bg-white text-slate-900">
     <section className="relative isolate overflow-hidden bg-[#071b33] text-white">
       <div className="absolute inset-0 -z-10 bg-[radial-gradient(ellipse_at_78%_22%,rgba(37,99,235,0.30),transparent_42%),radial-gradient(ellipse_at_14%_95%,rgba(14,116,144,0.22),transparent_42%)]" />
@@ -81,6 +82,9 @@ export const HomeLandingPage: React.FC<HomeLandingPageProps> = ({ onSignIn, onPo
             </button>
             <button onClick={onPortalSignIn} className="inline-flex items-center justify-center gap-2 rounded-lg border border-white/25 px-5 py-3 text-sm font-semibold text-white transition hover:border-white/45 hover:bg-white/[0.08]">
               Student & family portal <HeartHandshake className="h-4 w-4" />
+            </button>
+            <button onClick={onApply} className="inline-flex items-center justify-center gap-2 rounded-lg border border-emerald-300/60 bg-emerald-400/10 px-5 py-3 text-sm font-semibold text-white transition hover:border-emerald-200 hover:bg-emerald-400/20">
+              Apply for admission <ArrowRight className="h-4 w-4" />
             </button>
             <a href="#capabilities" className="inline-flex items-center justify-center gap-2 rounded-lg border border-white/20 px-5 py-3 text-sm font-semibold text-white transition hover:border-white/40 hover:bg-white/[0.06]">
               See what it brings together <ArrowDownRight className="h-4 w-4" />

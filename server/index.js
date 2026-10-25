@@ -5,6 +5,7 @@ import { fileURLToPath } from 'node:url';
 import pg from 'pg';
 import { createAuthRouter } from './auth.js';
 import { createOperationsRouter } from './operations.js';
+import { createPublicAdmissionsRouter } from './publicAdmissions.js';
 import { isStrongSessionSecret } from './authCrypto.js';
 
 const { Pool } = pg;
@@ -28,6 +29,9 @@ const sessionSecret = process.env.APP_SESSION_SECRET || '';
 const authConfigured = Boolean(runtimePool && isStrongSessionSecret(sessionSecret));
 
 app.disable('x-powered-by');
+// Coolify routes requests through one trusted reverse proxy. This lets IP-based
+// login and public-intake protections see the originating client address.
+app.set('trust proxy', 1);
 app.use((_req, res, next) => {
   res.setHeader('Referrer-Policy', 'no-referrer');
   res.setHeader('X-Content-Type-Options', 'nosniff');
@@ -85,6 +89,7 @@ const authRouter = createAuthRouter({
 });
 app.use('/api/auth', authRouter);
 app.use('/api/operations', createOperationsRouter({ authenticate: authRouter.requireAuth, pool: runtimePool }));
+app.use('/api/public/admissions', createPublicAdmissionsRouter({ pool: runtimePool }));
 
 app.use('/api', (_req, res) => {
   res.status(404).json({ error: 'API route not found' });

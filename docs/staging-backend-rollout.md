@@ -102,3 +102,21 @@ change it after uploading files, because that would make stored files
 undecryptable. Applicant document upload, download, and removal stay
 unavailable until both migrations and the key are ready. Use fictional files
 in staging.
+
+## Public admissions intake (migration 018)
+
+After the public Apply for admission workflow is deployed, back up the staging
+database and run `npm run db:migrate` with the staging database owner/admin
+connection using the same Hostinger VPS console procedure. Confirm
+`Applied: 018_public_admissions_intake.sql`. This makes anonymous applications
+explicitly attributable to the online form instead of falsely attributing them
+to a staff member. The runtime role remains `redeemer_runtime`; remove any
+temporary migration-only `DATABASE_URL` after the migration and redeploy.
+
+The public form uses school code `RIA`, validates applicant/guardian details
+and consent, applies an IP-based submission limit, and returns an application
+reference. It does not accept files or create a parent login. Registrars review
+the intake in Admissions and request documents through the protected ERP.
+Staff can preview photo documents, download files, mark them verified, or
+request a replacement with a reason; those review actions are saved to the
+admission history and audit log without another schema migration.

@@ -23,6 +23,9 @@ class FakeClient {
       const document={id:params[0],title:params[4],original_filename:params[5],media_type:params[6],size_bytes:String(params[7]),checksum_sha256:params[8],uploaded_at:'2026-10-25T00:00:00Z',file_content:params[9],content_nonce:params[10],content_auth_tag:params[11]};
       FakeClient.documents.set(document.id,document);return{rows:[document],rowCount:1};
     }
+    if(statement.startsWith('SELECT id,title FROM admission_documents')) {const d=FakeClient.documents.get(params[2]);return d&&!d.deleted?{rows:[{id:d.id,title:d.title}],rowCount:1}:{rows:[],rowCount:0};}
+    if(statement.startsWith('SELECT d.id,d.title,d.original_filename')) {const docs=[...FakeClient.documents.values()].filter(d=>!d.deleted).map(d=>({...d,review_status:FakeClient.reviews.get(d.id)?.status||'PENDING',review_note:FakeClient.reviews.get(d.id)?.note||null,reviewed_at:FakeClient.reviews.has(d.id)?'2026-10-25T00:00:00Z':null,reviewed_by:FakeClient.reviews.has(d.id)?'Test Reviewer':null}));return{rows:docs,rowCount:docs.length};}
+    if(statement.startsWith('INSERT INTO admission_events')) {const details=JSON.parse(params[3]);FakeClient.reviews.set(details.documentId,{status:details.status,note:details.note});return{rows:[],rowCount:1};}
     if(statement.startsWith('SELECT id,title,original_filename,media_type,size_bytes,checksum_sha256,file_content,content_nonce,content_auth_tag')) {const d=FakeClient.documents.get(params[2]);return d&&!d.deleted?{rows:[d],rowCount:1}:{rows:[],rowCount:0};}
     if(statement.startsWith('UPDATE admission_documents SET deleted_at=now()')) {const d=FakeClient.documents.get(params[2]);if(d)d.deleted=true;return d?{rows:[{id:d.id,title:d.title}],rowCount:1}:{rows:[],rowCount:0};}
     if(statement.startsWith('INSERT INTO audit_events'))return{rows:[],rowCount:1};
@@ -31,6 +34,7 @@ class FakeClient {
   release(){}
 }
 FakeClient.documents=new Map();
+FakeClient.reviews=new Map();
 
 async function startServer(t,options={}) {
   const clients=[];const app=express();app.use(express.json());
@@ -53,7 +57,7 @@ test('applicant PDF is encrypted, integrity-checked, private, audited and downlo
 }));
 
 test('guardian identification JPEG is encrypted, stored with image MIME type and securely previewed inline',async t=>withKey(async()=>{
-  FakeClient.documents.clear();const{url,clients}=await startServer(t);const params=new URLSearchParams({title:'Guardian ID photo',categoryId,fileName:'guardian-id.jpg'});
+  FakeClient.documents.clear();FakeClient.reviews.clear();const{url,clients}=await startServer(t);const params=new URLSearchParams({title:'Guardian ID photo',categoryId,fileName:'guardian-id.jpg'});
   const upload=await fetch(`${url}/api/operations/admissions/${applicationId}/documents?${params}`,{method:'POST',headers:{...csrf,'Content-Type':'image/jpeg'},body:jpeg});
   assert.equal(upload.status,201);const saved=(await upload.json()).document;assert.equal(saved.media_type,'image/jpeg');
   const insert=clients[0].statements.find(x=>x.statement.startsWith('INSERT INTO admission_documents'));
@@ -63,6 +67,15 @@ test('guardian identification JPEG is encrypted, stored with image MIME type and
   assert.ok(clients.some(client=>client.statements.some(x=>x.statement.includes('INSERT INTO audit_events')&&x.params.some(value=>JSON.stringify(value).includes('ADMISSION_DOCUMENT_PREVIEWED')))));
   const download=await fetch(`${url}/api/operations/admissions/${applicationId}/documents/${saved.id}/content`);
   assert.equal(download.status,200);assert.match(download.headers.get('content-disposition'),/^attachment;/);assert.deepEqual(Buffer.from(await download.arrayBuffer()),jpeg);
+}));
+
+test('admissions staff can verify an applicant document or request a replacement with a reason',async t=>withKey(async()=>{
+  FakeClient.documents.clear();FakeClient.reviews.clear();const{url,clients}=await startServer(t);const params=new URLSearchParams({title:'Guardian ID photo',fileName:'guardian-id.jpg'});
+  const upload=await fetch(`${url}/api/operations/admissions/${applicationId}/documents?${params}`,{method:'POST',headers:{...csrf,'Content-Type':'image/jpeg'},body:jpeg});const saved=(await upload.json()).document;
+  let response=await fetch(`${url}/api/operations/admissions/${applicationId}/documents/${saved.id}/review`,{method:'POST',headers:{...csrf,'Content-Type':'application/json'},body:JSON.stringify({status:'NEEDS_REPLACEMENT',note:''})});assert.equal(response.status,400);
+  response=await fetch(`${url}/api/operations/admissions/${applicationId}/documents/${saved.id}/review`,{method:'POST',headers:{...csrf,'Content-Type':'application/json'},body:JSON.stringify({status:'NEEDS_REPLACEMENT',note:'Photo is too blurry to verify.'})});assert.equal(response.status,200);assert.equal((await response.json()).review.status,'NEEDS_REPLACEMENT');
+  const list=await fetch(`${url}/api/operations/admissions/${applicationId}/documents`);const listed=(await list.json()).documents[0];assert.equal(listed.review_status,'NEEDS_REPLACEMENT');assert.equal(listed.review_note,'Photo is too blurry to verify.');
+  assert.ok(clients.some(client=>client.statements.some(x=>x.statement.startsWith('INSERT INTO audit_events'))));assert.ok(clients.some(client=>client.statements.some(x=>x.statement.startsWith('INSERT INTO admission_events'))));
 }));
 
 test('inline preview request never forces a PDF to render inline',async t=>withKey(async()=>{

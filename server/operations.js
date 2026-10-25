@@ -1116,7 +1116,7 @@ export function createOperationsRouter({ authenticate, sendInvitation = sendAcco
   router.get('/admissions', needsPermission('admissions.read'), async (req, res) => {
     try {
       const schoolId = req.auth.claims.schoolId;
-      const applications = await req.auth.client.query(`SELECT a.id, a.application_number, a.first_name, a.middle_name, a.last_name,
+      const applications = await req.auth.client.query(`SELECT a.id, a.application_number, a.application_source, a.first_name, a.middle_name, a.last_name,
           a.date_of_birth, a.sex, a.application_date, a.status, a.decision, a.decision_reason, a.notes,
           a.requested_class_group_id, a.converted_student_id,
           el.name AS requested_level, cg.name AS requested_class,
@@ -1132,8 +1132,8 @@ export function createOperationsRouter({ authenticate, sendInvitation = sendAcco
         ) guardian_rows ON true
         LEFT JOIN LATERAL (
           SELECT json_agg(json_build_object('eventType', ae.event_type, 'occurredAt', ae.occurred_at,
-            'actor', actor.full_name, 'details', ae.details) ORDER BY ae.occurred_at DESC) AS items
-          FROM admission_events ae JOIN user_accounts actor ON actor.school_id = ae.school_id AND actor.id = ae.actor_user_id
+            'actor', COALESCE(actor.full_name,'Public admissions form'), 'details', ae.details) ORDER BY ae.occurred_at DESC) AS items
+          FROM admission_events ae LEFT JOIN user_accounts actor ON actor.school_id = ae.school_id AND actor.id = ae.actor_user_id
           WHERE ae.school_id = a.school_id AND ae.application_id = a.id
         ) event_rows ON true
         WHERE a.school_id = $1 ORDER BY a.application_date DESC, a.created_at DESC LIMIT 500`, [schoolId]);
@@ -1156,15 +1156,40 @@ export function createOperationsRouter({ authenticate, sendInvitation = sendAcco
     try {
       const schoolId = req.auth.claims.schoolId;
       const result = await req.auth.client.query(`SELECT d.id,d.title,d.original_filename,d.media_type,d.size_bytes,d.checksum_sha256,
-          d.uploaded_at,u.full_name AS uploaded_by,c.name AS category_name
+          d.uploaded_at,u.full_name AS uploaded_by,c.name AS category_name,
+          COALESCE(review.review_status,'PENDING') AS review_status,review.review_note,review.reviewed_at,review.reviewed_by
         FROM admission_documents d
         JOIN admission_applications a ON a.school_id=d.school_id AND a.id=d.application_id
         JOIN user_accounts u ON u.school_id=d.school_id AND u.id=d.uploaded_by
         LEFT JOIN document_categories c ON c.school_id=d.school_id AND c.id=d.category_id
+        LEFT JOIN LATERAL (
+          SELECT ae.details->>'status' AS review_status,ae.details->>'note' AS review_note,
+            ae.occurred_at AS reviewed_at,actor.full_name AS reviewed_by
+          FROM admission_events ae JOIN user_accounts actor ON actor.school_id=ae.school_id AND actor.id=ae.actor_user_id
+          WHERE ae.school_id=d.school_id AND ae.application_id=d.application_id
+            AND ae.event_type='ADMISSION_DOCUMENT_REVIEWED' AND ae.details->>'documentId'=d.id::text
+          ORDER BY ae.occurred_at DESC LIMIT 1
+        ) review ON true
         WHERE d.school_id=$1 AND a.id=$2 AND d.deleted_at IS NULL ORDER BY d.uploaded_at DESC`, [schoolId, req.params.applicationId]);
       await close(req, true);
       return res.json({ documents: result.rows });
     } catch (error) { return fail(req, res, error); }
+  });
+
+  router.post('/admissions/:applicationId/documents/:documentId/review', needsPermission('admissions.write'), csrf, async (req,res) => {
+    if (!req.auth.account.permissions.includes('students.sensitive.read')) { await close(req,false); return res.status(403).json({error:'Restricted applicant-document access is required to review files.'}); }
+    const status=text(req.body?.status,30).toUpperCase();const note=text(req.body?.note,500);
+    if(!['VERIFIED','NEEDS_REPLACEMENT'].includes(status)||(status==='NEEDS_REPLACEMENT'&&!note)){await close(req,false);return res.status(400).json({error:'Choose Verified or Needs replacement. A reason is required when requesting a replacement.'});}
+    try{
+      if(!await hasAdmissionDocumentStorageSchema(req.auth.client)){await close(req,false);return res.status(503).json({error:'Apply migrations 016 and 017 before reviewing applicant files.'});}
+      const schoolId=req.auth.claims.schoolId;const applicationId=req.params.applicationId;const documentId=req.params.documentId;
+      const document=await req.auth.client.query(`SELECT id,title FROM admission_documents WHERE school_id=$1 AND application_id=$2 AND id=$3 AND deleted_at IS NULL`,[schoolId,applicationId,documentId]);
+      if(!document.rowCount){await close(req,false);return res.status(404).json({error:'The document was not found for this application.'});}
+      const details={documentId,status,note};
+      await req.auth.client.query(`INSERT INTO admission_events (school_id,application_id,event_type,actor_user_id,details) VALUES ($1,$2,'ADMISSION_DOCUMENT_REVIEWED',$3,$4::jsonb)`,[schoolId,applicationId,req.auth.claims.userId,JSON.stringify(details)]);
+      await audit(req,'ADMISSION_DOCUMENT_REVIEWED','ADMISSION_DOCUMENT',documentId,{applicationId,title:document.rows[0].title,status,hasNote:Boolean(note)});
+      return done(req,res,200,{review:{documentId,status,note}});
+    }catch(error){return fail(req,res,error);}
   });
 
   router.post('/admissions/:applicationId/documents', needsPermission('admissions.write'), csrf,
@@ -1266,7 +1291,11 @@ export function createOperationsRouter({ authenticate, sendInvitation = sendAcco
 
   router.post('/admissions/:applicationId/status', needsPermission('admissions.write'), csrf, async (req, res) => {
     const status = text(req.body?.status, 30).toUpperCase(); const reason = text(req.body?.reason, 500);
+    const interviewer = text(req.body?.interviewer, 120); const interviewNotes = text(req.body?.interviewNotes, 500);
+    const interviewTimestamp = typeof req.body?.interviewAt === 'string' ? Date.parse(req.body.interviewAt) : NaN;
+    const interviewAt = Number.isFinite(interviewTimestamp) ? new Date(interviewTimestamp).toISOString() : '';
     if (!Object.values(ADMISSION_STATUS_TRANSITIONS).some(transitions => transitions.includes(status)) || (['REJECTED','WAITLISTED'].includes(status) && !reason)) { await close(req, false); return res.status(400).json({ error: 'Choose a valid next status and provide a reason for rejection or waitlisting.' }); }
+    if (status === 'INTERVIEW_SCHEDULED' && (!interviewAt || interviewTimestamp <= Date.now() || !interviewer)) { await close(req, false); return res.status(400).json({ error: 'Choose a future interview date and time and enter the interviewer before scheduling.' }); }
     try {
       const id = req.params.applicationId; const schoolId = req.auth.claims.schoolId;
       const current = await req.auth.client.query(`SELECT status, converted_student_id FROM admission_applications WHERE school_id=$1 AND id=$2 FOR UPDATE`, [schoolId, id]);
@@ -1276,8 +1305,9 @@ export function createOperationsRouter({ authenticate, sendInvitation = sendAcco
       const result = await req.auth.client.query(`UPDATE admission_applications SET status = $3, decision = CASE WHEN $3 IN ('OFFERED','ACCEPTED','REJECTED','WAITLISTED') THEN $3 ELSE decision END, decision_reason = NULLIF($4,''), updated_at = now()
         WHERE school_id = $1 AND id = $2 AND status = $5 RETURNING id, application_number, status`, [schoolId, id, status, reason, current.rows[0].status]);
       if (!result.rowCount) { await close(req, false); return res.status(409).json({ error: 'This application changed while you were editing it. Refresh and try again.' }); }
-      await req.auth.client.query(`INSERT INTO admission_events (school_id, application_id, event_type, actor_user_id, details) VALUES ($1,$2,$3,$4,$5::jsonb)`, [schoolId, id, `STATUS_${status}`, req.auth.claims.userId, JSON.stringify({ reason })]);
-      await audit(req, 'ADMISSION_STATUS_CHANGED', 'ADMISSION_APPLICATION', id, { status });
+      const eventDetails = status === 'INTERVIEW_SCHEDULED' ? { reason, interviewAt, interviewer, interviewNotes } : { reason };
+      await req.auth.client.query(`INSERT INTO admission_events (school_id, application_id, event_type, actor_user_id, details) VALUES ($1,$2,$3,$4,$5::jsonb)`, [schoolId, id, `STATUS_${status}`, req.auth.claims.userId, JSON.stringify(eventDetails)]);
+      await audit(req, 'ADMISSION_STATUS_CHANGED', 'ADMISSION_APPLICATION', id, { status, ...(status === 'INTERVIEW_SCHEDULED' ? { interviewAt, interviewer } : {}) });
       return done(req, res, 200, { application: result.rows[0] });
     } catch (error) { return fail(req, res, error); }
   });

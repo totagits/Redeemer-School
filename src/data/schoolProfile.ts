@@ -3,6 +3,7 @@
  * configured and stored in the database before the ERP workspace is enabled.
  */
 export const THE_REDEEMER_SCHOOL_INFO = {
+  schoolCode: 'RIA',
   name: "Redeemer's International Academy",
   formalName: "Redeemer's International Academy",
   motto: 'Academic and Moral Excellence',

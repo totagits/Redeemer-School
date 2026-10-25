@@ -18,7 +18,7 @@ class FakeClient {
     const statement = sql.replace(/\s+/g, ' ').trim();
     this.statements.push({ statement, params });
     if (['BEGIN', 'COMMIT', 'ROLLBACK'].includes(statement)) return { rows: [], rowCount: 0 };
-    if (statement.startsWith('SELECT a.id, a.application_number, a.first_name')) return { rows: [{ id: applicationId, application_number: 'RIA-APP-001', first_name: 'Test', last_name: 'Learner', status: this.applicationStatus, guardians: [], events: [{ eventType: 'APPLICATION_RECEIVED', actor: 'School Admin', occurredAt: '2026-10-23T08:00:00Z' }], requested_class_group_id: null, converted_student_id: null }], rowCount: 1 };
+    if (statement.startsWith('SELECT a.id, a.application_number, a.application_source, a.first_name')) return { rows: [{ id: applicationId, application_number: 'RIA-APP-001', application_source: 'STAFF', first_name: 'Test', last_name: 'Learner', status: this.applicationStatus, guardians: [], events: [{ eventType: 'APPLICATION_RECEIVED', actor: 'School Admin', occurredAt: '2026-10-23T08:00:00Z' }], requested_class_group_id: null, converted_student_id: null }], rowCount: 1 };
     if (statement.startsWith('SELECT id, code, name FROM education_levels')) return { rows: [], rowCount: 0 };
     if (statement.startsWith('SELECT id, name, grade_level FROM class_groups')) return { rows: [{ id: classId, name: 'Grade 4A', grade_level: 'Grade 4' }], rowCount: 1 };
     if (statement.startsWith('INSERT INTO admission_applications')) return { rows: [{ id: applicationId, application_number: params[1], first_name: params[2], middle_name: params[3], last_name: params[4], date_of_birth: params[5], sex: params[6], notes: params[7], status: 'RECEIVED' }], rowCount: 1 };
@@ -143,4 +143,19 @@ test('admission status requires a reason before rejecting an applicant', async t
   assert.equal(response.status, 400);
   assert.ok(!clients[0].statements.some(item => item.statement.startsWith('UPDATE admission_applications SET status = $3')));
   assert.equal(clients[0].statements.at(-1).statement, 'ROLLBACK');
+});
+
+test('interview scheduling requires a future date and interviewer, then records the appointment', async t => {
+  const { url, clients } = await startServer(t, ['admissions.write'], 'UNDER_REVIEW');
+  let response = await fetch(`${url}/api/operations/admissions/${applicationId}/status`, { method: 'POST', headers, body: JSON.stringify({ status: 'INTERVIEW_SCHEDULED' }) });
+  assert.equal(response.status, 400);
+  const interviewAt = new Date(Date.now() + 24 * 60 * 60 * 1000).toISOString();
+  response = await fetch(`${url}/api/operations/admissions/${applicationId}/status`, { method: 'POST', headers, body: JSON.stringify({ status: 'INTERVIEW_SCHEDULED', interviewAt, interviewer: 'Registrar', interviewNotes: 'Bring prior school records.' }) });
+  assert.equal(response.status, 200);
+  const event = clients[1].statements.find(item => item.statement.startsWith('INSERT INTO admission_events'));
+  const details = JSON.parse(event.params[4]);
+  assert.equal(details.interviewAt, interviewAt);
+  assert.equal(details.interviewer, 'Registrar');
+  assert.equal(details.interviewNotes, 'Bring prior school records.');
+  assert.ok(clients[1].statements.some(item => item.statement.startsWith('INSERT INTO audit_events')));
 });
