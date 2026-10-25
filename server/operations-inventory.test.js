@@ -9,6 +9,7 @@ const schoolId='b210b463-c02c-4be9-9003-8a9005e8dbe5';
 const userId='721ddf68-1c98-4faa-9dc7-9161daa79870';
 const itemId='32f8f4d3-5d2a-4f36-bd4e-fc0f38a44f07';
 const locationId='9b4cc7af-8da2-40a4-9d7d-2db6b12a9661';
+const secondLocationId='7c4c8eeb-5089-4c2f-b866-9a473b972461';
 const requestId='e1eae2d6-78ba-42e4-baa8-adbe15951ee2';
 const orderId='5c98d2dc-4aa3-408e-988c-1fb42b1f4d28';
 
@@ -17,6 +18,11 @@ class FakeClient {
   async query(sql,params=[]) {
     const q=sql.replace(/\s+/g,' ').trim(); this.statements.push({sql:q,params});
     if(['BEGIN','COMMIT','ROLLBACK'].includes(q)) return {rows:[],rowCount:0};
+    if(q.startsWith('SELECT i.id AS item_id,source.id AS from_location_id')) return {rows:[{item_id:itemId,from_location_id:locationId,to_location_id:secondLocationId}],rowCount:1};
+    if(q.startsWith('SELECT pg_advisory_xact_lock')) return {rows:[{}],rowCount:1};
+    if(q.startsWith('SELECT COALESCE(sum(CASE WHEN movement_type IN')) return {rows:[{on_hand:this.mode==='transfer-short'?'2.00':'25.00'}],rowCount:1};
+    if(q.startsWith("INSERT INTO stock_movements(school_id,item_id,location_id,movement_type,quantity,reference,reason,recorded_by)")) return {rows:[{id:'movement-out',movement_type:'TRANSFER_OUT'}],rowCount:1};
+    if(q.startsWith("INSERT INTO stock_movements(school_id,item_id,location_id,movement_type,quantity,reference,reason,related_movement_id,recorded_by)")) return {rows:[{id:'movement-in',movement_type:'TRANSFER_IN'}],rowCount:1};
     if(q.startsWith('INSERT INTO procurement_requests')) return {rows:[{id:requestId,request_number:params[1],status:'SUBMITTED'}],rowCount:1};
     if(q.startsWith('INSERT INTO procurement_request_lines')) return {rows:[{id:'line-id'}],rowCount:1};
     if(q.startsWith('SELECT id,request_number,status FROM procurement_requests')) return {rows:[{id:requestId,request_number:'PR-TEST',status:this.mode==='unapproved'?'SUBMITTED':'APPROVED'}],rowCount:1};
@@ -109,4 +115,37 @@ test('approved purchase order receiving posts stock and audit atomically',async 
   assert.ok(clients[0].statements.some(({sql})=>sql.startsWith('UPDATE purchase_order_lines')));
   assert.ok(clients[0].statements.some(({sql})=>sql.startsWith('INSERT INTO audit_events')));
   assert.equal(clients[0].statements.at(-1).sql,'COMMIT');
+});
+
+test('stock transfer writes linked outgoing and incoming movements atomically',async t=>{
+  const {url,clients}=await startServer(t,['inventory.write']);
+  const response=await fetch(`${url}/api/operations/inventory/transfers`,{method:'POST',headers,body:JSON.stringify({itemId,fromLocationId:locationId,toLocationId:secondLocationId,quantity:5,reason:'Move supplies to classroom store'})});
+  const result=await response.json();
+  assert.equal(response.status,201);
+  assert.equal(result.transfer.outgoing.movement_type,'TRANSFER_OUT');
+  assert.equal(result.transfer.incoming.movement_type,'TRANSFER_IN');
+  const movementStatements=clients[0].statements.filter(({sql})=>sql.startsWith('INSERT INTO stock_movements('));
+  assert.equal(movementStatements.length,2);
+  assert.equal(movementStatements[0].params[2],locationId);
+  assert.equal(Number(movementStatements[0].params[3]),5);
+  assert.equal(movementStatements[1].params[2],secondLocationId);
+  assert.equal(movementStatements[1].params[6],'movement-out');
+  assert.ok(clients[0].statements.some(({sql})=>sql.startsWith('INSERT INTO audit_events')));
+  assert.equal(clients[0].statements.at(-1).sql,'COMMIT');
+});
+
+test('stock transfer rejects an amount above source balance without posting either side',async t=>{
+  const {url,clients}=await startServer(t,['inventory.write'],'transfer-short');
+  const response=await fetch(`${url}/api/operations/inventory/transfers`,{method:'POST',headers,body:JSON.stringify({itemId,fromLocationId:locationId,toLocationId:secondLocationId,quantity:5,reason:'Move supplies'})});
+  assert.equal(response.status,409);
+  assert.equal(clients[0].statements.some(({sql})=>sql.startsWith('INSERT INTO stock_movements(')),false);
+  assert.equal(clients[0].statements.at(-1).sql,'ROLLBACK');
+});
+
+test('stock transfer rejects the same source and destination before database writes',async t=>{
+  const {url,clients}=await startServer(t,['inventory.write']);
+  const response=await fetch(`${url}/api/operations/inventory/transfers`,{method:'POST',headers,body:JSON.stringify({itemId,fromLocationId:locationId,toLocationId:locationId,quantity:5,reason:'Move supplies'})});
+  assert.equal(response.status,400);
+  assert.equal(clients[0].statements.some(({sql})=>sql.startsWith('INSERT INTO stock_movements(')),false);
+  assert.equal(clients[0].statements.at(-1).sql,'ROLLBACK');
 });

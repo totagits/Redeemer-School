@@ -1122,7 +1122,7 @@ export function createOperationsRouter({ authenticate, sendInvitation = sendAcco
   router.get('/inventory', needsPermission('inventory.read'), async (req, res) => {
     try {
       const schoolId=req.auth.claims.schoolId;
-      const [items,locations,movements,requests,orders]=await Promise.all([
+      const [items,locations,movements,requests,orders,balances]=await Promise.all([
         req.auth.client.query(`SELECT i.id,i.sku,i.name,i.category,i.unit,i.reorder_level,i.active,COALESCE(sum(CASE WHEN m.movement_type IN ('RECEIPT','TRANSFER_IN') THEN m.quantity WHEN m.movement_type IN ('ISSUE','TRANSFER_OUT') THEN -m.quantity WHEN m.movement_type='ADJUSTMENT' THEN m.quantity ELSE 0 END),0)::numeric AS on_hand FROM inventory_items i LEFT JOIN stock_movements m ON m.school_id=i.school_id AND m.item_id=i.id WHERE i.school_id=$1 GROUP BY i.id ORDER BY i.name`,[schoolId]),
         req.auth.client.query(`SELECT id,code,name FROM inventory_locations WHERE school_id=$1 AND active ORDER BY name`,[schoolId]),
         req.auth.client.query(`SELECT m.id,m.movement_type,m.quantity,m.movement_date,m.reference,m.reason,i.name AS item_name,l.name AS location_name,u.full_name AS recorded_by FROM stock_movements m JOIN inventory_items i ON i.school_id=m.school_id AND i.id=m.item_id JOIN inventory_locations l ON l.school_id=m.school_id AND l.id=m.location_id JOIN user_accounts u ON u.school_id=m.school_id AND u.id=m.recorded_by WHERE m.school_id=$1 ORDER BY m.movement_date DESC LIMIT 200`,[schoolId]),
@@ -1138,8 +1138,10 @@ export function createOperationsRouter({ authenticate, sendInvitation = sendAcco
           FROM purchase_orders p LEFT JOIN purchase_order_lines l ON l.school_id=p.school_id AND l.purchase_order_id=p.id
           LEFT JOIN inventory_items i ON i.school_id=l.school_id AND i.id=l.item_id
           WHERE p.school_id=$1 GROUP BY p.id ORDER BY p.submitted_at DESC NULLS LAST,p.ordered_at DESC NULLS LAST LIMIT 100`,[schoolId])
+        ,req.auth.client.query(`SELECT m.item_id,m.location_id,COALESCE(sum(CASE WHEN m.movement_type IN ('RECEIPT','TRANSFER_IN') THEN m.quantity WHEN m.movement_type IN ('ISSUE','TRANSFER_OUT') THEN -m.quantity WHEN m.movement_type='ADJUSTMENT' THEN m.quantity ELSE 0 END),0)::numeric AS on_hand
+          FROM stock_movements m WHERE m.school_id=$1 GROUP BY m.item_id,m.location_id`,[schoolId])
       ]);
-      await close(req,true); return res.json({items:items.rows,locations:locations.rows,movements:movements.rows,requests:requests.rows,orders:orders.rows,canWrite:req.auth.account.permissions.includes('inventory.write'),canApprove:req.auth.account.permissions.includes('inventory.approve')});
+      await close(req,true); return res.json({items:items.rows,locations:locations.rows,movements:movements.rows,requests:requests.rows,orders:orders.rows,balances:balances.rows,canWrite:req.auth.account.permissions.includes('inventory.write'),canApprove:req.auth.account.permissions.includes('inventory.approve')});
     } catch(error){return fail(req,res,error);}
   });
 
@@ -1158,8 +1160,34 @@ export function createOperationsRouter({ authenticate, sendInvitation = sendAcco
   router.post('/inventory/movements', needsPermission('inventory.write'), csrf, async(req,res)=>{
     const itemId=text(req.body?.itemId,50); const locationId=text(req.body?.locationId,50); const quantity=Number(req.body?.quantity); const type=text(req.body?.type,20).toUpperCase(); const reason=text(req.body?.reason,500); const reference=text(req.body?.reference,100);
     if(!itemId||!locationId||!Number.isFinite(quantity)||quantity<=0||!['RECEIPT','ISSUE','ADJUSTMENT'].includes(type)||!reason){await close(req,false);return res.status(400).json({error:'Enter a valid item, location, positive quantity, movement type, and reason.'});}
-    try{const schoolId=req.auth.claims.schoolId; if(type==='ISSUE'){const stock=await req.auth.client.query(`SELECT COALESCE(sum(CASE WHEN movement_type IN ('RECEIPT','TRANSFER_IN') THEN quantity WHEN movement_type IN ('ISSUE','TRANSFER_OUT') THEN -quantity WHEN movement_type='ADJUSTMENT' THEN quantity ELSE 0 END),0) AS on_hand FROM stock_movements WHERE school_id=$1 AND item_id=$2 AND location_id=$3`,[schoolId,itemId,locationId]);if(Number(stock.rows[0].on_hand)<quantity){await close(req,false);return res.status(409).json({error:'Not enough stock is available at this location.'});}}
+    try{const schoolId=req.auth.claims.schoolId; if(type==='ISSUE'){await req.auth.client.query(`SELECT pg_advisory_xact_lock(hashtextextended($1,0))`,[`${schoolId}:${itemId}:${locationId}`]);const stock=await req.auth.client.query(`SELECT COALESCE(sum(CASE WHEN movement_type IN ('RECEIPT','TRANSFER_IN') THEN quantity WHEN movement_type IN ('ISSUE','TRANSFER_OUT') THEN -quantity WHEN movement_type='ADJUSTMENT' THEN quantity ELSE 0 END),0) AS on_hand FROM stock_movements WHERE school_id=$1 AND item_id=$2 AND location_id=$3`,[schoolId,itemId,locationId]);if(Number(stock.rows[0].on_hand)<quantity){await close(req,false);return res.status(409).json({error:'Not enough stock is available at this location.'});}}
       const r=await req.auth.client.query(`INSERT INTO stock_movements(school_id,item_id,location_id,movement_type,quantity,reference,reason,recorded_by) SELECT $1,i.id,l.id,$4,$5,NULLIF($6,''),$7,$8 FROM inventory_items i JOIN inventory_locations l ON l.school_id=i.school_id WHERE i.school_id=$1 AND i.id=$2 AND l.id=$3 AND i.active AND l.active RETURNING id,movement_type,quantity,reference,reason,movement_date`,[schoolId,itemId,locationId,type,quantity,reference,reason,req.auth.claims.userId]);if(!r.rowCount){await close(req,false);return res.status(400).json({error:'Choose an active item and location belonging to this school.'});}await audit(req,'INVENTORY_MOVEMENT_RECORDED','STOCK_MOVEMENT',r.rows[0].id,{type,quantity});return done(req,res,201,{movement:r.rows[0]});}catch(error){return fail(req,res,error);}
+  });
+
+  router.post('/inventory/transfers', needsPermission('inventory.write'), csrf, async(req,res)=>{
+    const itemId=text(req.body?.itemId,50); const fromLocationId=text(req.body?.fromLocationId,50); const toLocationId=text(req.body?.toLocationId,50);
+    const quantity=Number(req.body?.quantity); const reason=text(req.body?.reason,500); const requestedReference=text(req.body?.reference,100);
+    if(!itemId||!fromLocationId||!toLocationId||fromLocationId===toLocationId||!Number.isFinite(quantity)||quantity<=0||!reason){await close(req,false);return res.status(400).json({error:'Choose one item, different source and destination locations, a positive quantity, and a reason.'});}
+    try{
+      const schoolId=req.auth.claims.schoolId;
+      const valid=await req.auth.client.query(`SELECT i.id AS item_id,source.id AS from_location_id,target.id AS to_location_id
+        FROM inventory_items i JOIN inventory_locations source ON source.school_id=i.school_id
+        JOIN inventory_locations target ON target.school_id=i.school_id
+        WHERE i.school_id=$1 AND i.id=$2 AND i.active AND source.id=$3 AND source.active AND target.id=$4 AND target.active
+        FOR UPDATE OF i,source,target`,[schoolId,itemId,fromLocationId,toLocationId]);
+      if(!valid.rowCount){await close(req,false);return res.status(400).json({error:'Choose an active item and two active locations belonging to this school.'});}
+      await req.auth.client.query(`SELECT pg_advisory_xact_lock(hashtextextended($1,0))`,[`${schoolId}:${itemId}:${fromLocationId}`]);
+      const stock=await req.auth.client.query(`SELECT COALESCE(sum(CASE WHEN movement_type IN ('RECEIPT','TRANSFER_IN') THEN quantity WHEN movement_type IN ('ISSUE','TRANSFER_OUT') THEN -quantity WHEN movement_type='ADJUSTMENT' THEN quantity ELSE 0 END),0) AS on_hand
+        FROM stock_movements WHERE school_id=$1 AND item_id=$2 AND location_id=$3`,[schoolId,itemId,fromLocationId]);
+      if(Number(stock.rows[0]?.on_hand||0)<quantity){await close(req,false);return res.status(409).json({error:'The source location does not have enough stock for this transfer.'});}
+      const reference=requestedReference||`TRF-${randomUUID().slice(0,8).toUpperCase()}`;
+      const outgoing=await req.auth.client.query(`INSERT INTO stock_movements(school_id,item_id,location_id,movement_type,quantity,reference,reason,recorded_by)
+        VALUES($1,$2,$3,'TRANSFER_OUT',$4,$5,$6,$7) RETURNING id,movement_type,quantity,reference,reason,movement_date`,[schoolId,itemId,fromLocationId,quantity,reference,reason,req.auth.claims.userId]);
+      const incoming=await req.auth.client.query(`INSERT INTO stock_movements(school_id,item_id,location_id,movement_type,quantity,reference,reason,related_movement_id,recorded_by)
+        VALUES($1,$2,$3,'TRANSFER_IN',$4,$5,$6,$7,$8) RETURNING id,movement_type,quantity,reference,reason,movement_date`,[schoolId,itemId,toLocationId,quantity,reference,reason,outgoing.rows[0].id,req.auth.claims.userId]);
+      await audit(req,'INVENTORY_STOCK_TRANSFERRED','STOCK_MOVEMENT',outgoing.rows[0].id,{incomingMovementId:incoming.rows[0].id,itemId,fromLocationId,toLocationId,quantity,reference});
+      return done(req,res,201,{transfer:{reference,outgoing:outgoing.rows[0],incoming:incoming.rows[0]}});
+    }catch(error){return fail(req,res,error);}
   });
 
   router.post('/inventory/requests', needsPermission('inventory.write'), csrf, async (req, res) => {

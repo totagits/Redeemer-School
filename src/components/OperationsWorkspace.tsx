@@ -24,7 +24,7 @@ type InventoryRequestLine = Row & { itemId: string; itemName: string; sku: strin
 type InventoryRequest = Row & { id: string; request_number: string; status: string; justification: string; estimated_currency: string; purchase_order_id?: string | null; lines: InventoryRequestLine[] };
 type PurchaseOrderLine = Row & { itemId: string; itemName: string; sku: string; unit: string; quantity: string; receivedQuantity: string; unitPrice: string };
 type InventoryOrder = Row & { id: string; purchase_order_number: string; vendor_name: string; currency: string; status: string; lines: PurchaseOrderLine[] };
-type InventoryWorkspaceData = { items: Row[]; locations: Row[]; movements: Row[]; requests: InventoryRequest[]; orders: InventoryOrder[]; canWrite: boolean; canApprove: boolean };
+type InventoryWorkspaceData = { items: Row[]; locations: Row[]; movements: Row[]; requests: InventoryRequest[]; orders: InventoryOrder[]; balances: Array<Row & { item_id: string; location_id: string; on_hand: string }>; canWrite: boolean; canApprove: boolean };
 type CommunicationsWorkspaceData = { announcements: Row[]; deliveries: Row[]; classes: Row[]; canWrite: boolean; canSendSms?: boolean; smsConfigured?: boolean; smsProvider?: string };
 type ManagedAccount = { id: string; email: string; full_name: string; role: string; status: string; invitation_pending: boolean; must_reset_password: boolean; created_at: string; last_login_at: string | null };
 type AccountsWorkspaceData = { accounts: ManagedAccount[]; availableRoles: Array<{ code: string; name: string }>; currentUserId: string };
@@ -503,6 +503,9 @@ const InventoryWorkspace: React.FC<{ data: InventoryWorkspaceData; post: PostOpe
   const [notice, setNotice] = useState('');
   const [busy, setBusy] = useState(false);
   const [requestLines, setRequestLines] = useState([{ itemId: '', quantity: '', estimatedUnitCost: '0', note: '' }]);
+  const [transferItemId, setTransferItemId] = useState('');
+  const [transferFromLocationId, setTransferFromLocationId] = useState('');
+  const availableTransferStock = Number(data.balances.find(balance => balance.item_id === transferItemId && balance.location_id === transferFromLocationId)?.on_hand || 0);
 
   const submitForm = async (event: React.FormEvent<HTMLFormElement>, action: (form: FormData) => Promise<string>) => {
     event.preventDefault();
@@ -575,6 +578,24 @@ const InventoryWorkspace: React.FC<{ data: InventoryWorkspaceData; post: PostOpe
         <button disabled={busy||!data.items.length||!data.locations.length} className={`${buttonClass} mt-3`}>Save stock movement</button>
       </form>
     </div>}
+
+    {data.canWrite && <form className={`${sectionClass} max-w-3xl`} onSubmit={event => void submitForm(event, async form => {
+      await post('inventory/transfers', { itemId: form.get('itemId'), fromLocationId: form.get('fromLocationId'), toLocationId: form.get('toLocationId'), quantity: form.get('quantity'), reference: form.get('reference'), reason: form.get('reason') });
+      setTransferItemId(''); setTransferFromLocationId('');
+      return 'Stock transferred. Source and destination balances were updated together and the transfer was audited.';
+    })}>
+      <h2 className="text-lg font-extrabold">Transfer stock between locations</h2>
+      <p className="mt-1 text-sm text-slate-600">Transfers create linked outgoing and incoming records in one database transaction. Quantity is checked against source stock first.</p>
+      <div className="mt-4 grid gap-3 md:grid-cols-2">
+        <label className={labelClass}>Item<select required name="itemId" value={transferItemId} onChange={event=>setTransferItemId(event.target.value)} className={inputClass}><option value="">Choose item</option>{data.items.map(item=><option key={item.id} value={item.id!}>{item.name} · {item.sku}</option>)}</select></label>
+        <label className={labelClass}>From location<select required name="fromLocationId" value={transferFromLocationId} onChange={event=>setTransferFromLocationId(event.target.value)} className={inputClass}><option value="">Choose source</option>{data.locations.map(location=><option key={location.id} value={location.id!}>{location.name}</option>)}</select><span className="mt-1 block text-xs font-normal text-slate-500">Available: {availableTransferStock}</span></label>
+        <label className={labelClass}>To location<select required name="toLocationId" defaultValue="" className={inputClass}><option value="">Choose destination</option>{data.locations.filter(location=>String(location.id)!==transferFromLocationId).map(location=><option key={location.id} value={location.id!}>{location.name}</option>)}</select></label>
+        <label className={labelClass}>Quantity<input required name="quantity" type="number" min="0.01" max={availableTransferStock>0?availableTransferStock:undefined} step="0.01" className={inputClass}/></label>
+        <label className={labelClass}>Reference (optional)<input name="reference" maxLength={100} className={inputClass}/></label>
+        <label className={labelClass}>Reason<input required name="reason" maxLength={500} className={inputClass}/></label>
+      </div>
+      <button disabled={busy||!data.items.length||data.locations.length<2||availableTransferStock<=0} className={`${buttonClass} mt-4`}>Transfer stock</button>
+    </form>}
 
     {data.canWrite && <form className={sectionClass} onSubmit={event => void submitForm(event, async form => {
       await post('inventory/requests', {
