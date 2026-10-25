@@ -67,6 +67,12 @@ async function hasStudentDocumentStorageSchema(client) {
     WHERE table_schema=current_schema() AND table_name='student_documents' AND column_name=ANY($1::text[])`, [['file_content','content_nonce','content_auth_tag']]);
   return Number(result.rows[0]?.column_count || 0) === 3;
 }
+async function hasAdmissionDocumentStorageSchema(client) {
+  const result = await client.query(`SELECT count(*)::int AS column_count FROM information_schema.columns
+    WHERE table_schema=current_schema() AND table_name='admission_documents'
+      AND column_name=ANY($1::text[])`, [['file_content','content_nonce','content_auth_tag','application_id']]);
+  return Number(result.rows[0]?.column_count || 0) === 4;
+}
 
 async function close(req, commit) {
   const client = req.auth?.client;
@@ -1125,9 +1131,96 @@ export function createOperationsRouter({ authenticate, sendInvitation = sendAcco
         WHERE a.school_id = $1 ORDER BY a.application_date DESC, a.created_at DESC LIMIT 500`, [schoolId]);
       const options = await req.auth.client.query(`SELECT id, code, name FROM education_levels WHERE school_id = $1 AND active ORDER BY sort_order, name`, [schoolId]);
       const classes = await req.auth.client.query(`SELECT id, name, grade_level FROM class_groups WHERE school_id = $1 ORDER BY grade_level, name`, [schoolId]);
+      const canReadDocuments = req.auth.account.permissions.includes('students.sensitive.read');
+      const documentStorageReady = canReadDocuments && await hasAdmissionDocumentStorageSchema(req.auth.client) && Boolean(studentDocumentEncryptionKey());
+      let documentCategories = [];
+      if (documentStorageReady) documentCategories = (await req.auth.client.query(`SELECT id,code,name,required_for_admission FROM document_categories
+        WHERE school_id=$1 AND active ORDER BY name`, [schoolId])).rows;
       await close(req, true);
-      return res.json({ applications: applications.rows, levels: options.rows, classes: classes.rows, canWrite: req.auth.account.permissions.includes('admissions.write') });
+      return res.json({ applications: applications.rows, levels: options.rows, classes: classes.rows,
+        canWrite: req.auth.account.permissions.includes('admissions.write'), canReadDocuments, documentStorageReady, documentCategories });
     } catch (error) { return fail(req, res, error); }
+  });
+
+  router.get('/admissions/:applicationId/documents', needsPermission('admissions.read'), async (req, res) => {
+    if (!req.auth.account.permissions.includes('students.sensitive.read')) { await close(req, false); return res.status(403).json({ error: 'Restricted applicant-document access is required.' }); }
+    if (!await hasAdmissionDocumentStorageSchema(req.auth.client)) { await close(req, false); return res.status(503).json({ error: 'Apply the encrypted admission-document migration before opening applicant files.' }); }
+    try {
+      const schoolId = req.auth.claims.schoolId;
+      const result = await req.auth.client.query(`SELECT d.id,d.title,d.original_filename,d.media_type,d.size_bytes,d.checksum_sha256,
+          d.uploaded_at,u.full_name AS uploaded_by,c.name AS category_name
+        FROM admission_documents d
+        JOIN admission_applications a ON a.school_id=d.school_id AND a.id=d.application_id
+        JOIN user_accounts u ON u.school_id=d.school_id AND u.id=d.uploaded_by
+        LEFT JOIN document_categories c ON c.school_id=d.school_id AND c.id=d.category_id
+        WHERE d.school_id=$1 AND a.id=$2 AND d.deleted_at IS NULL ORDER BY d.uploaded_at DESC`, [schoolId, req.params.applicationId]);
+      await close(req, true);
+      return res.json({ documents: result.rows });
+    } catch (error) { return fail(req, res, error); }
+  });
+
+  router.post('/admissions/:applicationId/documents', needsPermission('admissions.write'), csrf,
+    express.raw({ type: 'application/pdf', limit: '10mb' }), async (req, res) => {
+      if (!req.auth.account.permissions.includes('students.sensitive.read')) { await close(req, false); return res.status(403).json({ error: 'Restricted applicant-document access is required to upload files.' }); }
+      const key = studentDocumentEncryptionKey();
+      if (!key) { await close(req, false); return res.status(503).json({ error: 'Encrypted document storage is not configured for this environment.' }); }
+      if (!Buffer.isBuffer(req.body) || req.body.length < 8 || !req.body.subarray(0, 5).equals(Buffer.from('%PDF-'))) { await close(req, false); return res.status(400).json({ error: 'Select a valid PDF file under 10 MB.' }); }
+      const title = text(req.query.title, 120);
+      const categoryId = text(req.query.categoryId, 50) || null;
+      const originalFilename = text(req.query.fileName, 255).replace(/[\\/]/g, '_').replace(/[\u0000-\u001f\u007f]/g, '').trim();
+      if (!title || !originalFilename) { await close(req, false); return res.status(400).json({ error: 'Enter a document title and choose a PDF file.' }); }
+      try {
+        if (!await hasAdmissionDocumentStorageSchema(req.auth.client)) { await close(req, false); return res.status(503).json({ error: 'Apply the encrypted admission-document migration before uploading files.' }); }
+        const schoolId = req.auth.claims.schoolId; const applicationId = req.params.applicationId; const documentId = randomUUID();
+        const checksum = createHash('sha256').update(req.body).digest('hex');
+        const encrypted = encryptStudentDocument(req.body, key, `${schoolId}:admission:${applicationId}:${documentId}`);
+        const result = await req.auth.client.query(`INSERT INTO admission_documents
+            (id,school_id,application_id,category_id,title,original_filename,media_type,size_bytes,checksum_sha256,file_content,content_nonce,content_auth_tag,uploaded_by)
+          SELECT $1,a.school_id,a.id,c.id,$5,$6,'application/pdf',$7,$8,$9,$10,$11,$12
+          FROM admission_applications a
+          LEFT JOIN document_categories c ON c.school_id=a.school_id AND c.id=$4
+          WHERE a.school_id=$2 AND a.id=$3 AND ($4::uuid IS NULL OR c.id IS NOT NULL)
+          RETURNING id,title,original_filename,media_type,size_bytes,checksum_sha256,uploaded_at`,
+        [documentId,schoolId,applicationId,categoryId,title,originalFilename,req.body.length,checksum,encrypted.content,encrypted.nonce,encrypted.authTag,req.auth.claims.userId]);
+        if (!result.rowCount) { await close(req, false); return res.status(400).json({ error: 'The application or document category was not found in this school.' }); }
+        await audit(req,'ADMISSION_DOCUMENT_UPLOADED','ADMISSION_DOCUMENT',documentId,{applicationId,title,categoryId,sizeBytes:req.body.length,checksum});
+        return done(req,res,201,{document:result.rows[0]});
+      } catch (error) { return fail(req,res,error); }
+    });
+
+  router.get('/admissions/:applicationId/documents/:documentId/content', needsPermission('admissions.read'), async (req, res) => {
+    if (!req.auth.account.permissions.includes('students.sensitive.read')) { await close(req, false); return res.status(403).json({ error: 'Restricted applicant-document access is required to open this file.' }); }
+    const key = studentDocumentEncryptionKey();
+    if (!key) { await close(req, false); return res.status(503).json({ error: 'Encrypted document storage is not configured for this environment.' }); }
+    try {
+      if (!await hasAdmissionDocumentStorageSchema(req.auth.client)) { await close(req, false); return res.status(503).json({ error: 'Apply the encrypted admission-document migration before opening applicant files.' }); }
+      const schoolId=req.auth.claims.schoolId; const applicationId=req.params.applicationId; const documentId=req.params.documentId;
+      const result=await req.auth.client.query(`SELECT id,title,original_filename,media_type,size_bytes,checksum_sha256,file_content,content_nonce,content_auth_tag
+        FROM admission_documents WHERE school_id=$1 AND application_id=$2 AND id=$3 AND deleted_at IS NULL`,[schoolId,applicationId,documentId]);
+      if (!result.rowCount) { await close(req,false); return res.status(404).json({error:'The document was not found for this application.'}); }
+      const document=result.rows[0];
+      const plaintext=decryptStudentDocument(document,key,`${schoolId}:admission:${applicationId}:${documentId}`);
+      if (createHash('sha256').update(plaintext).digest('hex')!==document.checksum_sha256) { await close(req,false); return res.status(500).json({error:'Document integrity verification failed. Ask the school administrator for help.'}); }
+      await audit(req,'ADMISSION_DOCUMENT_DOWNLOADED','ADMISSION_DOCUMENT',documentId,{applicationId,sizeBytes:Number(document.size_bytes)});
+      await close(req,true);
+      const filename=String(document.original_filename).replace(/[\\"\r\n]/g,'_'); const asciiFilename=filename.replace(/[^\x20-\x7e]/g,'_');
+      res.setHeader('Cache-Control','no-store, private');res.setHeader('Content-Type','application/pdf');
+      res.setHeader('Content-Disposition',`attachment; filename="${asciiFilename}"; filename*=UTF-8''${encodeURIComponent(filename)}`);
+      res.setHeader('Content-Length',String(plaintext.length));return res.send(plaintext);
+    } catch(error){return fail(req,res,error);}
+  });
+
+  router.post('/admissions/:applicationId/documents/:documentId/delete', needsPermission('admissions.write'), csrf, async (req,res) => {
+    if (!req.auth.account.permissions.includes('students.sensitive.read')) { await close(req,false); return res.status(403).json({error:'Restricted applicant-document access is required to remove this file.'}); }
+    try {
+      if (!await hasAdmissionDocumentStorageSchema(req.auth.client)) { await close(req,false); return res.status(503).json({error:'Apply the encrypted admission-document migration before managing applicant files.'}); }
+      const schoolId=req.auth.claims.schoolId;const applicationId=req.params.applicationId;const documentId=req.params.documentId;
+      const result=await req.auth.client.query(`UPDATE admission_documents SET deleted_at=now()
+        WHERE school_id=$1 AND application_id=$2 AND id=$3 AND deleted_at IS NULL RETURNING id,title`,[schoolId,applicationId,documentId]);
+      if(!result.rowCount){await close(req,false);return res.status(404).json({error:'The document was not found for this application.'});}
+      await audit(req,'ADMISSION_DOCUMENT_SOFT_DELETED','ADMISSION_DOCUMENT',documentId,{applicationId,title:result.rows[0].title});
+      return done(req,res,200,{deleted:true});
+    }catch(error){return fail(req,res,error);}
   });
 
   router.post('/admissions', needsPermission('admissions.write'), csrf, async (req, res) => {
