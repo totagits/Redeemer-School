@@ -502,7 +502,7 @@ export function createOperationsRouter({ authenticate, sendInvitation = sendAcco
         WHERE st.school_id = $1 AND st.id = $2`, [schoolId, req.params.studentId]);
       if (!studentResult.rowCount) { await close(req, false); return res.status(404).json({ error: 'Student not found.' }); }
       const guardianResult = await req.auth.client.query(`SELECT g.id, g.first_name, g.last_name, g.email, g.phone,
-          sg.relationship, sg.is_primary FROM student_guardians sg JOIN guardians g
+          sg.relationship, sg.is_primary, sg.emergency_contact, sg.authorized_pickup, sg.can_view_results, sg.can_view_finance, sg.communication_consent FROM student_guardians sg JOIN guardians g
           ON g.school_id = sg.school_id AND g.id = sg.guardian_id
           WHERE sg.school_id = $1 AND sg.student_id = $2 ORDER BY sg.is_primary DESC, g.last_name, g.first_name`, [schoolId, req.params.studentId]);
       const student = studentResult.rows[0];
@@ -556,30 +556,65 @@ export function createOperationsRouter({ authenticate, sendInvitation = sendAcco
   });
 
   router.post('/students/:studentId/guardians', needsPermission('students.write'), csrf, async (req, res) => {
-    const firstName = text(req.body?.firstName, 80);
-    const lastName = text(req.body?.lastName, 80);
-    const email = text(req.body?.email, 254).toLowerCase();
-    const phone = text(req.body?.phone, 40);
-    const relationship = text(req.body?.relationship, 60);
-    if (!firstName || !lastName || !relationship || (!email && !phone) || (email && !EMAIL_RE.test(email))) {
-      await close(req, false);
-      return res.status(400).json({ error: 'Enter the guardian name, relationship, and at least an email address or phone number.' });
+    if (!req.auth.account.permissions.includes('students.sensitive.read')) {
+      await close(req,false);return res.status(403).json({error:'Restricted student contact access is required.'});
     }
-    try {
-      const schoolId = req.auth.claims.schoolId;
-      const student = await req.auth.client.query('SELECT id FROM students WHERE school_id = $1 AND id = $2', [schoolId, req.params.studentId]);
-      if (!student.rowCount) { await close(req, false); return res.status(404).json({ error: 'Student not found.' }); }
-      const inserted = await req.auth.client.query(`INSERT INTO guardians (school_id, first_name, last_name, email, phone)
-        VALUES ($1, $2, $3, NULLIF($4,''), NULLIF($5,'')) RETURNING id, first_name, last_name, email, phone`,
-      [schoolId, firstName, lastName, email, phone]);
-      const guardian = inserted.rows[0];
+    const firstName=text(req.body?.firstName,80),lastName=text(req.body?.lastName,80);
+    const email=text(req.body?.email,254).toLowerCase(),phone=text(req.body?.phone,40);
+    const relationship=text(req.body?.relationship,60);
+    const primary=req.body?.isPrimary===true;
+    const canViewResults=req.body?.canViewResults===true;
+    const canViewFinance=req.body?.canViewFinance===true;
+    const communicationConsent=req.body?.communicationConsent===true;
+    const emergencyContact=req.body?.emergencyContact===true;
+    const authorizedPickup=req.body?.authorizedPickup===true;
+    if (!firstName||!lastName||!relationship||(!email&&!phone)||(email&&!EMAIL_RE.test(email))) {
+      await close(req,false);
+      return res.status(400).json({error:'Enter the guardian name, relationship, and at least a valid email or phone.'});
+    }
+    try{
+      const schoolId=req.auth.claims.schoolId,studentId=req.params.studentId;
+      // Serializes primary-contact assignments for one learner.
+      const student=await req.auth.client.query('SELECT id FROM students WHERE school_id=$1 AND id=$2 FOR UPDATE',[schoolId,studentId]);
+      if(!student.rowCount){await close(req,false);return res.status(404).json({error:'Learner not found.'});}
+      const matches=await req.auth.client.query(`SELECT id,first_name,last_name,email,phone
+        FROM guardians WHERE school_id=$1 AND active
+          AND (($2<>'' AND lower(email)=lower($2)) OR ($3<>'' AND phone=$3))
+        FOR UPDATE`,[schoolId,email,phone]);
+      if(matches.rowCount>1){
+        await close(req,false);
+        return res.status(409).json({error:'Multiple guardian contacts match. Ask an administrator to reconcile them before linking.'});
+      }
+      let guardian=matches.rows[0];
+      if(guardian && (guardian.first_name.toLowerCase()!==firstName.toLowerCase() ||
+          guardian.last_name.toLowerCase()!==lastName.toLowerCase())){
+        await close(req,false);
+        return res.status(409).json({error:'The supplied email or phone belongs to another guardian name. Review the existing contact before linking.'});
+      }
+      if(!guardian) {
+        guardian=(await req.auth.client.query(`INSERT INTO guardians(school_id,first_name,last_name,email,phone)
+          VALUES($1,$2,$3,NULLIF($4,''),NULLIF($5,'')) RETURNING id,first_name,last_name,email,phone`,
+          [schoolId,firstName,lastName,email,phone])).rows[0];
+      }
+      const existing=await req.auth.client.query(`SELECT 1 FROM student_guardians
+        WHERE school_id=$1 AND student_id=$2 AND guardian_id=$3`,
+        [schoolId,studentId,guardian.id]);
+      if(existing.rowCount){
+        await close(req,false);
+        return res.status(409).json({error:'This guardian is already linked to this learner. No duplicate was added.'});
+      }
+      const count=await req.auth.client.query('SELECT COUNT(*)::int AS total FROM student_guardians WHERE school_id=$1 AND student_id=$2',[schoolId,studentId]);
+      const makePrimary=primary || Number(count.rows[0].total)===0;
+      if(makePrimary)await req.auth.client.query('UPDATE student_guardians SET is_primary=false WHERE school_id=$1 AND student_id=$2 AND is_primary=true',[schoolId,studentId]);
       await req.auth.client.query(`INSERT INTO student_guardians
-        (school_id, student_id, guardian_id, relationship, can_view_results, can_view_finance, communication_consent, consent_updated_at)
-        VALUES ($1, $2, $3, $4, $5, $6, $7, CASE WHEN $7 THEN now() ELSE NULL END)`,
-      [schoolId, req.params.studentId, guardian.id, relationship, req.body?.canViewResults !== false, Boolean(req.body?.canViewFinance), Boolean(req.body?.communicationConsent)]);
-      await audit(req, 'STUDENT_GUARDIAN_ADDED', 'STUDENT', req.params.studentId, { guardianId: guardian.id, relationship });
-      return done(req, res, 201, { guardian });
-    } catch (error) { return fail(req, res, error); }
+        (school_id,student_id,guardian_id,relationship,is_primary,emergency_contact,authorized_pickup,
+         can_view_results,can_view_finance,communication_consent,consent_updated_at)
+        VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,CASE WHEN $10 THEN now() ELSE NULL END)`,
+        [schoolId,studentId,guardian.id,relationship,makePrimary,emergencyContact,authorizedPickup,
+        canViewResults,canViewFinance,communicationConsent]);
+      await audit(req,'STUDENT_GUARDIAN_ADDED','STUDENT',studentId,{guardianId:guardian.id,relationship,isPrimary:makePrimary});
+      return done(req,res,201,{guardian:{...guardian,relationship,is_primary:makePrimary}});
+    }catch(error){return fail(req,res,error);}
   });
 
   router.get('/finance', needsPermission('finance.read'), async (req, res) => {
