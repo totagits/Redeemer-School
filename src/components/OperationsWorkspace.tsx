@@ -909,12 +909,19 @@ const StudentsWorkspace: React.FC<{ data: StudentsWorkspaceData; post: PostOpera
 const ReportsWorkspace: React.FC<{ data: ReportsWorkspaceData; canExportEmis: boolean }> = ({ data, canExportEmis }) => {
   const reports=data.reports;
   const emis=reports.emis;
+  const [selectedEmisYear,setSelectedEmisYear]=useState('ALL');
+  const emisYears=Array.from(new Set((emis?.byClass||[]).map(row=>row.academic_year))).sort().reverse();
+  const selectedYearValid=selectedEmisYear==='ALL'||emisYears.includes(selectedEmisYear);
+  const activeEmisYear=selectedYearValid?selectedEmisYear:'ALL';
+  const visibleEmisRows=(emis?.byClass||[]).filter(row=>activeEmisYear==='ALL'||row.academic_year===activeEmisYear);
+  const visibleEmisTotal=visibleEmisRows.reduce((sum,row)=>sum+Number(row.learners||0),0);
   const [emisSummaryExportError,setEmisSummaryExportError]=useState('');
   const [exportingSummary,setExportingSummary]=useState(false);
   const exportEmisSummary=async()=>{
     setExportingSummary(true);setEmisSummaryExportError('');
     try{
-      const response=await fetch('/api/operations/reports/emis-summary.csv',{credentials:'same-origin'});
+      const params=activeEmisYear==='ALL'?'':`?academicYear=${encodeURIComponent(activeEmisYear)}`;
+      const response=await fetch(`/api/operations/reports/emis-summary.csv${params}`,{credentials:'same-origin'});
       if(!response.ok){const body=await response.json().catch(()=>({}));throw new Error(body.error||'Unable to export draft EMIS summary.');}
       const url=URL.createObjectURL(await response.blob());
       const anchor=document.createElement('a');anchor.href=url;anchor.download='redeemer-emis-summary-draft.csv';anchor.click();
@@ -961,11 +968,20 @@ const ReportsWorkspace: React.FC<{ data: ReportsWorkspaceData; canExportEmis: bo
         {([['Active learners',emis.completeness.active_learners],['Missing learner ID',emis.completeness.missing_learner_id],['Missing date of birth',emis.completeness.missing_birth_date],['Missing sex',emis.completeness.missing_sex],['Missing current class',emis.completeness.missing_class]] as const).map(([label,value])=><div key={label} className="rounded-xl border border-slate-200 bg-white p-4"><p className="text-xs font-bold uppercase text-slate-500">{label}</p><p className="mt-2 text-2xl font-extrabold">{value}</p></div>)}
         <div className="rounded-xl border border-slate-200 bg-white p-4"><p className="text-xs font-bold uppercase text-slate-500">School EMIS code</p><p className="mt-2 text-sm font-bold">{emis.schoolCode?'Recorded':'Missing / awaiting assignment'}</p></div>
       </div>
-      <h4 className="mt-5 font-extrabold">Enrollment by academic year, class and recorded sex</h4>
+      <div className="mt-5 flex flex-wrap items-end justify-between gap-3">
+        <div><h4 className="font-extrabold">Enrollment by academic year, class and recorded sex</h4>
+        <p className="mt-1 text-xs text-slate-600">Selected year: {activeEmisYear==='ALL'?'All current-class assignments':activeEmisYear} · {visibleEmisTotal} active learner assignments. This is not a historical enrollment census.</p></div>
+        <label className="text-xs font-bold text-slate-700">Academic year
+          <select value={activeEmisYear} onChange={event=>setSelectedEmisYear(event.target.value)} className="mt-1 block rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm">
+            <option value="ALL">All academic years</option>
+            {emisYears.map(year=><option key={year} value={year}>{year}</option>)}
+          </select>
+        </label>
+      </div>
       <div className="mt-3 overflow-x-auto rounded-xl border border-slate-200 bg-white"><table className="w-full min-w-[650px] text-left text-sm">
         <thead className="bg-slate-100 text-xs uppercase text-slate-600"><tr><th className="p-3">Academic year</th><th className="p-3">Class</th><th className="p-3">Learners</th><th className="p-3">Male</th><th className="p-3">Female</th><th className="p-3">Not recorded / other</th></tr></thead>
-        <tbody className="divide-y divide-slate-100">{emis.byClass.map((row,i)=><tr key={row.academic_year+row.class_name+i}><td className="p-3">{row.academic_year}</td><td className="p-3">{row.class_name}</td><td className="p-3 font-bold">{row.learners}</td><td className="p-3">{row.male}</td><td className="p-3">{row.female}</td><td className="p-3">{row.sex_unrecorded}</td></tr>)}</tbody>
-      </table>{!emis.byClass.length&&<p className="p-4 text-sm text-slate-600">No active learner enrollments recorded.</p>}</div>
+        <tbody className="divide-y divide-slate-100">{visibleEmisRows.map((row,i)=><tr key={row.academic_year+row.class_name+i}><td className="p-3">{row.academic_year}</td><td className="p-3">{row.class_name}</td><td className="p-3 font-bold">{row.learners}</td><td className="p-3">{row.male}</td><td className="p-3">{row.female}</td><td className="p-3">{row.sex_unrecorded}</td></tr>)}</tbody>
+      </table>{!visibleEmisRows.length&&<p className="p-4 text-sm text-slate-600">No active learner enrollments recorded.</p>}</div>
       {emisSummaryExportError&&<p role="alert" className="mt-3 text-sm text-red-800">{emisSummaryExportError}</p>}
     </section>}
     {!reports.students&&!reports.attendance&&!reports.finance&&!reports.staff&&<p className="mt-5 rounded-xl border border-amber-200 bg-amber-50 p-4 text-sm leading-6 text-amber-900">Your account can open this reporting workspace, but no report dataset is currently included in its permissions. Ask a school administrator to grant the specific report permissions you need.</p>}
