@@ -1026,6 +1026,43 @@ export function createOperationsRouter({ authenticate, sendInvitation = sendAcco
           WHERE fi.school_id = $1 AND fi.status <> 'VOID' GROUP BY fi.currency ORDER BY fi.currency`, [schoolId]);
         reports.finance = finance.rows;
       }
+      if (permissions.includes('emis.export') && permissions.includes('students.read')) {
+        const school = await req.auth.client.query('SELECT name,moe_school_emis_code FROM schools WHERE id=$1',[schoolId]);
+        const completeness = await req.auth.client.query(`SELECT COUNT(*)::int AS active_learners,
+            COUNT(*) FILTER (WHERE NULLIF(TRIM(s.external_learner_id),'') IS NULL)::int AS missing_learner_id,
+            COUNT(*) FILTER (WHERE s.date_of_birth IS NULL)::int AS missing_birth_date,
+            COUNT(*) FILTER (WHERE s.sex IS NULL OR TRIM(s.sex)='')::int AS missing_sex,
+            COUNT(*) FILTER (WHERE current_class.class_group_id IS NULL)::int AS missing_class
+          FROM students s LEFT JOIN LATERAL (
+            SELECT ce.class_group_id FROM class_enrollments ce
+            JOIN class_groups cg ON cg.school_id=ce.school_id AND cg.id=ce.class_group_id
+            JOIN academic_years ay ON ay.school_id=cg.school_id AND ay.id=cg.academic_year_id
+            WHERE ce.school_id=s.school_id AND ce.student_id=s.id AND ce.status='ACTIVE'
+            ORDER BY (ay.status='ACTIVE') DESC,ay.starts_on DESC,ce.enrolled_on DESC LIMIT 1
+          ) current_class ON true WHERE s.school_id=$1 AND s.status='ACTIVE'`,[schoolId]);
+        const byClass = await req.auth.client.query(`SELECT COALESCE(current_class.class_name,'Not assigned') AS class_name,
+            COALESCE(current_class.academic_year,'Not assigned') AS academic_year,
+            COUNT(*)::int AS learners,
+            COUNT(*) FILTER(WHERE UPPER(TRIM(s.sex)) IN ('MALE','M'))::int AS male,
+            COUNT(*) FILTER(WHERE UPPER(TRIM(s.sex)) IN ('FEMALE','F'))::int AS female,
+            COUNT(*) FILTER(WHERE s.sex IS NULL OR UPPER(TRIM(s.sex)) NOT IN ('MALE','M','FEMALE','F'))::int AS sex_unrecorded
+          FROM students s LEFT JOIN LATERAL (
+            SELECT cg.name AS class_name,ay.name AS academic_year FROM class_enrollments ce
+            JOIN class_groups cg ON cg.school_id=ce.school_id AND cg.id=ce.class_group_id
+            JOIN academic_years ay ON ay.school_id=cg.school_id AND ay.id=cg.academic_year_id
+            WHERE ce.school_id=s.school_id AND ce.student_id=s.id AND ce.status='ACTIVE'
+            ORDER BY (ay.status='ACTIVE') DESC,ay.starts_on DESC,ce.enrolled_on DESC LIMIT 1
+          ) current_class ON true
+          WHERE s.school_id=$1 AND s.status='ACTIVE'
+          GROUP BY current_class.class_name,current_class.academic_year
+          ORDER BY current_class.academic_year,current_class.class_name`,[schoolId]);
+        reports.emis = {
+          schemaVersion:'redeemer-emis-draft-v2',officialTemplateVerified:false,
+          schoolName:school.rows[0]?.name||'',schoolCode:school.rows[0]?.moe_school_emis_code||null,
+          completeness:completeness.rows[0],byClass:byClass.rows,
+          generatedAt:new Date().toISOString()
+        };
+      }
       if (permissions.includes('staff.read')) {
         const staff = await req.auth.client.query(`SELECT employment_status, count(*)::int AS count FROM staff_records WHERE school_id = $1 GROUP BY employment_status ORDER BY employment_status`, [schoolId]);
         reports.staff = staff.rows;
@@ -1033,6 +1070,41 @@ export function createOperationsRouter({ authenticate, sendInvitation = sendAcco
       await close(req, true);
       return res.json({ reports });
     } catch (error) { return fail(req, res, error); }
+  });
+
+  router.get('/reports/emis-summary.csv', needsPermission('emis.export'), async(req,res)=>{
+    try {
+      const schoolId=req.auth.claims.schoolId;
+      if(!req.auth.account.permissions.includes('students.read')) {
+        await close(req,false);
+        return res.status(403).json({error:'Learner reporting permission required.'});
+      }
+      const school=await req.auth.client.query('SELECT name,moe_school_emis_code FROM schools WHERE id=$1',[schoolId]);
+      const summary=await req.auth.client.query(`SELECT COALESCE(current_class.academic_year,'Not assigned') AS academic_year,
+        COALESCE(current_class.class_name,'Not assigned') AS class_name,
+        COUNT(*)::int AS learners,
+        COUNT(*) FILTER(WHERE UPPER(TRIM(s.sex)) IN ('MALE','M'))::int AS male,
+        COUNT(*) FILTER(WHERE UPPER(TRIM(s.sex)) IN ('FEMALE','F'))::int AS female,
+        COUNT(*) FILTER(WHERE s.sex IS NULL OR UPPER(TRIM(s.sex)) NOT IN ('MALE','M','FEMALE','F'))::int AS sex_unrecorded
+        FROM students s LEFT JOIN LATERAL (
+          SELECT cg.name AS class_name,ay.name AS academic_year FROM class_enrollments ce
+          JOIN class_groups cg ON cg.school_id=ce.school_id AND cg.id=ce.class_group_id
+          JOIN academic_years ay ON ay.school_id=cg.school_id AND ay.id=cg.academic_year_id
+          WHERE ce.school_id=s.school_id AND ce.student_id=s.id AND ce.status='ACTIVE'
+          ORDER BY (ay.status='ACTIVE') DESC,ay.starts_on DESC,ce.enrolled_on DESC LIMIT 1
+        ) current_class ON true WHERE s.school_id=$1 AND s.status='ACTIVE'
+        GROUP BY current_class.academic_year,current_class.class_name
+        ORDER BY current_class.academic_year,current_class.class_name`,[schoolId]);
+      const headers=['school_name','school_emis_code','academic_year','class','active_learners','male','female','sex_not_recorded','template_status'];
+      const rows=summary.rows.map(row=>[school.rows[0]?.name,school.rows[0]?.moe_school_emis_code,
+        row.academic_year,row.class_name,row.learners,row.male,row.female,row.sex_unrecorded,'DRAFT_NOT_MINISTRY_VERIFIED']);
+      await audit(req,'EMIS_DRAFT_AGGREGATE_EXPORTED','SCHOOL',schoolId,{rowCount:rows.length,template:'redeemer-emis-draft-v2'});
+      await close(req,true);
+      const csv=[headers,...rows].map(row=>row.map(csvCell).join(',')).join('\r\n');
+      res.setHeader('Content-Type','text/csv; charset=utf-8');
+      res.setHeader('Content-Disposition','attachment; filename="redeemer-emis-summary-draft.csv"');
+      return res.send(`\uFEFF${csv}\r\n`);
+    }catch(error){return fail(req,res,error);}
   });
 
   router.get('/reports/emis-roster.csv', needsPermission('emis.export'), async (req, res) => {
