@@ -112,8 +112,23 @@ app.use('/api', (_req, res) => {
   res.status(404).json({ error: 'API route not found' });
 });
 
-app.use(express.static(distDir, { index: false, maxAge: '1h' }));
-app.get('*', (_req, res) => res.sendFile(path.join(distDir, 'index.html')));
+// Vite fingerprints compiled assets, so those may be cached safely. The app shell
+// must always be revalidated after a deployment to avoid a stale client UI.
+app.use(express.static(distDir, {
+  index: false,
+  maxAge: 0,
+  setHeaders: (res, filePath) => {
+    if (/[/\\]assets[/\\].*\.[a-f0-9]{8,}\.(js|css)$/.test(filePath)) {
+      res.setHeader('Cache-Control', 'public, max-age=31536000, immutable');
+    } else {
+      res.setHeader('Cache-Control', 'no-cache, must-revalidate');
+    }
+  },
+}));
+app.get('*', (_req, res) => {
+  res.setHeader('Cache-Control', 'no-store, max-age=0');
+  res.sendFile(path.join(distDir, 'index.html'));
+});
 
 const server = app.listen(port, '0.0.0.0', () => {
   console.log(`Redeemer School ERP server listening on port ${port}`);
