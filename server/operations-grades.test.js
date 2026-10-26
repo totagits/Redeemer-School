@@ -128,15 +128,15 @@ test('student portal shows scores for published assessments when an older score 
   const client = {
     statements: [],
     async query(sql, params = []) {
-      const normalized = sql.replace(/\\s+/g, ' ').trim();
+      const normalized = sql.replace(/\s+/g, ' ').trim();
       this.statements.push({ sql: normalized, params });
       if (['BEGIN', 'COMMIT', 'ROLLBACK'].includes(normalized)) return { rows: [], rowCount: 0 };
       if (normalized.startsWith('SELECT s.id, s.student_number')) {
         return { rows: [{ id: studentId, student_number: 'RIA-001', first_name: 'Crystal', last_name: 'Nyemah', class_name: 'Grade 4', academic_year: '2027-2028' }], rowCount: 1 };
       }
       if (normalized.includes('FROM assessment_scores sc JOIN assessments a')) {
-        assert.match(normalized, /a\\.status = 'PUBLISHED'/);
-        assert.doesNotMatch(normalized, /sc\\.published_at IS NOT NULL/);
+        assert.match(normalized, /a\.status = 'PUBLISHED'/);
+        assert.doesNotMatch(normalized, /sc\.published_at IS NOT NULL/);
         return { rows: [{ title: 'Math Quiz 1', assessment_type: 'QUIZ', max_score: '20', score: '17', feedback: null, published_at: null, subject_name: 'Mathematics' }], rowCount: 1 };
       }
       return { rows: [], rowCount: 0 };
