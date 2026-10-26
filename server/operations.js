@@ -1359,6 +1359,7 @@ export function createOperationsRouter({ authenticate, sendInvitation = sendAcco
         FROM class_enrollments ce JOIN class_groups cg ON cg.school_id=ce.school_id AND cg.id=ce.class_group_id
         WHERE ce.school_id=$1 AND ce.student_id=$2 AND ce.status='ACTIVE' FOR UPDATE OF ce`, [schoolId, req.params.studentId]);
       if (!current.rowCount) { await close(req, false); return res.status(409).json({ error: 'This learner has no active class enrollment to transfer.' }); }
+      if (current.rowCount !== 1) { await close(req, false); return res.status(409).json({ error: 'Multiple active class enrollments were found. A school administrator must resolve this inconsistency before transfer.' }); }
       const from = current.rows[0];
       if (String(from.class_group_id) === classGroupId) { await close(req, false); return res.status(400).json({ error: 'Choose a different destination class.' }); }
       if (effectiveOn < String(from.enrolled_on).slice(0, 10)) { await close(req, false); return res.status(400).json({ error: 'The transfer date cannot be before the current class enrollment date.' }); }
