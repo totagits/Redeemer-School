@@ -508,6 +508,14 @@ export function createOperationsRouter({ authenticate, sendInvitation = sendAcco
           sg.relationship, sg.is_primary, sg.emergency_contact, sg.authorized_pickup, sg.can_view_results, sg.can_view_finance, sg.communication_consent FROM student_guardians sg JOIN guardians g
           ON g.school_id = sg.school_id AND g.id = sg.guardian_id
           WHERE sg.school_id = $1 AND sg.student_id = $2 ORDER BY sg.is_primary DESC, g.last_name, g.first_name`, [schoolId, req.params.studentId]);
+      const historyResult = await req.auth.client.query(`SELECT h.id, h.status, h.effective_on, h.ended_on, h.reason,
+          c.name AS class_name, y.name AS academic_year_name
+        FROM student_enrollment_history h
+        LEFT JOIN class_groups c ON c.school_id=h.school_id AND c.id=h.class_group_id
+        LEFT JOIN academic_years y ON y.school_id=h.school_id AND y.id=h.academic_year_id
+        WHERE h.school_id=$1 AND h.student_id=$2
+        ORDER BY h.effective_on DESC,h.created_at DESC,h.id DESC
+        LIMIT 100`, [schoolId,req.params.studentId]);
       const student = studentResult.rows[0];
       const canReadSensitive = req.auth.account.permissions.includes('students.sensitive.read');
       // The same student_guardians rows power both the family portal and staff records.
@@ -539,7 +547,7 @@ export function createOperationsRouter({ authenticate, sendInvitation = sendAcco
         for (const guardian of guardianResult.rows) { guardian.phone = null; guardian.email = null; }
       }
       await close(req, true);
-      return res.json({ student: { ...student, guardians: guardianResult.rows, documents, documentCategories, documentStorageReady, sensitiveFieldsVisible: canReadSensitive } });
+      return res.json({ student: { ...student, guardians: guardianResult.rows, enrollmentHistory: historyResult.rows, documents, documentCategories, documentStorageReady, sensitiveFieldsVisible: canReadSensitive } });
     } catch (error) { return fail(req, res, error); }
   });
 
