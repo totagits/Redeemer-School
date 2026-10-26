@@ -1114,7 +1114,7 @@ const AssessmentGradebook: React.FC<{ setup: Setup; account: SchoolAccount; csrf
     </div>
     {error && <p role="alert" className="mb-4 rounded-lg border border-red-200 bg-red-50 p-3 text-sm text-red-800">{error}</p>}
     {notice && <p role="status" className="mb-4 rounded-lg border border-emerald-200 bg-emerald-50 p-3 text-sm text-emerald-900">{notice}</p>}
-    <div className="grid gap-5 lg:grid-cols-[minmax(260px,0.75fr)_minmax(0,1.5fr)]">
+    <div className={`grid gap-5 ${canEnter ? 'lg:grid-cols-[minmax(260px,0.75fr)_minmax(0,1.5fr)]' : 'grid-cols-1'}`}>
       {canEnter && <form onSubmit={createAssessment} className="space-y-3 rounded-xl bg-slate-50 p-4">
         <h3 className="font-bold text-slate-900">Create assessment</h3>
         <label className={labelClass}>My assigned class and subject<select required name="assignmentId" className={inputClass}><option value="">Choose assignment</option>{setup.assignments.map(row => <option key={row.id} value={row.id!}>{row.class_name} · {row.subject_name}{account.roles.includes('TEACHER') ? '' : ` · ${row.teacher_name}`}</option>)}</select></label>
