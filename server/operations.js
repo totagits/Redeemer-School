@@ -460,6 +460,9 @@ export function createOperationsRouter({ authenticate, sendInvitation = sendAcco
       const isTeacher = req.auth.account.roles.includes('TEACHER');
       const students = await req.auth.client.query(`SELECT st.id, st.student_number, st.first_name, st.middle_name, st.last_name, st.status,
           c.id AS class_group_id, c.name AS class_name, y.name AS academic_year_name,
+          CASE WHEN $4::boolean THEN (st.date_of_birth IS NOT NULL) ELSE NULL END AS has_birth_date,
+          CASE WHEN $4::boolean THEN (st.sex IS NOT NULL AND btrim(st.sex) <> '') ELSE NULL END AS has_recorded_sex,
+          CASE WHEN $4::boolean THEN (st.external_learner_id IS NOT NULL AND btrim(st.external_learner_id) <> '') ELSE NULL END AS has_ministry_learner_id,
           (SELECT count(*)::int FROM student_attendance sa WHERE sa.school_id = st.school_id AND sa.student_id = st.id) AS attendance_records,
           (SELECT count(*)::int FROM fee_invoices fi WHERE fi.school_id = st.school_id AND fi.student_id = st.id AND fi.status NOT IN ('PAID','VOID')) AS open_invoices
         FROM students st
@@ -471,7 +474,7 @@ export function createOperationsRouter({ authenticate, sendInvitation = sendAcco
             ON scoped_a.school_id = scoped_ce.school_id AND scoped_a.class_group_id = scoped_ce.class_group_id
           WHERE scoped_ce.school_id = st.school_id AND scoped_ce.student_id = st.id AND scoped_a.teacher_id = $3
         ))
-        ORDER BY st.last_name, st.first_name`, [schoolId, isTeacher, req.auth.claims.userId]);
+        ORDER BY st.last_name, st.first_name`, [schoolId, isTeacher, req.auth.claims.userId, req.auth.account.permissions.includes('students.sensitive.read')]);
       const classes = req.auth.account.permissions.includes('students.write')
         ? await req.auth.client.query(`SELECT c.id, c.name, c.grade_level, y.name AS academic_year_name
             FROM class_groups c JOIN academic_years y ON y.school_id = c.school_id AND y.id = c.academic_year_id
