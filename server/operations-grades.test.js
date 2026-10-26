@@ -120,3 +120,45 @@ test('assessment creator cannot approve their own submitted marks', async t => {
   assert.equal(clients[0].statements.some(item => item.sql.startsWith('INSERT INTO audit_events')), false);
   assert.equal(clients[0].statements.at(-1).sql, 'ROLLBACK');
 });
+
+
+test('student portal shows scores for published assessments when an older score has no publication timestamp', async t => {
+  const studentId = 'student-1';
+  const studentAccount = { id: 'student-user-1', roles: ['STUDENT'], permissions: ['student.portal.read'] };
+  const client = {
+    statements: [],
+    async query(sql, params = []) {
+      const normalized = sql.replace(/\\s+/g, ' ').trim();
+      this.statements.push({ sql: normalized, params });
+      if (['BEGIN', 'COMMIT', 'ROLLBACK'].includes(normalized)) return { rows: [], rowCount: 0 };
+      if (normalized.startsWith('SELECT s.id, s.student_number')) {
+        return { rows: [{ id: studentId, student_number: 'RIA-001', first_name: 'Crystal', last_name: 'Nyemah', class_name: 'Grade 4', academic_year: '2027-2028' }], rowCount: 1 };
+      }
+      if (normalized.includes('FROM assessment_scores sc JOIN assessments a')) {
+        assert.match(normalized, /a\\.status = 'PUBLISHED'/);
+        assert.doesNotMatch(normalized, /sc\\.published_at IS NOT NULL/);
+        return { rows: [{ title: 'Math Quiz 1', assessment_type: 'QUIZ', max_score: '20', score: '17', feedback: null, published_at: null, subject_name: 'Mathematics' }], rowCount: 1 };
+      }
+      return { rows: [], rowCount: 0 };
+    },
+    release() {},
+  };
+  const app = express();
+  app.use(express.json());
+  app.use('/api/operations', createOperationsRouter({
+    authenticate(req, _res, next) {
+      req.auth = { account: studentAccount, claims: { schoolId, userId: studentAccount.id }, client };
+      next();
+    },
+  }));
+  const server = createServer(app).listen(0, '127.0.0.1');
+  await once(server, 'listening');
+  t.after(() => new Promise(resolve => server.close(resolve)));
+
+  const response = await fetch(`http://127.0.0.1:${server.address().port}/api/operations/portal`);
+  assert.equal(response.status, 200);
+  const portal = await response.json();
+  assert.equal(portal.grades.length, 1);
+  assert.equal(portal.grades[0].score, '17');
+  assert.equal(client.statements.at(-1).sql, 'COMMIT');
+});
