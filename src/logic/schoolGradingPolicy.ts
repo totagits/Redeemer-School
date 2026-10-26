@@ -4,6 +4,7 @@ export interface SchoolGradingPolicy {
   failMin: number;
   failMax: number;
   passMin: number;
+  gapHandling?: 'FAIL' | 'PASS' | 'REVIEW_REQUIRED';
 }
 
 export interface SchoolGradeResult {
@@ -15,12 +16,13 @@ export const DEFAULT_SCHOOL_GRADING_POLICY: SchoolGradingPolicy = {
   failMin: 1,
   failMax: 60,
   passMin: 70,
+  gapHandling: 'FAIL',
 };
 
 /**
- * Applies the school's configured pass/fail thresholds. Scores in an
- * undefined band (including zero under the currently stated policy) require
- * an explicit school decision before the result can be published.
+ * Applies the school's configured pass/fail thresholds. Under the current
+ * school rule, scores 1–69 fail and 70–100 pass. A recorded zero remains for
+ * review until the school confirms how zero scores should be handled.
  */
 export function classifySchoolGrade(
   score: number,
@@ -45,6 +47,12 @@ export function classifySchoolGrade(
     return { score, outcome: 'FAIL' };
   }
   if (score >= policy.passMin) {
+    return { score, outcome: 'PASS' };
+  }
+  if (policy.gapHandling === 'FAIL') {
+    return { score, outcome: 'FAIL' };
+  }
+  if (policy.gapHandling === 'PASS') {
     return { score, outcome: 'PASS' };
   }
   return { score, outcome: 'REVIEW_REQUIRED' };
