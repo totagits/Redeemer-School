@@ -43,7 +43,10 @@ export function classifySchoolGrade(
     throw new RangeError('Grading thresholds must be valid, non-overlapping percentages.');
   }
 
-  if (score >= policy.failMin && score <= policy.failMax) {
+  if (score < policy.failMin) {
+    return { score, outcome: 'REVIEW_REQUIRED' };
+  }
+  if (score <= policy.failMax) {
     return { score, outcome: 'FAIL' };
   }
   if (score >= policy.passMin) {
