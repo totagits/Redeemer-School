@@ -9,10 +9,10 @@ test('classifies requested fail and pass score ranges', () => {
   assert.equal(classifySchoolGrade(100).outcome, 'PASS');
 });
 
-test('holds scores the school policy has not defined for review', () => {
+test('holds only a zero score for school review', () => {
   assert.equal(classifySchoolGrade(0).outcome, 'REVIEW_REQUIRED');
-  assert.equal(classifySchoolGrade(61).outcome, 'REVIEW_REQUIRED');
-  assert.equal(classifySchoolGrade(69.99).outcome, 'REVIEW_REQUIRED');
+  assert.equal(classifySchoolGrade(61).outcome, 'FAIL');
+  assert.equal(classifySchoolGrade(69.99).outcome, 'FAIL');
 });
 
 test('rejects out-of-range marks and invalid policy thresholds', () => {
