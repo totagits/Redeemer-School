@@ -134,6 +134,10 @@ test('student portal shows scores for published assessments when an older score 
       if (normalized.startsWith('SELECT s.id, s.student_number')) {
         return { rows: [{ id: studentId, student_number: 'RIA-001', first_name: 'Crystal', last_name: 'Nyemah', class_name: 'Grade 4', academic_year: '2027-2028' }], rowCount: 1 };
       }
+      if (normalized.includes('learner_subjects')) {
+        assert.match(normalized, /JOIN teacher_subject_assignments ta/);
+        return { rows: [{ subject_name: 'Mathematics', weekly_minutes: null, periods_per_week: null, required: false, learning_objectives: null }], rowCount: 1 };
+      }
       if (normalized.includes('FROM assessment_scores sc JOIN assessments a')) {
         assert.match(normalized, /a\.status = 'PUBLISHED'/);
         assert.doesNotMatch(normalized, /sc\.published_at IS NOT NULL/);
@@ -160,5 +164,6 @@ test('student portal shows scores for published assessments when an older score 
   const portal = await response.json();
   assert.equal(portal.grades.length, 1);
   assert.equal(portal.grades[0].score, '17');
+  assert.equal(portal.subjects[0].subject_name, 'Mathematics');
   assert.equal(client.statements.at(-1).sql, 'COMMIT');
 });

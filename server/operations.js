@@ -518,6 +518,23 @@ export function createOperationsRouter({ authenticate, sendInvitation = sendAcco
         ORDER BY h.effective_on DESC,h.created_at DESC,h.id DESC
         LIMIT 100`, [schoolId,req.params.studentId]);
       const student = studentResult.rows[0];
+      let gradeDelivery = null;
+      if (req.auth.account.permissions.includes('grades.publish') || req.auth.account.permissions.includes('grades.moderate')) {
+        const [portalLink, deliveryRows] = await Promise.all([
+          req.auth.client.query(`SELECT EXISTS (SELECT 1 FROM student_portal_links WHERE school_id=$1 AND student_id=$2) AS linked`, [schoolId, req.params.studentId]),
+          req.auth.client.query(`SELECT a.id,a.title,a.assessment_type,a.status,ta.class_group_id,c.name AS class_name,s.name AS subject_name,
+              sc.score::text AS score,sc.published_at,(sc.id IS NOT NULL) AS score_saved,(ce.student_id IS NOT NULL) AS active_enrollment
+            FROM assessments a
+            JOIN teacher_subject_assignments ta ON ta.school_id=a.school_id AND ta.id=a.teacher_assignment_id
+            JOIN class_groups c ON c.school_id=ta.school_id AND c.id=ta.class_group_id
+            JOIN subjects s ON s.school_id=ta.school_id AND s.id=ta.subject_id
+            LEFT JOIN assessment_scores sc ON sc.school_id=a.school_id AND sc.assessment_id=a.id AND sc.student_id=$2
+            LEFT JOIN class_enrollments ce ON ce.school_id=ta.school_id AND ce.class_group_id=ta.class_group_id AND ce.student_id=$2 AND ce.status='ACTIVE'
+            WHERE a.school_id=$1 AND (ce.student_id IS NOT NULL OR sc.id IS NOT NULL)
+            ORDER BY c.name,s.name,a.created_at DESC LIMIT 100`, [schoolId, req.params.studentId]),
+        ]);
+        gradeDelivery = { portalLinked: Boolean(portalLink.rows[0]?.linked), assessments: deliveryRows.rows };
+      }
       const canReadSensitive = req.auth.account.permissions.includes('students.sensitive.read');
       // The same student_guardians rows power both the family portal and staff records.
       // Associate the most recent school-approved guardian portrait, never a pending photo.
@@ -548,7 +565,7 @@ export function createOperationsRouter({ authenticate, sendInvitation = sendAcco
         for (const guardian of guardianResult.rows) { guardian.phone = null; guardian.email = null; }
       }
       await close(req, true);
-      return res.json({ student: { ...student, guardians: guardianResult.rows, enrollmentHistory: historyResult.rows, documents, documentCategories, documentStorageReady, sensitiveFieldsVisible: canReadSensitive } });
+      return res.json({ student: { ...student, guardians: guardianResult.rows, enrollmentHistory: historyResult.rows, documents, documentCategories, documentStorageReady, sensitiveFieldsVisible: canReadSensitive, gradeDelivery } });
     } catch (error) { return fail(req, res, error); }
   });
 
@@ -2783,7 +2800,20 @@ export function createOperationsRouter({ authenticate, sendInvitation = sendAcco
         if (!student.rowCount) { await close(req, true); return res.json({ role: 'STUDENT', linked: false, message: 'Your learner portal is not linked to a student record yet.' }); }
         const learner = student.rows[0];
         const [subjects, timetable, attendance, grades, resources, announcements, invoices, receipts, reportCards] = await Promise.all([
-          req.auth.client.query(`SELECT DISTINCT s.name AS subject_name, gc.weekly_minutes, gc.periods_per_week, gc.required, gc.learning_objectives FROM class_enrollments ce JOIN class_groups c ON c.school_id = ce.school_id AND c.id = ce.class_group_id JOIN grade_curriculum_subjects gc ON gc.school_id = c.school_id AND gc.grade_level_id = c.grade_level_id AND gc.academic_year_id = c.academic_year_id JOIN subjects s ON s.school_id = gc.school_id AND s.id = gc.subject_id WHERE ce.school_id = $1 AND ce.student_id = $2 AND ce.status = 'ACTIVE' ORDER BY s.name`, [schoolId, learner.id]),
+          req.auth.client.query(`SELECT subject_name,weekly_minutes,periods_per_week,required,learning_objectives FROM (
+            SELECT DISTINCT s.name AS subject_name,gc.weekly_minutes,gc.periods_per_week,gc.required,gc.learning_objectives
+            FROM class_enrollments ce JOIN class_groups c ON c.school_id=ce.school_id AND c.id=ce.class_group_id
+            JOIN grade_curriculum_subjects gc ON gc.school_id=c.school_id AND gc.grade_level_id=c.grade_level_id AND gc.academic_year_id=c.academic_year_id
+            JOIN subjects s ON s.school_id=gc.school_id AND s.id=gc.subject_id
+            WHERE ce.school_id=$1 AND ce.student_id=$2 AND ce.status='ACTIVE'
+            UNION
+            SELECT DISTINCT s.name AS subject_name,gc.weekly_minutes,gc.periods_per_week,COALESCE(gc.required,false) AS required,gc.learning_objectives
+            FROM class_enrollments ce JOIN class_groups c ON c.school_id=ce.school_id AND c.id=ce.class_group_id
+            JOIN teacher_subject_assignments ta ON ta.school_id=c.school_id AND ta.class_group_id=c.id AND ta.academic_year_id=c.academic_year_id
+            JOIN subjects s ON s.school_id=ta.school_id AND s.id=ta.subject_id
+            LEFT JOIN grade_curriculum_subjects gc ON gc.school_id=ta.school_id AND gc.grade_level_id=c.grade_level_id AND gc.academic_year_id=c.academic_year_id AND gc.subject_id=ta.subject_id
+            WHERE ce.school_id=$1 AND ce.student_id=$2 AND ce.status='ACTIVE'
+          ) learner_subjects ORDER BY subject_name`, [schoolId, learner.id]),
           req.auth.client.query(`SELECT ts.day_of_week, tp.name AS period_name, tp.starts_at, tp.ends_at, s.name AS subject_name, u.full_name AS teacher_name FROM class_enrollments ce JOIN class_groups c ON c.school_id = ce.school_id AND c.id = ce.class_group_id JOIN teacher_subject_assignments a ON a.school_id = c.school_id AND a.class_group_id = c.id AND a.academic_year_id = c.academic_year_id JOIN timetable_slots ts ON ts.school_id = a.school_id AND ts.teacher_assignment_id = a.id JOIN timetable_periods tp ON tp.school_id = ts.school_id AND tp.id = ts.period_id JOIN subjects s ON s.school_id = a.school_id AND s.id = a.subject_id JOIN user_accounts u ON u.school_id = a.school_id AND u.id = a.teacher_id WHERE ce.school_id = $1 AND ce.student_id = $2 AND ce.status = 'ACTIVE' ORDER BY ts.day_of_week, tp.starts_at`, [schoolId, learner.id]),
           req.auth.client.query(`SELECT sa.status, sa.recorded_at, cs.scheduled_at, s.name AS subject_name FROM student_attendance sa JOIN class_sessions cs ON cs.school_id = sa.school_id AND cs.id = sa.class_session_id JOIN teacher_subject_assignments a ON a.school_id = cs.school_id AND a.id = cs.teacher_assignment_id JOIN subjects s ON s.school_id = a.school_id AND s.id = a.subject_id WHERE sa.school_id = $1 AND sa.student_id = $2 ORDER BY cs.scheduled_at DESC LIMIT 30`, [schoolId, learner.id]),
           req.auth.client.query(`SELECT a.title, a.assessment_type, a.max_score, sc.score, sc.feedback, sc.published_at, s.name AS subject_name FROM assessment_scores sc JOIN assessments a ON a.school_id = sc.school_id AND a.id = sc.assessment_id JOIN teacher_subject_assignments ta ON ta.school_id = a.school_id AND ta.id = a.teacher_assignment_id JOIN subjects s ON s.school_id = ta.school_id AND s.id = ta.subject_id WHERE sc.school_id = $1 AND sc.student_id = $2 AND a.status = 'PUBLISHED'  ORDER BY COALESCE(sc.published_at,a.created_at) DESC`, [schoolId, learner.id]),
@@ -2835,7 +2865,20 @@ export function createOperationsRouter({ authenticate, sendInvitation = sendAcco
         const results = [];
         for (const child of children.rows) {
           const [subjects, timetable, attendance, grades, resources, invoices, receipts, announcements, reportCards] = await Promise.all([
-            req.auth.client.query(`SELECT DISTINCT s.name AS subject_name, gc.weekly_minutes, gc.periods_per_week FROM class_enrollments ce JOIN class_groups c ON c.school_id = ce.school_id AND c.id = ce.class_group_id JOIN grade_curriculum_subjects gc ON gc.school_id = c.school_id AND gc.grade_level_id = c.grade_level_id AND gc.academic_year_id = c.academic_year_id JOIN subjects s ON s.school_id = gc.school_id AND s.id = gc.subject_id WHERE ce.school_id = $1 AND ce.student_id = $2 AND ce.status = 'ACTIVE' ORDER BY s.name`, [schoolId, child.id]),
+            req.auth.client.query(`SELECT subject_name,weekly_minutes,periods_per_week,required,learning_objectives FROM (
+            SELECT DISTINCT s.name AS subject_name,gc.weekly_minutes,gc.periods_per_week,gc.required,gc.learning_objectives
+            FROM class_enrollments ce JOIN class_groups c ON c.school_id=ce.school_id AND c.id=ce.class_group_id
+            JOIN grade_curriculum_subjects gc ON gc.school_id=c.school_id AND gc.grade_level_id=c.grade_level_id AND gc.academic_year_id=c.academic_year_id
+            JOIN subjects s ON s.school_id=gc.school_id AND s.id=gc.subject_id
+            WHERE ce.school_id=$1 AND ce.student_id=$2 AND ce.status='ACTIVE'
+            UNION
+            SELECT DISTINCT s.name AS subject_name,gc.weekly_minutes,gc.periods_per_week,COALESCE(gc.required,false) AS required,gc.learning_objectives
+            FROM class_enrollments ce JOIN class_groups c ON c.school_id=ce.school_id AND c.id=ce.class_group_id
+            JOIN teacher_subject_assignments ta ON ta.school_id=c.school_id AND ta.class_group_id=c.id AND ta.academic_year_id=c.academic_year_id
+            JOIN subjects s ON s.school_id=ta.school_id AND s.id=ta.subject_id
+            LEFT JOIN grade_curriculum_subjects gc ON gc.school_id=ta.school_id AND gc.grade_level_id=c.grade_level_id AND gc.academic_year_id=c.academic_year_id AND gc.subject_id=ta.subject_id
+            WHERE ce.school_id=$1 AND ce.student_id=$2 AND ce.status='ACTIVE'
+          ) learner_subjects ORDER BY subject_name`, [schoolId, child.id]),
             req.auth.client.query(`SELECT ts.day_of_week, tp.name AS period_name, tp.starts_at, tp.ends_at, s.name AS subject_name, u.full_name AS teacher_name FROM class_enrollments ce JOIN class_groups c ON c.school_id = ce.school_id AND c.id = ce.class_group_id JOIN teacher_subject_assignments a ON a.school_id = c.school_id AND a.class_group_id = c.id AND a.academic_year_id = c.academic_year_id JOIN timetable_slots ts ON ts.school_id = a.school_id AND ts.teacher_assignment_id = a.id JOIN timetable_periods tp ON tp.school_id = ts.school_id AND tp.id = ts.period_id JOIN subjects s ON s.school_id = a.school_id AND s.id = a.subject_id JOIN user_accounts u ON u.school_id = a.school_id AND u.id = a.teacher_id WHERE ce.school_id = $1 AND ce.student_id = $2 AND ce.status = 'ACTIVE' ORDER BY ts.day_of_week, tp.starts_at`, [schoolId, child.id]),
             req.auth.client.query(`SELECT sa.status, cs.scheduled_at, s.name AS subject_name FROM student_attendance sa JOIN class_sessions cs ON cs.school_id = sa.school_id AND cs.id = sa.class_session_id JOIN teacher_subject_assignments a ON a.school_id = cs.school_id AND a.id = cs.teacher_assignment_id JOIN subjects s ON s.school_id = a.school_id AND s.id = a.subject_id WHERE sa.school_id = $1 AND sa.student_id = $2 ORDER BY cs.scheduled_at DESC LIMIT 30`, [schoolId, child.id]),
             child.can_view_results ? req.auth.client.query(`SELECT a.title, a.assessment_type, a.max_score, sc.score, sc.feedback, sc.published_at, s.name AS subject_name FROM assessment_scores sc JOIN assessments a ON a.school_id = sc.school_id AND a.id = sc.assessment_id JOIN teacher_subject_assignments ta ON ta.school_id = a.school_id AND ta.id = a.teacher_assignment_id JOIN subjects s ON s.school_id = ta.school_id AND s.id = ta.subject_id WHERE sc.school_id = $1 AND sc.student_id = $2 AND a.status = 'PUBLISHED'  ORDER BY COALESCE(sc.published_at,a.created_at) DESC`, [schoolId, child.id]) : Promise.resolve({ rows: [] }),
