@@ -2118,7 +2118,7 @@ export function createOperationsRouter({ authenticate, sendInvitation = sendAcco
           LEFT JOIN grade_reporting_periods rp ON rp.school_id=a.school_id AND rp.id=a.reporting_period_id
           LEFT JOIN assessment_scores sc ON sc.school_id = a.school_id AND sc.assessment_id = a.id
           WHERE a.school_id = $1 ${isTeacher ? 'AND ta.teacher_id = $2' : ''}
-          GROUP BY a.id, c.name, s.name, u.full_name ORDER BY a.created_at DESC LIMIT 100`, isTeacher ? [schoolId, req.auth.claims.userId] : [schoolId]),
+          GROUP BY a.id, c.name, s.name, u.full_name, rp.label ORDER BY a.created_at DESC LIMIT 100`, isTeacher ? [schoolId, req.auth.claims.userId] : [schoolId]),
         req.auth.client.query(`SELECT m.id,m.teacher_assignment_id,m.title,m.description,m.material_type,m.resource_url,m.status,m.created_at,m.published_at,
             c.name AS class_name,s.name AS subject_name,u.full_name AS teacher_name
           FROM teaching_materials m
