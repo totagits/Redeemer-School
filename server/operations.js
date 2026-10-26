@@ -5,6 +5,7 @@ import { createInvitationSecret, InvitationDeliveryError, sendAccountInvitation 
 import { createMomoClient, MomoProviderError } from './mtnMomo.js';
 import { sendWebPush } from './webPush.js';
 import { sendSchoolSms, smsProviderName, smsReadiness } from './sms.js';
+import { buildYearEndReportCard, DEFAULT_WEIGHTS, REQUIRED_CATEGORIES, validateYearEndWeights } from './yearEndReportCards.js';
 
 const NAME_LIMIT = 120;
 const EMAIL_RE = /^\S+@\S+\.\S+$/;
@@ -1905,6 +1906,162 @@ export function createOperationsRouter({ authenticate, sendInvitation = sendAcco
     }catch(error){return fail(req,res,error);}
   });
 
+  router.post('/year-end-report-cards/setup', needsPermission('academics.configure'), csrf, async (req, res) => {
+    const academicYearId = text(req.body?.academicYearId, 50);
+    if (!academicYearId) { await close(req, false); return res.status(400).json({ error: 'Choose an academic year first.' }); }
+    const labels = ['1st', '2nd', '3rd', 'Exam', '4th', '5th', '6th', 'Exam'];
+    try {
+      const year = await req.auth.client.query('SELECT id FROM academic_years WHERE school_id=$1 AND id=$2', [req.auth.claims.schoolId, academicYearId]);
+      if (!year.rowCount) { await close(req, false); return res.status(400).json({ error: 'Choose an academic year belonging to this school.' }); }
+      for (let index = 0; index < labels.length; index += 1) {
+        await req.auth.client.query(`INSERT INTO grade_reporting_periods (school_id, academic_year_id, label, sort_order, created_by)
+          VALUES ($1,$2,$3,$4,$5) ON CONFLICT (school_id,academic_year_id,sort_order) DO NOTHING`,
+        [req.auth.claims.schoolId, academicYearId, labels[index], index + 1, req.auth.claims.userId]);
+      }
+      await audit(req, 'YEAR_END_REPORT_PERIODS_CONFIGURED', 'ACADEMIC_YEAR', academicYearId, { periods: labels.length });
+      const result = await req.auth.client.query(`SELECT id,label,sort_order FROM grade_reporting_periods
+        WHERE school_id=$1 AND academic_year_id=$2 ORDER BY sort_order`, [req.auth.claims.schoolId, academicYearId]);
+      return done(req, res, 201, { periods: result.rows, notice: 'Eight report-card periods are ready. Teachers can now tag assessments to a period.' });
+    } catch (error) { return fail(req, res, error); }
+  });
+
+  router.get('/year-end-report-cards/config', needsAnyPermission(['grades.publish', 'academics.configure']), async (req, res) => {
+    const academicYearId = text(req.query?.academicYearId, 50);
+    if (!academicYearId) { await close(req, false); return res.status(400).json({ error: 'Choose an academic year.' }); }
+    try {
+      const year = await req.auth.client.query('SELECT id,name FROM academic_years WHERE school_id=$1 AND id=$2', [req.auth.claims.schoolId, academicYearId]);
+      if (!year.rowCount) { await close(req, false); return res.status(404).json({ error: 'Academic year not found for this school.' }); }
+      const [periods, savedWeights] = await Promise.all([
+        req.auth.client.query(`SELECT id,label,sort_order FROM grade_reporting_periods WHERE school_id=$1 AND academic_year_id=$2 ORDER BY sort_order`, [req.auth.claims.schoolId, academicYearId]),
+        req.auth.client.query(`SELECT assessment_type,weight_percent FROM year_end_assessment_weights WHERE school_id=$1 AND academic_year_id=$2`, [req.auth.claims.schoolId, academicYearId]),
+      ]);
+      const weights = { ...DEFAULT_WEIGHTS };
+      for (const row of savedWeights.rows) if (REQUIRED_CATEGORIES.includes(row.assessment_type)) weights[row.assessment_type] = Number(row.weight_percent);
+      await close(req, true);
+      return res.json({ academicYear: year.rows[0], periods: periods.rows, weights, configured: periods.rowCount === 8, weightsConfigured: savedWeights.rowCount === 4 });
+    } catch (error) { return fail(req, res, error); }
+  });
+
+  router.post('/year-end-report-cards/weights', needsPermission('academics.configure'), csrf, async (req, res) => {
+    const academicYearId = text(req.body?.academicYearId, 50);
+    const weights = validateYearEndWeights(req.body?.weights);
+    if (!academicYearId || !weights) { await close(req, false); return res.status(400).json({ error: 'Enter positive weights for assignments, quizzes, tests, and exams that total exactly 100%.' }); }
+    try {
+      const year = await req.auth.client.query('SELECT id FROM academic_years WHERE school_id=$1 AND id=$2', [req.auth.claims.schoolId, academicYearId]);
+      if (!year.rowCount) { await close(req, false); return res.status(404).json({ error: 'Academic year not found for this school.' }); }
+      for (const category of REQUIRED_CATEGORIES) {
+        await req.auth.client.query(`INSERT INTO year_end_assessment_weights (school_id,academic_year_id,assessment_type,weight_percent,updated_by)
+          VALUES ($1,$2,$3,$4,$5) ON CONFLICT (school_id,academic_year_id,assessment_type)
+          DO UPDATE SET weight_percent=EXCLUDED.weight_percent,updated_by=EXCLUDED.updated_by,updated_at=now()`,
+        [req.auth.claims.schoolId, academicYearId, category, weights[category], req.auth.claims.userId]);
+      }
+      await audit(req, 'YEAR_END_ASSESSMENT_WEIGHTS_UPDATED', 'ACADEMIC_YEAR', academicYearId, { weights });
+      return done(req, res, 200, { weights, notice: 'Year-end assessment weights saved.' });
+    } catch (error) { return fail(req, res, error); }
+  });
+
+  router.get('/year-end-report-cards/review', needsPermission('grades.publish'), async (req, res) => {
+    const academicYearId = text(req.query?.academicYearId, 50);
+    const classGroupId = text(req.query?.classGroupId, 50);
+    if (!academicYearId || !classGroupId) { await close(req, false); return res.status(400).json({ error: 'Choose an academic year and class.' }); }
+    try {
+      const schoolId = req.auth.claims.schoolId;
+      const selectedClass = await req.auth.client.query(`SELECT c.id,c.name,c.grade_level,c.section,c.academic_year_id,y.name AS academic_year_name,y.starts_on,y.ends_on,
+          sc.name AS school_name,sc.code AS school_code
+        FROM class_groups c JOIN academic_years y ON y.school_id=c.school_id AND y.id=c.academic_year_id
+        JOIN schools sc ON sc.id=c.school_id
+        WHERE c.school_id=$1 AND c.id=$2 AND c.academic_year_id=$3`, [schoolId, classGroupId, academicYearId]);
+      if (!selectedClass.rowCount) { await close(req, false); return res.status(404).json({ error: 'Choose a class in the selected academic year.' }); }
+      const [periodsResult, weightRows, studentsResult, subjectsResult, markRowsResult, existingResult] = await Promise.all([
+        req.auth.client.query(`SELECT id,label,sort_order FROM grade_reporting_periods WHERE school_id=$1 AND academic_year_id=$2 ORDER BY sort_order`, [schoolId, academicYearId]),
+        req.auth.client.query(`SELECT assessment_type,weight_percent FROM year_end_assessment_weights WHERE school_id=$1 AND academic_year_id=$2`, [schoolId, academicYearId]),
+        req.auth.client.query(`SELECT st.id,st.student_number,st.first_name,st.middle_name,st.last_name
+          FROM class_enrollments ce JOIN students st ON st.school_id=ce.school_id AND st.id=ce.student_id
+          WHERE ce.school_id=$1 AND ce.class_group_id=$2 AND ce.status='ACTIVE' AND st.status='ACTIVE'
+          ORDER BY st.last_name,st.first_name,st.student_number`, [schoolId, classGroupId]),
+        req.auth.client.query(`SELECT DISTINCT s.id,s.name FROM teacher_subject_assignments ta
+          JOIN subjects s ON s.school_id=ta.school_id AND s.id=ta.subject_id
+          WHERE ta.school_id=$1 AND ta.class_group_id=$2 AND ta.academic_year_id=$3
+            AND ta.effective_from <= $5::date AND (ta.effective_to IS NULL OR ta.effective_to >= $4::date)
+          ORDER BY s.name`, [schoolId, classGroupId, academicYearId, selectedClass.rows[0].starts_on, selectedClass.rows[0].ends_on]),
+        req.auth.client.query(`SELECT sc.student_id,ta.subject_id,rp.id AS reporting_period_id,rp.label AS period_label,rp.sort_order,
+            a.assessment_type,sc.score,a.max_score
+          FROM assessments a JOIN teacher_subject_assignments ta ON ta.school_id=a.school_id AND ta.id=a.teacher_assignment_id
+          JOIN subjects s ON s.school_id=ta.school_id AND s.id=ta.subject_id
+          JOIN grade_reporting_periods rp ON rp.school_id=a.school_id AND rp.id=a.reporting_period_id
+          JOIN assessment_scores sc ON sc.school_id=a.school_id AND sc.assessment_id=a.id AND sc.published_at IS NOT NULL
+          JOIN class_enrollments ce ON ce.school_id=sc.school_id AND ce.student_id=sc.student_id AND ce.class_group_id=ta.class_group_id AND ce.status='ACTIVE'
+          WHERE a.school_id=$1 AND ta.class_group_id=$2 AND ta.academic_year_id=$3 AND rp.academic_year_id=$3 AND a.status='PUBLISHED'
+          ORDER BY sc.student_id,s.name,rp.sort_order,a.assessment_type,a.title`, [schoolId, classGroupId, academicYearId]),
+        req.auth.client.query(`SELECT rc.student_id,rc.status,rc.academic_summary,rc.approved_at,u.full_name AS approved_by_name
+          FROM report_cards rc LEFT JOIN user_accounts u ON u.school_id=rc.school_id AND u.id=rc.approved_by
+          WHERE rc.school_id=$1 AND rc.academic_year_id=$2 AND rc.academic_term_id IS NULL
+          ORDER BY rc.snapshot_version DESC`, [schoolId, academicYearId]),
+      ]);
+      const weights = { ...DEFAULT_WEIGHTS };
+      for (const row of weightRows.rows) if (REQUIRED_CATEGORIES.includes(row.assessment_type)) weights[row.assessment_type] = Number(row.weight_percent);
+      const periods = periodsResult.rows;
+      const weightsConfigured = weightRows.rowCount === REQUIRED_CATEGORIES.length && Boolean(validateYearEndWeights(weights));
+      const students = studentsResult.rows.map(student => {
+        const report = buildYearEndReportCard({ student, subjects: subjectsResult.rows, periods, weights,
+          markRows: markRowsResult.rows.filter(mark => mark.student_id === student.id) });
+        const existing = existingResult.rows.find(row => row.student_id === student.id && row.status === 'PUBLISHED');
+        return { ...report, readyForPrincipal: report.readyForPrincipal && weightsConfigured, existingReportCard: existing ? { status: existing.status, snapshot: existing.academic_summary, approvedAt: existing.approved_at, approvedBy: existing.approved_by_name } : null };
+      });
+      await close(req, true);
+      return res.json({ school: { name: selectedClass.rows[0].school_name, code: selectedClass.rows[0].school_code }, classGroup: selectedClass.rows[0], periods,
+        weights, weightsConfigured, configured: periods.length === 8, students });
+    } catch (error) { return fail(req, res, error); }
+  });
+
+  router.post('/year-end-report-cards/approve', needsPermission('grades.publish'), csrf, async (req, res) => {
+    if (!req.auth.account.roles.includes('PRINCIPAL')) { await close(req,false); return res.status(403).json({ error: 'Only a Principal account can sign off and publish year-end report cards.' }); }
+    const academicYearId = text(req.body?.academicYearId, 50);
+    const classGroupId = text(req.body?.classGroupId, 50);
+    const studentId = text(req.body?.studentId, 50);
+    if (!academicYearId || !classGroupId || !studentId) { await close(req, false); return res.status(400).json({ error: 'Choose a learner, class, and academic year.' }); }
+    try {
+      const schoolId = req.auth.claims.schoolId;
+      const duplicate = await req.auth.client.query(`SELECT id FROM report_cards WHERE school_id=$1 AND student_id=$2 AND academic_year_id=$3 AND academic_term_id IS NULL AND status='PUBLISHED' FOR UPDATE`, [schoolId, studentId, academicYearId]);
+      if (duplicate.rowCount) { await close(req, false); return res.status(409).json({ error: 'This year-end report is already approved and published. A correction workflow is required before changing it.' }); }
+      const preview = await req.auth.client.query(`SELECT c.id,c.name,c.grade_level,c.section,c.academic_year_id,y.name AS academic_year_name,y.starts_on,y.ends_on,sc.name AS school_name,sc.code AS school_code,
+          st.id AS student_id,st.student_number,st.first_name,st.middle_name,st.last_name
+        FROM class_groups c JOIN academic_years y ON y.school_id=c.school_id AND y.id=c.academic_year_id JOIN schools sc ON sc.id=c.school_id
+        JOIN class_enrollments ce ON ce.school_id=c.school_id AND ce.class_group_id=c.id AND ce.status='ACTIVE'
+        JOIN students st ON st.school_id=ce.school_id AND st.id=ce.student_id AND st.status='ACTIVE'
+        WHERE c.school_id=$1 AND c.id=$2 AND c.academic_year_id=$3 AND st.id=$4`, [schoolId,classGroupId,academicYearId,studentId]);
+      if (!preview.rowCount) { await close(req,false); return res.status(404).json({ error: 'Learner is not actively enrolled in this class and academic year.' }); }
+      const p = preview.rows[0];
+      const [periodRows, weightRows, subjectRows, marks] = await Promise.all([
+        req.auth.client.query(`SELECT id,label,sort_order FROM grade_reporting_periods WHERE school_id=$1 AND academic_year_id=$2 ORDER BY sort_order`, [schoolId,academicYearId]),
+        req.auth.client.query(`SELECT assessment_type,weight_percent FROM year_end_assessment_weights WHERE school_id=$1 AND academic_year_id=$2`, [schoolId,academicYearId]),
+        req.auth.client.query(`SELECT DISTINCT s.id,s.name FROM teacher_subject_assignments ta JOIN subjects s ON s.school_id=ta.school_id AND s.id=ta.subject_id
+          WHERE ta.school_id=$1 AND ta.class_group_id=$2 AND ta.academic_year_id=$3 AND ta.effective_from <= $5::date AND (ta.effective_to IS NULL OR ta.effective_to >= $4::date) ORDER BY s.name`, [schoolId,classGroupId,academicYearId,p.starts_on,p.ends_on]),
+        req.auth.client.query(`SELECT sc.student_id,ta.subject_id,rp.id AS reporting_period_id,rp.label AS period_label,rp.sort_order,a.assessment_type,sc.score,a.max_score
+          FROM assessments a JOIN teacher_subject_assignments ta ON ta.school_id=a.school_id AND ta.id=a.teacher_assignment_id
+          JOIN grade_reporting_periods rp ON rp.school_id=a.school_id AND rp.id=a.reporting_period_id
+          JOIN assessment_scores sc ON sc.school_id=a.school_id AND sc.assessment_id=a.id AND sc.published_at IS NOT NULL
+          WHERE a.school_id=$1 AND ta.class_group_id=$2 AND ta.academic_year_id=$3 AND rp.academic_year_id=$3 AND a.status='PUBLISHED' AND sc.student_id=$4`, [schoolId,classGroupId,academicYearId,studentId]),
+      ]);
+      const weights = { ...DEFAULT_WEIGHTS };
+      for (const row of weightRows.rows) if (REQUIRED_CATEGORIES.includes(row.assessment_type)) weights[row.assessment_type] = Number(row.weight_percent);
+      if (weightRows.rowCount !== REQUIRED_CATEGORIES.length || !validateYearEndWeights(weights)) { await close(req,false); return res.status(409).json({ error: 'The school administrator must save approved assessment weights totaling 100% before Principal approval.' }); }
+      const report = buildYearEndReportCard({ student: { id:p.student_id, student_number:p.student_number, first_name:p.first_name, middle_name:p.middle_name, last_name:p.last_name }, subjects: subjectRows.rows, periods: periodRows.rows, markRows: marks.rows, weights });
+      if (periodRows.rowCount !== 8) { await close(req,false); return res.status(409).json({ error: 'Set up all eight report-card periods before Principal approval.' }); }
+      if (!report.readyForPrincipal) { await close(req,false); return res.status(409).json({ error: 'This report has missing published marks or no subjects. Resolve the incomplete period/category marks before approval.' }); }
+      const principal = await req.auth.client.query(`SELECT full_name FROM user_accounts WHERE school_id=$1 AND id=$2`, [schoolId, req.auth.claims.userId]);
+      const snapshot = { school: { name:p.school_name, code:p.school_code }, classGroup: { id:p.id, name:p.name, gradeLevel:p.grade_level, section:p.section, academicYear:p.academic_year_name }, approval: { principalName: principal.rows[0]?.full_name || 'Principal', title: 'Principal', approvedAt: new Date().toISOString() }, ...report };
+      const version = await req.auth.client.query(`SELECT COALESCE(MAX(snapshot_version),0)::int+1 AS next_version FROM report_cards
+        WHERE school_id=$1 AND student_id=$2 AND academic_year_id=$3 AND academic_term_id IS NULL`, [schoolId,studentId,academicYearId]);
+      const saved = await req.auth.client.query(`INSERT INTO report_cards
+          (school_id,student_id,academic_year_id,status,academic_summary,promotion_status,approved_by,approved_at,published_at,snapshot_version,calculated_at)
+        VALUES ($1,$2,$3,'PUBLISHED',$4::jsonb,$5,$6,now(),now(),$7,now()) RETURNING id,status,approved_at,published_at,snapshot_version`,
+      [schoolId,studentId,academicYearId,JSON.stringify(snapshot),report.overallOutcome,req.auth.claims.userId,version.rows[0].next_version]);
+      await audit(req,'YEAR_END_REPORT_CARD_APPROVED_AND_PUBLISHED','REPORT_CARD',saved.rows[0].id,{ studentId, academicYearId, classGroupId, overallAverage:report.overallAverage, overallOutcome:report.overallOutcome, snapshotVersion:saved.rows[0].snapshot_version });
+      return done(req,res,201,{ reportCard:saved.rows[0], snapshot, notice:'The Principal-approved report card is now published and available to the linked learner and guardian.' });
+    } catch (error) { return fail(req,res,error); }
+  });
+
   router.get('/setup', async (req, res, next) => {
     const canConfigure = req.auth.account.permissions.includes('academics.configure');
     const canViewTeaching = ['attendance.read', 'grades.enter', 'grades.moderate', 'grades.publish'].some(permission => req.auth.account.permissions.includes(permission));
@@ -1915,13 +2072,13 @@ export function createOperationsRouter({ authenticate, sendInvitation = sendAcco
     try {
       const schoolId = req.auth.claims.schoolId;
       const isTeacher = req.auth.account.roles.includes('TEACHER') && !req.auth.account.permissions.includes('academics.configure');
-      const [school, years, subjects, classes, teachers, students, assignments, educationLevels, gradeLevels, terms, curriculum, resources, periods, slots, assessments, teachingMaterials] = await Promise.all([
+      const [school, years, subjects, classes, teachers, students, assignments, educationLevels, gradeLevels, terms, reportingPeriods, curriculum, resources, periods, slots, assessments, teachingMaterials] = await Promise.all([
         req.auth.client.query(`SELECT id, code, name, timezone,
             CASE WHEN $2::boolean THEN moe_school_emis_code ELSE NULL END AS moe_school_emis_code
           FROM schools WHERE id = $1`, [schoolId, req.auth.account.permissions.includes('school.configure')]),
         req.auth.client.query(`SELECT y.id, y.name, y.starts_on, y.ends_on, y.status FROM academic_years y WHERE y.school_id = $1 ${isTeacher ? 'AND EXISTS (SELECT 1 FROM teacher_subject_assignments a WHERE a.school_id = y.school_id AND a.academic_year_id = y.id AND a.teacher_id = $2)' : ''} ORDER BY y.starts_on DESC`, isTeacher ? [schoolId, req.auth.claims.userId] : [schoolId]),
         req.auth.client.query(`SELECT s.id, s.code, s.name FROM subjects s WHERE s.school_id = $1 AND s.is_active ${isTeacher ? 'AND EXISTS (SELECT 1 FROM teacher_subject_assignments a WHERE a.school_id = s.school_id AND a.subject_id = s.id AND a.teacher_id = $2)' : ''} ORDER BY s.name`, isTeacher ? [schoolId, req.auth.claims.userId] : [schoolId]),
-        req.auth.client.query(`SELECT c.id, c.name, c.grade_level, c.section, y.name AS academic_year_name
+        req.auth.client.query(`SELECT c.id, c.name, c.grade_level, c.section, c.academic_year_id, y.name AS academic_year_name
           FROM class_groups c JOIN academic_years y ON y.school_id = c.school_id AND y.id = c.academic_year_id
           WHERE c.school_id = $1 ${isTeacher ? 'AND EXISTS (SELECT 1 FROM teacher_subject_assignments a WHERE a.school_id = c.school_id AND a.class_group_id = c.id AND a.teacher_id = $2)' : ''} ORDER BY y.starts_on DESC, c.grade_level, c.section`, isTeacher ? [schoolId, req.auth.claims.userId] : [schoolId]),
         req.auth.client.query(`SELECT u.id, u.full_name, u.email, tp.employee_number
@@ -1931,7 +2088,7 @@ export function createOperationsRouter({ authenticate, sendInvitation = sendAcco
           FROM students s LEFT JOIN class_enrollments ce ON ce.school_id = s.school_id AND ce.student_id = s.id AND ce.status = 'ACTIVE'
           LEFT JOIN class_groups c ON c.school_id = ce.school_id AND c.id = ce.class_group_id
           WHERE s.school_id = $1 AND s.status = 'ACTIVE' ${isTeacher ? 'AND EXISTS (SELECT 1 FROM class_enrollments scoped_ce JOIN teacher_subject_assignments scoped_a ON scoped_a.school_id = scoped_ce.school_id AND scoped_a.class_group_id = scoped_ce.class_group_id WHERE scoped_ce.school_id = s.school_id AND scoped_ce.student_id = s.id AND scoped_a.teacher_id = $2)' : ''} ORDER BY s.last_name, s.first_name`, isTeacher ? [schoolId, req.auth.claims.userId] : [schoolId]),
-        req.auth.client.query(`SELECT a.id, u.full_name AS teacher_name, s.name AS subject_name, c.name AS class_name, y.name AS academic_year_name
+        req.auth.client.query(`SELECT a.id, a.class_group_id, a.academic_year_id, u.full_name AS teacher_name, s.name AS subject_name, c.name AS class_name, y.name AS academic_year_name
           FROM teacher_subject_assignments a JOIN teacher_profiles tp ON tp.school_id = a.school_id AND tp.user_id = a.teacher_id
           JOIN user_accounts u ON u.school_id = tp.school_id AND u.id = tp.user_id
           JOIN subjects s ON s.school_id = a.school_id AND s.id = a.subject_id
@@ -1942,11 +2099,15 @@ export function createOperationsRouter({ authenticate, sendInvitation = sendAcco
         req.auth.client.query(`SELECT id, name, code FROM education_levels WHERE school_id = $1 AND active ORDER BY sort_order, name`, [schoolId]),
         req.auth.client.query(`SELECT g.id, g.education_level_id, g.name, g.code, e.name AS education_level_name FROM grade_levels g JOIN education_levels e ON e.school_id = g.school_id AND e.id = g.education_level_id WHERE g.school_id = $1 AND g.active ORDER BY e.sort_order, g.sort_order, g.name`, [schoolId]),
         req.auth.client.query(`SELECT id, academic_year_id, name FROM academic_terms WHERE school_id = $1 AND status <> 'CLOSED' ORDER BY starts_on`, [schoolId]),
+        req.auth.client.query(`SELECT rp.id,rp.academic_year_id,rp.label,rp.sort_order,y.name AS academic_year_name
+          FROM grade_reporting_periods rp JOIN academic_years y ON y.school_id=rp.school_id AND y.id=rp.academic_year_id
+          WHERE rp.school_id=$1 ${isTeacher ? 'AND EXISTS (SELECT 1 FROM teacher_subject_assignments a WHERE a.school_id=rp.school_id AND a.academic_year_id=rp.academic_year_id AND a.teacher_id=$2)' : ''}
+          ORDER BY y.starts_on DESC,rp.sort_order`, isTeacher ? [schoolId, req.auth.claims.userId] : [schoolId]),
         req.auth.client.query(`SELECT gc.id, gc.academic_year_id, gc.grade_level_id, gc.subject_id, gc.academic_term_id, gc.weekly_minutes, gc.periods_per_week, gc.required, gc.learning_objectives, g.name AS grade_name, s.name AS subject_name, y.name AS academic_year_name, t.name AS term_name FROM grade_curriculum_subjects gc JOIN grade_levels g ON g.school_id = gc.school_id AND g.id = gc.grade_level_id JOIN subjects s ON s.school_id = gc.school_id AND s.id = gc.subject_id JOIN academic_years y ON y.school_id = gc.school_id AND y.id = gc.academic_year_id LEFT JOIN academic_terms t ON t.school_id = gc.school_id AND t.id = gc.academic_term_id WHERE gc.school_id = $1 ${isTeacher ? 'AND EXISTS (SELECT 1 FROM teacher_subject_assignments a JOIN class_groups c ON c.school_id = a.school_id AND c.id = a.class_group_id WHERE a.school_id = gc.school_id AND a.teacher_id = $2 AND a.subject_id = gc.subject_id AND a.academic_year_id = gc.academic_year_id AND c.grade_level_id = gc.grade_level_id)' : ''} ORDER BY y.starts_on DESC, g.sort_order, s.name`, isTeacher ? [schoolId, req.auth.claims.userId] : [schoolId]),
         req.auth.client.query(`SELECT r.id, r.curriculum_subject_id, r.resource_type, r.title, r.author, r.publisher, r.isbn, r.edition, r.description, r.resource_url, r.required, gc.grade_level_id, gc.subject_id FROM curriculum_resources r JOIN grade_curriculum_subjects gc ON gc.school_id = r.school_id AND gc.id = r.curriculum_subject_id WHERE r.school_id = $1 ${isTeacher ? 'AND EXISTS (SELECT 1 FROM teacher_subject_assignments a JOIN class_groups c ON c.school_id = a.school_id AND c.id = a.class_group_id WHERE a.school_id = gc.school_id AND a.teacher_id = $2 AND a.subject_id = gc.subject_id AND c.grade_level_id = gc.grade_level_id)' : ''} ORDER BY r.created_at DESC`, isTeacher ? [schoolId, req.auth.claims.userId] : [schoolId]),
         req.auth.client.query('SELECT id, name, starts_at, ends_at FROM timetable_periods WHERE school_id = $1 ORDER BY starts_at', [schoolId]),
         req.auth.client.query(`SELECT ts.id, ts.teacher_assignment_id, ts.day_of_week, ts.effective_from, ts.effective_to, tp.name AS period_name, tp.starts_at, tp.ends_at, c.name AS class_name, s.name AS subject_name, u.full_name AS teacher_name FROM timetable_slots ts JOIN timetable_periods tp ON tp.school_id = ts.school_id AND tp.id = ts.period_id JOIN teacher_subject_assignments a ON a.school_id = ts.school_id AND a.id = ts.teacher_assignment_id JOIN class_groups c ON c.school_id = a.school_id AND c.id = a.class_group_id JOIN subjects s ON s.school_id = a.school_id AND s.id = a.subject_id JOIN user_accounts u ON u.school_id = a.school_id AND u.id = a.teacher_id WHERE ts.school_id = $1 ${isTeacher ? 'AND a.teacher_id = $2' : ''} ORDER BY ts.day_of_week, tp.starts_at`, isTeacher ? [schoolId, req.auth.claims.userId] : [schoolId]),
-        req.auth.client.query(`SELECT a.id, a.teacher_assignment_id, a.title, a.assessment_type, a.max_score, a.due_at, a.status, a.created_at,
+        req.auth.client.query(`SELECT a.id, a.teacher_assignment_id, a.reporting_period_id, rp.label AS reporting_period_label, a.title, a.assessment_type, a.max_score, a.due_at, a.status, a.created_at,
             c.name AS class_name, s.name AS subject_name, u.full_name AS teacher_name,
             COUNT(sc.id)::int AS scored_students
           FROM assessments a
@@ -1954,6 +2115,7 @@ export function createOperationsRouter({ authenticate, sendInvitation = sendAcco
           JOIN class_groups c ON c.school_id = ta.school_id AND c.id = ta.class_group_id
           JOIN subjects s ON s.school_id = ta.school_id AND s.id = ta.subject_id
           JOIN user_accounts u ON u.school_id = ta.school_id AND u.id = ta.teacher_id
+          LEFT JOIN grade_reporting_periods rp ON rp.school_id=a.school_id AND rp.id=a.reporting_period_id
           LEFT JOIN assessment_scores sc ON sc.school_id = a.school_id AND sc.assessment_id = a.id
           WHERE a.school_id = $1 ${isTeacher ? 'AND ta.teacher_id = $2' : ''}
           GROUP BY a.id, c.name, s.name, u.full_name ORDER BY a.created_at DESC LIMIT 100`, isTeacher ? [schoolId, req.auth.claims.userId] : [schoolId]),
@@ -1969,7 +2131,7 @@ export function createOperationsRouter({ authenticate, sendInvitation = sendAcco
       ]);
       await close(req, true);
       return res.json({ school: school.rows[0], years: years.rows, subjects: subjects.rows, classes: classes.rows,
-        teachers: teachers.rows, students: students.rows, assignments: assignments.rows, educationLevels: educationLevels.rows, gradeLevels: gradeLevels.rows, terms: terms.rows,
+        teachers: teachers.rows, students: students.rows, assignments: assignments.rows, educationLevels: educationLevels.rows, gradeLevels: gradeLevels.rows, terms: terms.rows, reportingPeriods: reportingPeriods.rows,
         curriculum: curriculum.rows, resources: resources.rows, periods: periods.rows, timetable: slots.rows, assessments: assessments.rows, teachingMaterials: teachingMaterials.rows });
     } catch (error) { return fail(req, res, error); }
   });
@@ -2277,26 +2439,27 @@ export function createOperationsRouter({ authenticate, sendInvitation = sendAcco
 
   router.post('/assessments', needsPermission('grades.enter'), csrf, async (req, res) => {
     const assignmentId = text(req.body?.assignmentId, 50);
+    const reportingPeriodId = text(req.body?.reportingPeriodId, 50);
     const title = text(req.body?.title, 160);
     const type = text(req.body?.assessmentType, 20).toUpperCase();
     const maxScore = Number(req.body?.maxScore);
     const dueAt = req.body?.dueAt ? new Date(req.body.dueAt) : null;
-    if (!assignmentId || !title || !['QUIZ', 'TEST', 'EXAM', 'ASSIGNMENT', 'PROJECT'].includes(type) || !Number.isFinite(maxScore) || maxScore <= 0 || maxScore > 9999.99 || (dueAt && !Number.isFinite(dueAt.valueOf()))) {
-      await close(req, false); return res.status(400).json({ error: 'Choose an assigned class and subject, enter a title, assessment type, maximum score, and valid optional due date.' });
+    if (!assignmentId || !reportingPeriodId || !title || !['QUIZ', 'TEST', 'EXAM', 'ASSIGNMENT', 'PROJECT'].includes(type) || !Number.isFinite(maxScore) || maxScore <= 0 || maxScore > 9999.99 || (dueAt && !Number.isFinite(dueAt.valueOf()))) {
+      await close(req, false); return res.status(400).json({ error: 'Choose your assigned class, subject, and report-card period, then enter a title, assessment type, maximum score, and valid optional due date.' });
     }
     const isTeacher = req.auth.account.roles.includes('TEACHER');
     try {
       const result = await req.auth.client.query(`INSERT INTO assessments
-          (school_id, teacher_assignment_id, created_by, title, assessment_type, max_score, due_at, status)
-        SELECT $1, ta.id, $3, $4, $5, $6, $7, 'OPEN'
-        FROM teacher_subject_assignments ta
+          (school_id, teacher_assignment_id, reporting_period_id, created_by, title, assessment_type, max_score, due_at, status)
+        SELECT $1, ta.id, rp.id, $4, $5, $6, $7, $8, 'OPEN'
+        FROM teacher_subject_assignments ta JOIN grade_reporting_periods rp ON rp.school_id=ta.school_id AND rp.id=$3 AND rp.academic_year_id=ta.academic_year_id
         WHERE ta.school_id = $1 AND ta.id = $2
           AND ta.effective_from <= CURRENT_DATE AND (ta.effective_to IS NULL OR ta.effective_to >= CURRENT_DATE)
-          AND ($8::boolean = false OR ta.teacher_id = $3)
-        RETURNING id, teacher_assignment_id, title, assessment_type, max_score, due_at, status`,
-      [req.auth.claims.schoolId, assignmentId, req.auth.claims.userId, title, type, maxScore, dueAt, isTeacher]);
-      if (!result.rowCount) { await close(req, false); return res.status(403).json({ error: 'You can create assessments only for an active teaching assignment you are authorized to manage.' }); }
-      await audit(req, 'ASSESSMENT_CREATED', 'ASSESSMENT', result.rows[0].id, { assignmentId, type, maxScore });
+          AND ($9::boolean = false OR ta.teacher_id = $4)
+        RETURNING id, teacher_assignment_id, reporting_period_id, title, assessment_type, max_score, due_at, status`,
+      [req.auth.claims.schoolId, assignmentId, reportingPeriodId, req.auth.claims.userId, title, type, maxScore, dueAt, isTeacher]);
+      if (!result.rowCount) { await close(req, false); return res.status(403).json({ error: 'Choose a reporting period in the same academic year as your active teaching assignment.' }); }
+      await audit(req, 'ASSESSMENT_CREATED', 'ASSESSMENT', result.rows[0].id, { assignmentId, reportingPeriodId, type, maxScore });
       return done(req, res, 201, { assessment: result.rows[0] });
     } catch (error) { return fail(req, res, error); }
   });
@@ -2305,13 +2468,14 @@ export function createOperationsRouter({ authenticate, sendInvitation = sendAcco
     const assessmentId = text(req.params.assessmentId, 50);
     const isTeacher = req.auth.account.roles.includes('TEACHER') && !req.auth.account.permissions.includes('grades.moderate');
     try {
-      const result = await req.auth.client.query(`SELECT a.id AS assessment_id, a.title, a.assessment_type, a.max_score, a.status,
+      const result = await req.auth.client.query(`SELECT a.id AS assessment_id, a.title, a.assessment_type, a.max_score, a.status, rp.label AS reporting_period_label,
           ta.id AS assignment_id, c.name AS class_name, s.name AS subject_name,
           st.id AS student_id, st.student_number, st.first_name, st.last_name, sc.score, sc.feedback
         FROM assessments a
         JOIN teacher_subject_assignments ta ON ta.school_id = a.school_id AND ta.id = a.teacher_assignment_id
         JOIN class_groups c ON c.school_id = ta.school_id AND c.id = ta.class_group_id
         JOIN subjects s ON s.school_id = ta.school_id AND s.id = ta.subject_id
+        LEFT JOIN grade_reporting_periods rp ON rp.school_id=a.school_id AND rp.id=a.reporting_period_id
         JOIN class_enrollments ce ON ce.school_id = ta.school_id AND ce.class_group_id = ta.class_group_id AND ce.status = 'ACTIVE'
         JOIN students st ON st.school_id = ce.school_id AND st.id = ce.student_id AND st.status = 'ACTIVE'
         LEFT JOIN assessment_scores sc ON sc.school_id = a.school_id AND sc.assessment_id = a.id AND sc.student_id = st.id
@@ -2320,7 +2484,7 @@ export function createOperationsRouter({ authenticate, sendInvitation = sendAcco
       if (!result.rowCount) { await close(req, false); return res.status(404).json({ error: 'Assessment not found, or no active students are enrolled in its class.' }); }
       await close(req, true);
       const first = result.rows[0];
-      return res.json({ assessment: { id: first.assessment_id, title: first.title, type: first.assessment_type, maxScore: first.max_score, status: first.status, assignmentId: first.assignment_id, className: first.class_name, subjectName: first.subject_name }, students: result.rows.map(row => ({ id: row.student_id, studentNumber: row.student_number, firstName: row.first_name, lastName: row.last_name, score: row.score, feedback: row.feedback })) });
+      return res.json({ assessment: { id: first.assessment_id, title: first.title, type: first.assessment_type, maxScore: first.max_score, status: first.status, assignmentId: first.assignment_id, className: first.class_name, subjectName: first.subject_name, reporting_period_label: first.reporting_period_label }, students: result.rows.map(row => ({ id: row.student_id, studentNumber: row.student_number, firstName: row.first_name, lastName: row.last_name, score: row.score, feedback: row.feedback })) });
     } catch (error) { return fail(req, res, error); }
   });
 
@@ -2618,7 +2782,7 @@ export function createOperationsRouter({ authenticate, sendInvitation = sendAcco
         const student = await req.auth.client.query(`SELECT s.id, s.student_number, s.first_name, s.last_name, c.name AS class_name, c.grade_level, y.name AS academic_year FROM student_portal_links l JOIN students s ON s.school_id = l.school_id AND s.id = l.student_id LEFT JOIN class_enrollments ce ON ce.school_id = s.school_id AND ce.student_id = s.id AND ce.status = 'ACTIVE' LEFT JOIN class_groups c ON c.school_id = ce.school_id AND c.id = ce.class_group_id LEFT JOIN academic_years y ON y.school_id = c.school_id AND y.id = c.academic_year_id WHERE l.school_id = $1 AND l.user_id = $2 LIMIT 1`, [schoolId, userId]);
         if (!student.rowCount) { await close(req, true); return res.json({ role: 'STUDENT', linked: false, message: 'Your learner portal is not linked to a student record yet.' }); }
         const learner = student.rows[0];
-        const [subjects, timetable, attendance, grades, resources, announcements, invoices, receipts] = await Promise.all([
+        const [subjects, timetable, attendance, grades, resources, announcements, invoices, receipts, reportCards] = await Promise.all([
           req.auth.client.query(`SELECT DISTINCT s.name AS subject_name, gc.weekly_minutes, gc.periods_per_week, gc.required, gc.learning_objectives FROM class_enrollments ce JOIN class_groups c ON c.school_id = ce.school_id AND c.id = ce.class_group_id JOIN grade_curriculum_subjects gc ON gc.school_id = c.school_id AND gc.grade_level_id = c.grade_level_id AND gc.academic_year_id = c.academic_year_id JOIN subjects s ON s.school_id = gc.school_id AND s.id = gc.subject_id WHERE ce.school_id = $1 AND ce.student_id = $2 AND ce.status = 'ACTIVE' ORDER BY s.name`, [schoolId, learner.id]),
           req.auth.client.query(`SELECT ts.day_of_week, tp.name AS period_name, tp.starts_at, tp.ends_at, s.name AS subject_name, u.full_name AS teacher_name FROM class_enrollments ce JOIN class_groups c ON c.school_id = ce.school_id AND c.id = ce.class_group_id JOIN teacher_subject_assignments a ON a.school_id = c.school_id AND a.class_group_id = c.id AND a.academic_year_id = c.academic_year_id JOIN timetable_slots ts ON ts.school_id = a.school_id AND ts.teacher_assignment_id = a.id JOIN timetable_periods tp ON tp.school_id = ts.school_id AND tp.id = ts.period_id JOIN subjects s ON s.school_id = a.school_id AND s.id = a.subject_id JOIN user_accounts u ON u.school_id = a.school_id AND u.id = a.teacher_id WHERE ce.school_id = $1 AND ce.student_id = $2 AND ce.status = 'ACTIVE' ORDER BY ts.day_of_week, tp.starts_at`, [schoolId, learner.id]),
           req.auth.client.query(`SELECT sa.status, sa.recorded_at, cs.scheduled_at, s.name AS subject_name FROM student_attendance sa JOIN class_sessions cs ON cs.school_id = sa.school_id AND cs.id = sa.class_session_id JOIN teacher_subject_assignments a ON a.school_id = cs.school_id AND a.id = cs.teacher_assignment_id JOIN subjects s ON s.school_id = a.school_id AND s.id = a.subject_id WHERE sa.school_id = $1 AND sa.student_id = $2 ORDER BY cs.scheduled_at DESC LIMIT 30`, [schoolId, learner.id]),
@@ -2658,14 +2822,19 @@ export function createOperationsRouter({ authenticate, sendInvitation = sendAcco
             FROM payments p JOIN payment_allocations pa ON pa.school_id=p.school_id AND pa.payment_id=p.id
             WHERE p.school_id=$1 AND p.student_id=$2 AND p.status IN ('SUCCEEDED','PARTIALLY_REVERSED')
             ORDER BY p.received_at DESC LIMIT 50`, [schoolId, learner.id]),
+          req.auth.client.query(`SELECT rc.id,rc.academic_summary,rc.approved_at,u.full_name AS approved_by,y.name AS academic_year_name
+            FROM report_cards rc JOIN user_accounts u ON u.school_id=rc.school_id AND u.id=rc.approved_by
+            JOIN academic_years y ON y.school_id=rc.school_id AND y.id=rc.academic_year_id
+            WHERE rc.school_id=$1 AND rc.student_id=$2 AND rc.academic_term_id IS NULL AND rc.status='PUBLISHED'
+            ORDER BY y.starts_on DESC,rc.snapshot_version DESC`, [schoolId,learner.id]),
         ]);
-        await close(req, true); return res.json({ role: 'STUDENT', linked: true, student: learner, subjects: subjects.rows, timetable: timetable.rows, attendance: attendance.rows, grades: grades.rows, resources: resources.rows, announcements: announcements.rows, invoices: invoices.rows, receipts: receipts.rows, financeVisible: true });
+        await close(req, true); return res.json({ role: 'STUDENT', linked: true, student: learner, subjects: subjects.rows, timetable: timetable.rows, attendance: attendance.rows, grades: grades.rows, reportCards: reportCards.rows, resources: resources.rows, announcements: announcements.rows, invoices: invoices.rows, receipts: receipts.rows, financeVisible: true });
       }
       if (req.auth.account.roles.includes('PARENT') && req.auth.account.permissions.includes('guardian.portal.read')) {
         const children = await req.auth.client.query(`SELECT s.id, s.student_number, s.first_name, s.last_name, s.campus_id, ce.class_group_id, sg.relationship, sg.can_view_results, sg.can_view_finance, c.name AS class_name, c.grade_level FROM guardians g JOIN student_guardians sg ON sg.school_id = g.school_id AND sg.guardian_id = g.id JOIN students s ON s.school_id = sg.school_id AND s.id = sg.student_id LEFT JOIN class_enrollments ce ON ce.school_id = s.school_id AND ce.student_id = s.id AND ce.status = 'ACTIVE' LEFT JOIN class_groups c ON c.school_id = ce.school_id AND c.id = ce.class_group_id WHERE g.school_id = $1 AND g.user_id = $2 AND g.active ORDER BY s.last_name, s.first_name`, [schoolId, userId]);
         const results = [];
         for (const child of children.rows) {
-          const [subjects, timetable, attendance, grades, resources, invoices, receipts, announcements] = await Promise.all([
+          const [subjects, timetable, attendance, grades, resources, invoices, receipts, announcements, reportCards] = await Promise.all([
             req.auth.client.query(`SELECT DISTINCT s.name AS subject_name, gc.weekly_minutes, gc.periods_per_week FROM class_enrollments ce JOIN class_groups c ON c.school_id = ce.school_id AND c.id = ce.class_group_id JOIN grade_curriculum_subjects gc ON gc.school_id = c.school_id AND gc.grade_level_id = c.grade_level_id AND gc.academic_year_id = c.academic_year_id JOIN subjects s ON s.school_id = gc.school_id AND s.id = gc.subject_id WHERE ce.school_id = $1 AND ce.student_id = $2 AND ce.status = 'ACTIVE' ORDER BY s.name`, [schoolId, child.id]),
             req.auth.client.query(`SELECT ts.day_of_week, tp.name AS period_name, tp.starts_at, tp.ends_at, s.name AS subject_name, u.full_name AS teacher_name FROM class_enrollments ce JOIN class_groups c ON c.school_id = ce.school_id AND c.id = ce.class_group_id JOIN teacher_subject_assignments a ON a.school_id = c.school_id AND a.class_group_id = c.id AND a.academic_year_id = c.academic_year_id JOIN timetable_slots ts ON ts.school_id = a.school_id AND ts.teacher_assignment_id = a.id JOIN timetable_periods tp ON tp.school_id = ts.school_id AND tp.id = ts.period_id JOIN subjects s ON s.school_id = a.school_id AND s.id = a.subject_id JOIN user_accounts u ON u.school_id = a.school_id AND u.id = a.teacher_id WHERE ce.school_id = $1 AND ce.student_id = $2 AND ce.status = 'ACTIVE' ORDER BY ts.day_of_week, tp.starts_at`, [schoolId, child.id]),
             req.auth.client.query(`SELECT sa.status, cs.scheduled_at, s.name AS subject_name FROM student_attendance sa JOIN class_sessions cs ON cs.school_id = sa.school_id AND cs.id = sa.class_session_id JOIN teacher_subject_assignments a ON a.school_id = cs.school_id AND a.id = cs.teacher_assignment_id JOIN subjects s ON s.school_id = a.school_id AND s.id = a.subject_id WHERE sa.school_id = $1 AND sa.student_id = $2 ORDER BY cs.scheduled_at DESC LIMIT 30`, [schoolId, child.id]),
@@ -2704,9 +2873,14 @@ export function createOperationsRouter({ authenticate, sendInvitation = sendAcco
                 OR (a.audience='CLASS' AND a.class_group_id=$2)
                 OR (a.audience='CAMPUS' AND (a.campus_id IS NULL OR a.campus_id=$3))
               ) ORDER BY a.published_at DESC LIMIT 50`, [schoolId, child.class_group_id, child.campus_id]),
+            child.can_view_results ? req.auth.client.query(`SELECT rc.id,rc.academic_summary,rc.approved_at,u.full_name AS approved_by,y.name AS academic_year_name
+              FROM report_cards rc JOIN user_accounts u ON u.school_id=rc.school_id AND u.id=rc.approved_by
+              JOIN academic_years y ON y.school_id=rc.school_id AND y.id=rc.academic_year_id
+              WHERE rc.school_id=$1 AND rc.student_id=$2 AND rc.academic_term_id IS NULL AND rc.status='PUBLISHED'
+              ORDER BY y.starts_on DESC,rc.snapshot_version DESC`, [schoolId,child.id]) : Promise.resolve({ rows: [] }),
           ]);
           results.push({ ...child, subjects: subjects.rows, timetable: timetable.rows, attendance: attendance.rows, grades: grades.rows, resources: resources.rows,
-            invoices: invoices.rows, receipts: receipts.rows, announcements: announcements.rows, financeVisible: Boolean(child.can_view_finance) });
+            reportCards: reportCards.rows, invoices: invoices.rows, receipts: receipts.rows, announcements: announcements.rows, financeVisible: Boolean(child.can_view_finance) });
         }
         await close(req, true); return res.json({ role: 'PARENT', children: results });
       }

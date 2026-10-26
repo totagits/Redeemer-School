@@ -10,6 +10,7 @@ const teacherId = '721ddf68-1c98-4faa-9dc7-9161daa79870';
 const otherAssignment = '32f8f4d3-5d2a-4f36-bd4e-fc0f38a44f07';
 const ownAssignment = '5fc7528a-f2e5-4bbc-8d54-3fb2012044ee';
 const assessmentId = '13dfffb0-e1d0-4f2c-8878-bbbdace8e2fd';
+const reportingPeriodId = 'f6aaf6d0-61a9-41ab-8f17-332b7ec07d59';
 
 class FakeClient {
   constructor({ account, ownsAssignment = true, assessmentCreator = teacherId }) {
@@ -25,9 +26,9 @@ class FakeClient {
     this.statements.push({ sql: normalized, params });
     if (['BEGIN', 'COMMIT', 'ROLLBACK'].includes(normalized)) return { rows: [], rowCount: 0 };
     if (normalized.startsWith('INSERT INTO assessments')) {
-      const teacherScoped = params[7] === true;
+      const teacherScoped = params[8] === true;
       if (params[1] !== ownAssignment || (teacherScoped && !this.ownsAssignment)) return { rows: [], rowCount: 0 };
-      return { rows: [{ id: assessmentId, teacher_assignment_id: ownAssignment, title: params[3], assessment_type: params[4], max_score: params[5], due_at: params[6], status: 'OPEN' }], rowCount: 1 };
+      return { rows: [{ id: assessmentId, teacher_assignment_id: ownAssignment, reporting_period_id: params[2], title: params[4], assessment_type: params[5], max_score: params[6], due_at: params[7], status: 'OPEN' }], rowCount: 1 };
     }
     if (normalized.startsWith('UPDATE assessments a SET status = \'APPROVED\'')) {
       if (params[2] === this.assessmentCreator) return { rows: [], rowCount: 0 };
@@ -63,7 +64,7 @@ async function startServer(t, account, options = {}) {
 }
 
 const teacher = { id: teacherId, roles: ['TEACHER'], permissions: ['grades.enter'] };
-const assessmentBody = { assignmentId: ownAssignment, title: 'Quiz 1', assessmentType: 'QUIZ', maxScore: 20, dueAt: null };
+const assessmentBody = { assignmentId: ownAssignment, reportingPeriodId, title: 'Quiz 1', assessmentType: 'QUIZ', maxScore: 20, dueAt: null };
 
 test('teacher can create an assessment for their assigned class and subject', async t => {
   const { url, clients } = await startServer(t, teacher);
@@ -72,6 +73,7 @@ test('teacher can create an assessment for their assigned class and subject', as
   });
   assert.equal(response.status, 201);
   assert.equal((await response.json()).assessment.status, 'OPEN');
+  assert.equal((await Promise.resolve(clients[0].statements.find(item=>item.sql.startsWith('INSERT INTO assessments')).params[2])), reportingPeriodId);
   assert.ok(clients[0].statements.some(item => item.sql.startsWith('INSERT INTO audit_events')));
   assert.equal(clients[0].statements.at(-1).sql, 'COMMIT');
 });
@@ -94,6 +96,18 @@ test('assessment creation requires grades.enter permission', async t => {
   });
   assert.equal(response.status, 403);
   assert.equal(clients[0].statements.some(item => item.sql.startsWith('INSERT INTO assessments')), false);
+});
+
+test('only a Principal can sign off year-end report cards even with the grade publication permission', async t => {
+  const account = { id: teacherId, roles: ['SCHOOL_ADMIN'], permissions: ['grades.publish'] };
+  const { url, clients } = await startServer(t, account);
+  const response = await fetch(`${url}/api/operations/year-end-report-cards/approve`, {
+    method: 'POST', headers: { 'Content-Type': 'application/json', 'X-CSRF-Token': 'csrf-test-token' },
+    body: JSON.stringify({ academicYearId: 'year-1', classGroupId: 'class-1', studentId: 'student-1' }),
+  });
+  assert.equal(response.status, 403);
+  assert.match((await response.json()).error, /Only a Principal/);
+  assert.equal(clients[0].statements.at(-1).sql, 'ROLLBACK');
 });
 
 test('assessment creator cannot approve their own submitted marks', async t => {
