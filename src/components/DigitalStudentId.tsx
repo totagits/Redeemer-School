@@ -105,6 +105,7 @@ export const DigitalStudentId: React.FC<{ studentId?: string; csrfToken?: string
         photo=await new Promise<string>((resolve,reject)=>{const reader=new FileReader();reader.onload=()=>resolve(String(reader.result));reader.onerror=()=>reject(new Error('Unable to prepare the photograph.'));reader.readAsDataURL(blob);});
       }
       const name=escapeHtml(card.fullName),school=escapeHtml(card.schoolName);
+      const schoolLogo=escapeHtml(new URL('/redeemer-seal.svg?v=3',window.location.origin).toString());
       const studentNumber=escapeHtml(card.studentNumber),studentClass=escapeHtml(card.className||'Not assigned');
       const year=escapeHtml(card.academicYear||'Not assigned');
       const issued=card.issuedAt?new Date(card.issuedAt).toLocaleDateString():'—';
@@ -115,7 +116,9 @@ export const DigitalStudentId: React.FC<{ studentId?: string; csrfToken?: string
 * { box-sizing: border-box; }
 html,body { margin:0; padding:0; background:white; font-family:Arial,Helvetica,sans-serif; }
 .card { width:85.6mm; height:54mm; overflow:hidden; border:0.35mm solid #1e3a8a; border-radius:2mm; break-inside:avoid; page-break-inside:avoid; color:#111827; background:white; }
-.heading {height:10mm; background:#172554; color:white; padding:2mm 3mm; print-color-adjust:exact; -webkit-print-color-adjust:exact;}
+.heading {height:10mm; display:flex; align-items:center; gap:2mm; background:#172554; color:white; padding:1.5mm 3mm; print-color-adjust:exact; -webkit-print-color-adjust:exact;}
+.logo {width:7mm;height:7mm;object-fit:contain;flex:none;background:white;border-radius:50%;padding:.4mm;}
+.heading-copy {min-width:0;flex:1;}
 .school {font-size:10pt;font-weight:800;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;}
 .caption {font-size:5.5pt;letter-spacing:.7px;margin-top:1mm;}
 .middle {height:37mm;display:flex;align-items:center;gap:2mm;padding:2mm 3mm;}
@@ -130,7 +133,7 @@ html,body { margin:0; padding:0; background:white; font-family:Arial,Helvetica,s
 .scan {font-size:4.5pt;font-weight:800;letter-spacing:.3px;margin-top:.5mm;}
 .foot {height:7mm;border-top:.2mm solid #cbd5e1;background:#f8fafc;padding:2mm 3mm;display:flex;justify-content:space-between;font-size:5.5pt;print-color-adjust:exact;-webkit-print-color-adjust:exact;}
 @media screen {body{padding:20px;background:#f1f5f9;} .card{box-shadow:0 2px 9px #94a3b8;}}
-</style></head><body><article class="card"><div class="heading"><div class="school">${school}</div><div class="caption">OFFICIAL DIGITAL STUDENT ID</div></div>
+</style></head><body><article class="card"><div class="heading"><img class="logo" src="${schoolLogo}" alt=""><div class="heading-copy"><div class="school">${school}</div><div class="caption">OFFICIAL DIGITAL STUDENT ID</div></div></div>
 <div class="middle">${photo?`<img class="photo" src="${photo}" alt="Student photograph">`:'<div class="photo empty-photo">No photo</div>'}
 <div class="details"><div class="name">${name}</div><div>ID: <b>${studentNumber}</b></div><div>Class: ${studentClass}</div><div>Year: ${year}</div><div class="status">ACTIVE</div></div>
 <div class="qr">${svg}<div class="scan">SCAN TO VERIFY</div></div></div>
@@ -158,7 +161,7 @@ html,body { margin:0; padding:0; background:white; font-family:Arial,Helvetica,s
     {notice&&<p role="status" className="mb-3 rounded-lg bg-emerald-50 p-3 text-sm text-emerald-800">{notice}</p>}
     {loading?<div className="flex items-center gap-2 text-sm text-slate-500"><LoaderCircle className="h-4 w-4 animate-spin"/> Loading card…</div>:card&&<>
       <div id="school-digital-id-print" className="mx-auto max-w-xl overflow-hidden rounded-2xl border-2 border-blue-900 bg-white shadow">
-        <header className="bg-blue-950 px-4 py-3 text-white"><p className="text-sm font-extrabold">{card.schoolName}</p><p className="text-[10px] font-semibold uppercase tracking-widest text-blue-200">Official Digital Student ID</p></header>
+        <header className="flex items-center gap-3 bg-blue-950 px-4 py-3 text-white"><img src="/redeemer-seal.svg?v=3" alt="Redeemer's International Academy seal" className="h-10 w-10 shrink-0 rounded-full bg-white p-0.5 object-contain"/><div className="min-w-0"><p className="text-sm font-extrabold">{card.schoolName}</p><p className="text-[10px] font-semibold uppercase tracking-widest text-blue-200">Official Digital Student ID</p></div></header>
         <div className="flex flex-wrap items-center gap-3 p-4">
           <div className="h-28 w-24 shrink-0 overflow-hidden rounded-lg border bg-slate-100">
             {card.photoAvailable?<img src={photoEndpoint} alt={`School photograph of ${card.fullName}`} className="h-full w-full object-cover"/>:
