@@ -849,7 +849,7 @@ export function createOperationsRouter({ authenticate, sendInvitation = sendAcco
             AND (cg.education_level_id IS NULL OR cg.education_level_id=fee_grade.education_level_id)
 
             AND EXISTS (SELECT 1 FROM grade_levels matching_grade WHERE matching_grade.school_id=cg.school_id
-              AND matching_grade.active AND matching_grade.education_level_id=fee_grade.education_level_id
+              AND matching_grade.active AND matching_grade.education_level_id IS NOT DISTINCT FROM fee_grade.education_level_id
               AND lower(btrim(matching_grade.name))=lower(btrim(fee_grade.name)))
           ))`,[schoolId,scheduleRow.academic_year_id,scheduleRow.grade_level_id]);
       const targetCount=Number(targets.rows[0]?.count||0);
@@ -910,7 +910,7 @@ export function createOperationsRouter({ authenticate, sendInvitation = sendAcco
               AND (cg.education_level_id IS NULL OR cg.education_level_id=fee_grade.education_level_id)
 
               AND EXISTS (SELECT 1 FROM grade_levels matching_grade WHERE matching_grade.school_id=cg.school_id
-              AND matching_grade.active AND matching_grade.education_level_id=fee_grade.education_level_id
+              AND matching_grade.active AND matching_grade.education_level_id IS NOT DISTINCT FROM fee_grade.education_level_id
               AND lower(btrim(matching_grade.name))=lower(btrim(fee_grade.name)))
             ))
         ), created AS (

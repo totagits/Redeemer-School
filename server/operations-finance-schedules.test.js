@@ -17,12 +17,12 @@ class FakeClient {
     if(normalized.startsWith('SELECT count(*)::int AS line_count'))return {rows:[{line_count:1}],rowCount:1};
     if(normalized.startsWith('SELECT count(DISTINCT ce.student_id)::int AS count')){
       if(this.state.noTargets)return {rows:[{count:0}],rowCount:1};
-      if(this.state.labelMatchedGrade&&(!normalized.includes('lower(btrim(cg.name))=lower(btrim(fee_grade.name))')||!normalized.includes('cg.education_level_id IS NULL OR cg.education_level_id=fee_grade.education_level_id')||!normalized.includes('matching_grade.education_level_id=fee_grade.education_level_id')||!normalized.includes('EXISTS (SELECT 1 FROM grade_levels matching_grade')))return {rows:[{count:0}],rowCount:1};
+      if(this.state.labelMatchedGrade&&(!normalized.includes('lower(btrim(cg.name))=lower(btrim(fee_grade.name))')||!normalized.includes('cg.education_level_id IS NULL OR cg.education_level_id=fee_grade.education_level_id')||!normalized.includes('matching_grade.education_level_id IS NOT DISTINCT FROM fee_grade.education_level_id')||!normalized.includes('EXISTS (SELECT 1 FROM grade_levels matching_grade')))return {rows:[{count:0}],rowCount:1};
       return {rows:[{count:2}],rowCount:1};
     }
     if(normalized.startsWith('WITH class_diagnostics AS'))return {rows:[{academic_year_name:'2027-2028',fee_grade_name:'Grade 4',active_learners_in_year:this.state.sameNamedYear?0:2,active_learners_in_other_same_named_years:this.state.sameNamedYear?2:0,active_classes_in_year:1,classes:[{className:'Grade 4-A',gradeLabel:'Grade 4',linkedGrade:'Grade 3',educationStage:'Primary',activeLearners:2}]}],rowCount:1};
     if(normalized.startsWith('WITH enrolled AS MATERIALIZED')){
-      if(this.state.labelMatchedGrade&&(!normalized.includes('lower(btrim(cg.name))=lower(btrim(fee_grade.name))')||!normalized.includes('cg.education_level_id IS NULL OR cg.education_level_id=fee_grade.education_level_id')||!normalized.includes('matching_grade.education_level_id=fee_grade.education_level_id')||!normalized.includes('EXISTS (SELECT 1 FROM grade_levels matching_grade')))throw new Error('Invoice selection omitted the legacy class-name match.');
+      if(this.state.labelMatchedGrade&&(!normalized.includes('lower(btrim(cg.name))=lower(btrim(fee_grade.name))')||!normalized.includes('cg.education_level_id IS NULL OR cg.education_level_id=fee_grade.education_level_id')||!normalized.includes('matching_grade.education_level_id IS NOT DISTINCT FROM fee_grade.education_level_id')||!normalized.includes('EXISTS (SELECT 1 FROM grade_levels matching_grade')))throw new Error('Invoice selection omitted the legacy class-name match.');
       const count=this.state.created;this.state.created=0;return {rows:[{invoice_count:count}],rowCount:1};
     }}
     if(normalized.startsWith('INSERT INTO audit_events'))return {rows:[{id:'audit-id'}],rowCount:1};
@@ -54,8 +54,8 @@ test('installment issuance matches an exact class grade label when its formal gr
   assert.equal(body.targetLearners,2);
   assert.equal(body.invoicesCreated,2);
   const statements=clients.flatMap(client=>client.statements).map(item=>item.sql);
-  assert.ok(statements.some(sql=>sql.startsWith('SELECT count(DISTINCT ce.student_id)::int AS count')&&sql.includes('lower(btrim(cg.name))=lower(btrim(fee_grade.name))')&&sql.includes('matching_grade.education_level_id=fee_grade.education_level_id')&&sql.includes('EXISTS (SELECT 1 FROM grade_levels matching_grade')));
-  assert.ok(statements.some(sql=>sql.startsWith('WITH enrolled AS MATERIALIZED')&&sql.includes('lower(btrim(cg.name))=lower(btrim(fee_grade.name))')&&sql.includes('matching_grade.education_level_id=fee_grade.education_level_id')&&sql.includes('EXISTS (SELECT 1 FROM grade_levels matching_grade')));
+  assert.ok(statements.some(sql=>sql.startsWith('SELECT count(DISTINCT ce.student_id)::int AS count')&&sql.includes('lower(btrim(cg.name))=lower(btrim(fee_grade.name))')&&sql.includes('matching_grade.education_level_id IS NOT DISTINCT FROM fee_grade.education_level_id')&&sql.includes('EXISTS (SELECT 1 FROM grade_levels matching_grade')));
+  assert.ok(statements.some(sql=>sql.startsWith('WITH enrolled AS MATERIALIZED')&&sql.includes('lower(btrim(cg.name))=lower(btrim(fee_grade.name))')&&sql.includes('matching_grade.education_level_id IS NOT DISTINCT FROM fee_grade.education_level_id')&&sql.includes('EXISTS (SELECT 1 FROM grade_levels matching_grade')));
 });
 
 test('zero-match response reports year and class-grade diagnostics without creating invoices',async t=>{
