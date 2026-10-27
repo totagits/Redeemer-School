@@ -3250,12 +3250,16 @@ export function createOperationsRouter({ authenticate, sendInvitation = sendAcco
               a.audience='LEARNERS' OR (a.audience='CLASS' AND a.class_group_id=ce.class_group_id)
               OR (a.audience='CAMPUS' AND (a.campus_id IS NULL OR a.campus_id=(SELECT campus_id FROM students WHERE school_id=$1 AND id=$3)))
             ) ORDER BY a.published_at DESC LIMIT 50`, [schoolId, userId, learner.id]),
-          req.auth.client.query(`SELECT fi.id,fi.invoice_number,fi.currency,fi.status,fi.due_on,
+          req.auth.client.query(`SELECT fi.id,fi.invoice_number,fi.currency,fi.status,fi.due_on,fi.created_at,
+              y.name AS academic_year_name,
               COALESCE(lines.total,0)::text AS total,COALESCE(payments.paid,0)::text AS paid,
-              GREATEST(COALESCE(lines.total,0)-COALESCE(payments.paid,0),0)::text AS balance
+              GREATEST(COALESCE(lines.total,0)-COALESCE(payments.paid,0),0)::text AS balance,
+              COALESCE(items.rows,'[]'::jsonb) AS items
             FROM fee_invoices fi
+            JOIN academic_years y ON y.school_id=fi.school_id AND y.id=fi.academic_year_id
             LEFT JOIN LATERAL (SELECT SUM(line_amount) AS total FROM fee_invoice_lines l WHERE l.school_id=fi.school_id AND l.invoice_id=fi.id) lines ON true
             LEFT JOIN LATERAL (SELECT SUM(pa.amount) AS paid FROM payment_allocations pa JOIN payments p ON p.school_id=pa.school_id AND p.id=pa.payment_id AND p.status IN ('SUCCEEDED','PARTIALLY_REVERSED') WHERE pa.school_id=fi.school_id AND pa.invoice_id=fi.id) payments ON true
+            LEFT JOIN LATERAL (SELECT jsonb_agg(jsonb_build_object('description',l.description,'quantity',l.quantity::text,'unit_amount',l.unit_amount::text,'line_amount',l.line_amount::text) ORDER BY l.id) AS rows FROM fee_invoice_lines l WHERE l.school_id=fi.school_id AND l.invoice_id=fi.id) items ON true
             WHERE fi.school_id=$1 AND fi.student_id=$2 AND fi.status<>'VOID' ORDER BY fi.due_on NULLS LAST,fi.created_at DESC LIMIT 100`, [schoolId, learner.id]),
           req.auth.client.query(`SELECT DISTINCT p.receipt_number,p.amount::text,p.currency,p.channel,p.received_at,p.status
             FROM payments p JOIN payment_allocations pa ON pa.school_id=p.school_id AND pa.payment_id=p.id
@@ -3306,12 +3310,16 @@ export function createOperationsRouter({ authenticate, sendInvitation = sendAcco
               JOIN subjects s ON s.school_id=ta.school_id AND s.id=ta.subject_id
               WHERE ce.school_id=$1 AND ce.student_id=$2 AND ce.status='ACTIVE'
             ) published_resources ORDER BY subject_name,title`, [schoolId, child.id]),
-            child.can_view_finance ? req.auth.client.query(`SELECT fi.id,fi.invoice_number,fi.currency,fi.status,fi.due_on,
+            child.can_view_finance ? req.auth.client.query(`SELECT fi.id,fi.invoice_number,fi.currency,fi.status,fi.due_on,fi.created_at,
+                y.name AS academic_year_name,
                 COALESCE(lines.total,0)::text AS total,COALESCE(payments.paid,0)::text AS paid,
-                GREATEST(COALESCE(lines.total,0)-COALESCE(payments.paid,0),0)::text AS balance
+                GREATEST(COALESCE(lines.total,0)-COALESCE(payments.paid,0),0)::text AS balance,
+                COALESCE(items.rows,'[]'::jsonb) AS items
               FROM fee_invoices fi
+              JOIN academic_years y ON y.school_id=fi.school_id AND y.id=fi.academic_year_id
               LEFT JOIN LATERAL (SELECT SUM(line_amount) AS total FROM fee_invoice_lines l WHERE l.school_id=fi.school_id AND l.invoice_id=fi.id) lines ON true
               LEFT JOIN LATERAL (SELECT SUM(pa.amount) AS paid FROM payment_allocations pa JOIN payments p ON p.school_id=pa.school_id AND p.id=pa.payment_id AND p.status IN ('SUCCEEDED','PARTIALLY_REVERSED') WHERE pa.school_id=fi.school_id AND pa.invoice_id=fi.id) payments ON true
+              LEFT JOIN LATERAL (SELECT jsonb_agg(jsonb_build_object('description',l.description,'quantity',l.quantity::text,'unit_amount',l.unit_amount::text,'line_amount',l.line_amount::text) ORDER BY l.id) AS rows FROM fee_invoice_lines l WHERE l.school_id=fi.school_id AND l.invoice_id=fi.id) items ON true
               WHERE fi.school_id=$1 AND fi.student_id=$2 AND fi.status<>'VOID' ORDER BY fi.due_on NULLS LAST,fi.created_at DESC LIMIT 100`, [schoolId, child.id]) : Promise.resolve({ rows: [] }),
             child.can_view_finance ? req.auth.client.query(`SELECT DISTINCT p.receipt_number,p.amount::text,p.currency,p.channel,p.received_at,p.status
               FROM payments p JOIN payment_allocations pa ON pa.school_id=p.school_id AND pa.payment_id=p.id

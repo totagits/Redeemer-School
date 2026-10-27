@@ -17,14 +17,14 @@ class FakeClient {
     if(normalized.startsWith('SELECT count(*)::int AS line_count'))return {rows:[{line_count:1}],rowCount:1};
     if(normalized.startsWith('SELECT count(DISTINCT ce.student_id)::int AS count')){
       if(this.state.noTargets)return {rows:[{count:0}],rowCount:1};
-      if(this.state.labelMatchedGrade&&(!normalized.includes('regexp_replace(lower(btrim(cg.name)), '[^[:alnum:]]+', '', 'g')=regexp_replace(lower(btrim(fee_grade.name)), '[^[:alnum:]]+', '', 'g')')||!normalized.includes('cg.education_level_id IS NULL OR fee_grade.education_level_id IS NULL OR cg.education_level_id=fee_grade.education_level_id')||normalized.includes('AND fee_grade.active')))return {rows:[{count:0}],rowCount:1};
+      if(this.state.labelMatchedGrade&&(!normalized.includes("regexp_replace(lower(btrim(cg.name)), '[^[:alnum:]]+', '', 'g')=regexp_replace(lower(btrim(fee_grade.name)), '[^[:alnum:]]+', '', 'g')")||!normalized.includes('cg.education_level_id IS NULL OR fee_grade.education_level_id IS NULL OR cg.education_level_id=fee_grade.education_level_id')||normalized.includes('AND fee_grade.active')))return {rows:[{count:0}],rowCount:1};
       return {rows:[{count:2}],rowCount:1};
     }
     if(normalized.startsWith('WITH class_diagnostics AS'))return {rows:[{academic_year_name:'2027-2028',fee_grade_name:'Grade 4',active_learners_in_year:this.state.sameNamedYear?0:2,active_learners_in_other_same_named_years:this.state.sameNamedYear?2:0,active_classes_in_year:1,classes:[{className:'Grade 4-A',gradeLabel:'Grade 4',linkedGrade:'Grade 3',educationStage:'Primary',scheduleEducationStage:'Primary',scheduleGradeActive:true,gradeLabelMatches:!this.state.noTargets,classNameMatches:true,stageCompatible:true,activeLearners:2}]}],rowCount:1};
     if(normalized.startsWith('WITH enrolled AS MATERIALIZED')){
-      if(this.state.labelMatchedGrade&&(!normalized.includes('regexp_replace(lower(btrim(cg.name)), '[^[:alnum:]]+', '', 'g')=regexp_replace(lower(btrim(fee_grade.name)), '[^[:alnum:]]+', '', 'g')')||!normalized.includes('cg.education_level_id IS NULL OR fee_grade.education_level_id IS NULL OR cg.education_level_id=fee_grade.education_level_id')||normalized.includes('AND fee_grade.active')))throw new Error('Invoice selection omitted the legacy class-name match.');
+      if(this.state.labelMatchedGrade&&(!normalized.includes("regexp_replace(lower(btrim(cg.name)), '[^[:alnum:]]+', '', 'g')=regexp_replace(lower(btrim(fee_grade.name)), '[^[:alnum:]]+', '', 'g')")||!normalized.includes('cg.education_level_id IS NULL OR fee_grade.education_level_id IS NULL OR cg.education_level_id=fee_grade.education_level_id')||normalized.includes('AND fee_grade.active')))throw new Error('Invoice selection omitted the normalized class-name fallback or its education-stage guard.');
       const count=this.state.created;this.state.created=0;return {rows:[{invoice_count:count}],rowCount:1};
-    }}
+    }
     if(normalized.startsWith('INSERT INTO audit_events'))return {rows:[{id:'audit-id'}],rowCount:1};
     throw new Error(`Unexpected query in fee schedule test: ${normalized}`);
   }
@@ -54,8 +54,8 @@ test('installment issuance matches an exact class grade label when its formal gr
   assert.equal(body.targetLearners,2);
   assert.equal(body.invoicesCreated,2);
   const statements=clients.flatMap(client=>client.statements).map(item=>item.sql);
-  assert.ok(statements.some(sql=>sql.startsWith('SELECT count(DISTINCT ce.student_id)::int AS count')&&sql.includes('regexp_replace(lower(btrim(cg.name)), '[^[:alnum:]]+', '', 'g')=regexp_replace(lower(btrim(fee_grade.name)), '[^[:alnum:]]+', '', 'g')')&&sql.includes('cg.education_level_id IS NULL OR fee_grade.education_level_id IS NULL OR cg.education_level_id=fee_grade.education_level_id')&&!sql.includes('AND fee_grade.active')));
-  assert.ok(statements.some(sql=>sql.startsWith('WITH enrolled AS MATERIALIZED')&&sql.includes('regexp_replace(lower(btrim(cg.name)), '[^[:alnum:]]+', '', 'g')=regexp_replace(lower(btrim(fee_grade.name)), '[^[:alnum:]]+', '', 'g')')&&sql.includes('cg.education_level_id IS NULL OR fee_grade.education_level_id IS NULL OR cg.education_level_id=fee_grade.education_level_id')&&!sql.includes('AND fee_grade.active')));
+  assert.ok(statements.some(sql=>sql.startsWith('SELECT count(DISTINCT ce.student_id)::int AS count')&&sql.includes("regexp_replace(lower(btrim(cg.grade_level)), '[^[:alnum:]]+', '', 'g')=regexp_replace(lower(btrim(fee_grade.name)), '[^[:alnum:]]+', '', 'g')")&&sql.includes('cg.education_level_id IS NULL OR fee_grade.education_level_id IS NULL OR cg.education_level_id=fee_grade.education_level_id')&&!sql.includes('AND fee_grade.active')&&!sql.includes('cg.grade_level_id IS NULL')));
+  assert.ok(statements.some(sql=>sql.startsWith('WITH enrolled AS MATERIALIZED')&&sql.includes("regexp_replace(lower(btrim(cg.grade_level)), '[^[:alnum:]]+', '', 'g')=regexp_replace(lower(btrim(fee_grade.name)), '[^[:alnum:]]+', '', 'g')")&&sql.includes('cg.education_level_id IS NULL OR fee_grade.education_level_id IS NULL OR cg.education_level_id=fee_grade.education_level_id')&&!sql.includes('AND fee_grade.active')&&!sql.includes('cg.grade_level_id IS NULL')));
 });
 
 test('zero-match response reports year and class-grade diagnostics without creating invoices',async t=>{
@@ -73,7 +73,7 @@ test('zero-match response reports year and class-grade diagnostics without creat
 
 test('zero-match response identifies duplicate academic-year labels with enrollments',async t=>{
   const {url}=await startServer(t,['finance.write'],{noTargets:true,sameNamedYear:true});
-  const response=await fetch(url+'/api/operations/finance/fee-schedules/'+scheduleId+'/issue-installment',{method:'POST',headers,body:JSON.stringify({installmentNo:1})});
+  const response=await fetch(`${url}/api/operations/finance/fee-schedules/${scheduleId}/issue-installment`,{method:'POST',headers,body:JSON.stringify({installmentNo:1})});
   assert.equal(response.status,409);
   const body=await response.json();
   assert.match(body.error,/different academic-year record with the same displayed name/);

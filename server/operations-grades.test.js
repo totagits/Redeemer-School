@@ -218,6 +218,10 @@ test('student portal shows scores for published assessments when an older score 
         assert.match(normalized, /JOIN teacher_subject_assignments ta/);
         return { rows: [{ subject_name: 'Mathematics', weekly_minutes: null, periods_per_week: null, required: false, learning_objectives: null }], rowCount: 1 };
       }
+      if (normalized.includes('FROM fee_invoices fi') && normalized.includes('COALESCE(items.rows')) {
+        assert.match(normalized, /WHERE fi\.school_id=\$1 AND fi\.student_id=\$2 AND fi\.status<>'VOID'/);
+        return { rows: [{ id: 'invoice-1', invoice_number: 'RIA-2027-0001', currency: 'LRD', status: 'ISSUED', due_on: '2027-09-01', created_at: '2027-08-01T00:00:00Z', academic_year_name: '2027-2028', total: '1500.00', paid: '0.00', balance: '1500.00', items: [{ description: 'Tuition Period 1', quantity: '1.00', unit_amount: '1500.00', line_amount: '1500.00' }] }], rowCount: 1 };
+      }
       if (normalized.includes('FROM assessment_scores sc JOIN assessments a')) {
         assert.match(normalized, /sc\.review_status='PUBLISHED' OR a\.status = 'PUBLISHED'/);
         assert.doesNotMatch(normalized, /sc\.published_at IS NOT NULL/);
@@ -245,5 +249,7 @@ test('student portal shows scores for published assessments when an older score 
   assert.equal(portal.grades.length, 1);
   assert.equal(portal.grades[0].score, '17');
   assert.equal(portal.subjects[0].subject_name, 'Mathematics');
+  assert.equal(portal.invoices[0].items[0].description, 'Tuition Period 1');
+  assert.equal(portal.invoices[0].balance, '1500.00');
   assert.equal(client.statements.at(-1).sql, 'COMMIT');
 });
