@@ -852,7 +852,41 @@ export function createOperationsRouter({ authenticate, sendInvitation = sendAcco
               AND matching_grade.active AND lower(btrim(matching_grade.name))=lower(btrim(fee_grade.name)))=1
           ))`,[schoolId,scheduleRow.academic_year_id,scheduleRow.grade_level_id]);
       const targetCount=Number(targets.rows[0]?.count||0);
-      if(!targetCount){await close(req,false);return res.status(409).json({error:'No actively enrolled learners are currently assigned to this grade and academic year.'});}
+      if(!targetCount){
+        const diagnostic=await req.auth.client.query(`WITH class_diagnostics AS (
+            SELECT cg.id,cg.name AS class_name,cg.grade_level AS grade_label,
+              linked_grade.name AS linked_grade_name,stage.name AS education_stage,
+              count(DISTINCT ce.student_id) FILTER (WHERE ce.status='ACTIVE' AND st.status='ACTIVE')::int AS active_learners
+            FROM class_groups cg
+            LEFT JOIN class_enrollments ce ON ce.school_id=cg.school_id AND ce.class_group_id=cg.id
+            LEFT JOIN students st ON st.school_id=ce.school_id AND st.id=ce.student_id
+            LEFT JOIN grade_levels linked_grade ON linked_grade.school_id=cg.school_id AND linked_grade.id=cg.grade_level_id
+            LEFT JOIN education_levels stage ON stage.school_id=cg.school_id AND stage.id=cg.education_level_id
+            WHERE cg.school_id=$1 AND cg.academic_year_id=$2
+            GROUP BY cg.id,cg.name,cg.grade_level,linked_grade.name,stage.name
+          )
+          SELECT ay.name AS academic_year_name,fee_grade.name AS fee_grade_name,
+            COALESCE((SELECT count(DISTINCT ce.student_id)::int FROM class_groups cg
+              JOIN class_enrollments ce ON ce.school_id=cg.school_id AND ce.class_group_id=cg.id AND ce.status='ACTIVE'
+              JOIN students st ON st.school_id=ce.school_id AND st.id=ce.student_id AND st.status='ACTIVE'
+              WHERE cg.school_id=$1 AND cg.academic_year_id=$2),0)::int AS active_learners_in_year,
+            COALESCE((SELECT count(*)::int FROM class_diagnostics WHERE active_learners>0),0)::int AS active_classes_in_year,
+            COALESCE((SELECT json_agg(json_build_object('className',class_name,'gradeLabel',grade_label,
+              'linkedGrade',linked_grade_name,'educationStage',education_stage,'activeLearners',active_learners)
+              ORDER BY class_name) FROM class_diagnostics WHERE active_learners>0),'[]'::json) AS classes
+          FROM academic_years ay JOIN grade_levels fee_grade ON fee_grade.school_id=ay.school_id
+          WHERE ay.school_id=$1 AND ay.id=$2 AND fee_grade.id=$3`,[schoolId,scheduleRow.academic_year_id,scheduleRow.grade_level_id]);
+        const details=diagnostic.rows[0]||{};
+        const classes=Array.isArray(details.classes)?details.classes:[];
+        const classSummary=classes.slice(0,5).map(item=>`${item.className} (grade label: ${item.gradeLabel||'blank'}; linked grade: ${item.linkedGrade||'not linked'}; stage: ${item.educationStage||'not set'}; active learners: ${item.activeLearners})`).join('; ');
+        const additionalClasses=classes.length>5?`; and ${classes.length-5} more class(es)`:'';
+        const yearName=details.academic_year_name||'the selected academic year';
+        const activeLearners=Number(details.active_learners_in_year||0);
+        const error=activeLearners
+          ? `No active learners matched ${details.fee_grade_name||'this fee schedule'} for ${yearName}. There are ${activeLearners} active learner(s) in ${Number(details.active_classes_in_year||0)} class(es) for that year: ${classSummary}${additionalClasses}. Check that the class grade label, linked grade, and education stage match the fee schedule.`
+          : `No active class enrollments were found for ${yearName}. Check the class enrollment academic year and active enrollment status.`;
+        await close(req,false);return res.status(409).json({error});
+      }
       const issued=await req.auth.client.query(`WITH enrolled AS MATERIALIZED (
           SELECT DISTINCT ce.student_id FROM class_groups cg JOIN class_enrollments ce ON ce.school_id=cg.school_id AND ce.class_group_id=cg.id AND ce.status='ACTIVE'
             JOIN students st ON st.school_id=ce.school_id AND st.id=ce.student_id AND st.status='ACTIVE'
