@@ -1952,11 +1952,80 @@ export function createOperationsRouter({ authenticate, sendInvitation = sendAcco
   });
 
   router.get('/communications', needsPermission('communications.read'), async(req,res)=>{
-    try{const schoolId=req.auth.claims.schoolId;const [announcements,deliveries,classes]=await Promise.all([
+    try{const schoolId=req.auth.claims.schoolId;const [announcements,deliveries,classes,familyThreads]=await Promise.all([
       req.auth.client.query(`SELECT a.id,a.title,a.body,a.audience,a.status,a.created_at,a.published_at,u.full_name AS author FROM announcements a JOIN user_accounts u ON u.school_id=a.school_id AND u.id=a.created_by WHERE a.school_id=$1 ORDER BY a.created_at DESC LIMIT 200`,[schoolId]),
       req.auth.client.query(`SELECT nd.id,nd.announcement_id,a.title,nd.channel,nd.status,count(*) OVER(PARTITION BY nd.announcement_id,nd.channel) AS audience_count,nd.queued_at,nd.sent_at,nd.error_code FROM notification_deliveries nd LEFT JOIN announcements a ON a.school_id=nd.school_id AND a.id=nd.announcement_id WHERE nd.school_id=$1 ORDER BY nd.queued_at DESC LIMIT 100`,[schoolId]),
-      req.auth.client.query(`SELECT id,name,grade_level FROM class_groups WHERE school_id=$1 ORDER BY grade_level,name`,[schoolId])
-    ]);await close(req,true);return res.json({announcements:announcements.rows,deliveries:deliveries.rows,classes:classes.rows,canWrite:req.auth.account.permissions.includes('communications.write'),canSendSms:req.auth.account.permissions.includes('communications.sms.send'),smsConfigured:smsReadiness(),smsProvider:smsProviderName()});}catch(error){return fail(req,res,error);}
+      req.auth.client.query(`SELECT id,name,grade_level FROM class_groups WHERE school_id=$1 ORDER BY grade_level,name`,[schoolId]),
+      req.auth.client.query(`SELECT t.id,t.student_id,s.first_name,s.last_name,s.student_number,t.subject,t.status,t.updated_at,g.first_name AS guardian_first_name,g.last_name AS guardian_last_name,
+        (SELECT fm.body FROM family_messages fm WHERE fm.school_id=t.school_id AND fm.thread_id=t.id ORDER BY fm.created_at DESC LIMIT 1) AS latest_message,
+        (SELECT count(*)::int FROM family_messages fm WHERE fm.school_id=t.school_id AND fm.thread_id=t.id AND fm.sender_user_id=t.guardian_user_id AND fm.read_at IS NULL) AS unread_count
+        FROM family_message_threads t JOIN students s ON s.school_id=t.school_id AND s.id=t.student_id JOIN guardians g ON g.school_id=t.school_id AND g.user_id=t.guardian_user_id
+        WHERE t.school_id=$1 ORDER BY t.updated_at DESC LIMIT 200`,[schoolId])
+    ]);await close(req,true);return res.json({announcements:announcements.rows,deliveries:deliveries.rows,classes:classes.rows,familyThreads:familyThreads.rows,canWrite:req.auth.account.permissions.includes('communications.write'),canSendSms:req.auth.account.permissions.includes('communications.sms.send'),smsConfigured:smsReadiness(),smsProvider:smsProviderName()});}catch(error){return fail(req,res,error);}
+  });
+
+  router.get('/portal/family-messages', needsPermission('portal.messages.read'), async(req,res)=>{
+    if(!req.auth.account.roles.includes('PARENT')){await close(req,false);return res.status(403).json({error:'Family messages are available to linked guardian accounts.'});}
+    try{const schoolId=req.auth.claims.schoolId;const userId=req.auth.claims.userId;const [threads,children]=await Promise.all([
+      req.auth.client.query(`SELECT t.id,t.student_id,t.subject,t.status,t.updated_at,s.first_name,s.last_name,
+        (SELECT fm.body FROM family_messages fm WHERE fm.school_id=t.school_id AND fm.thread_id=t.id ORDER BY fm.created_at DESC LIMIT 1) AS latest_message,
+        (SELECT count(*)::int FROM family_messages fm WHERE fm.school_id=t.school_id AND fm.thread_id=t.id AND fm.sender_user_id<>$2 AND fm.read_at IS NULL) AS unread_count
+        FROM family_message_threads t JOIN students s ON s.school_id=t.school_id AND s.id=t.student_id WHERE t.school_id=$1 AND t.guardian_user_id=$2 ORDER BY t.updated_at DESC LIMIT 100`,[schoolId,userId]),
+      req.auth.client.query(`SELECT s.id,s.first_name,s.last_name FROM guardians g JOIN student_guardians sg ON sg.school_id=g.school_id AND sg.guardian_id=g.id JOIN students s ON s.school_id=sg.school_id AND s.id=sg.student_id WHERE g.school_id=$1 AND g.user_id=$2 AND g.active ORDER BY s.last_name,s.first_name`,[schoolId,userId])
+    ]);await close(req,true);return res.json({threads:threads.rows,children:children.rows});}catch(error){return fail(req,res,error);}
+  });
+
+  router.post('/portal/family-messages', needsPermission('portal.messages.write'), csrf, async(req,res)=>{
+    if(!req.auth.account.roles.includes('PARENT')){await close(req,false);return res.status(403).json({error:'Only linked guardian accounts can start a family message.'});}
+    const studentId=text(req.body?.studentId,50);const subject=text(req.body?.subject,160);const body=text(req.body?.body,5000);
+    if(!studentId||!subject||!body){await close(req,false);return res.status(400).json({error:'Choose a linked learner and enter a subject and message.'});}
+    try{const schoolId=req.auth.claims.schoolId;const userId=req.auth.claims.userId;
+      const linked=await req.auth.client.query(`SELECT s.id FROM guardians g JOIN student_guardians sg ON sg.school_id=g.school_id AND sg.guardian_id=g.id JOIN students s ON s.school_id=sg.school_id AND s.id=sg.student_id WHERE g.school_id=$1 AND g.user_id=$2 AND g.active AND s.id=$3`,[schoolId,userId,studentId]);
+      if(!linked.rowCount){await close(req,false);return res.status(403).json({error:'Choose a learner linked to your guardian account.'});}
+      const thread=await req.auth.client.query(`INSERT INTO family_message_threads(school_id,student_id,guardian_user_id,subject) VALUES($1,$2,$3,$4) RETURNING id`,[schoolId,studentId,userId,subject]);
+      const message=await req.auth.client.query(`INSERT INTO family_messages(school_id,thread_id,sender_user_id,body) VALUES($1,$2,$3,$4) RETURNING id,body,created_at`,[schoolId,thread.rows[0].id,userId,body]);
+      const staff=await req.auth.client.query(`SELECT DISTINCT ua.id FROM user_accounts ua JOIN user_role_assignments ura ON ura.school_id=ua.school_id AND ura.user_id=ua.id JOIN school_roles sr ON sr.school_id=ura.school_id AND sr.id=ura.role_id WHERE ua.school_id=$1 AND ua.status='ACTIVE' AND ua.id<>$2 AND sr.code IN ('SCHOOL_ADMIN','PRINCIPAL','CAMPUS_ADMIN') AND (ura.ends_at IS NULL OR ura.ends_at>now())`,[schoolId,userId]);
+      for(const recipient of staff.rows){await req.auth.client.query(`INSERT INTO portal_notifications(school_id,user_id,kind,title,body,target_url) VALUES($1,$2,'MESSAGE','New guardian message',$3,'/portal')`,[schoolId,recipient.id,subject]);}
+      await audit(req,'FAMILY_MESSAGE_SENT','FAMILY_MESSAGE',message.rows[0].id,{threadId:thread.rows[0].id,studentId});
+      await done(req,res,201,{threadId:thread.rows[0].id,message:message.rows[0],notice:'Message sent to the school office.'});
+      for(const recipient of staff.rows)void pushToUser(schoolId,recipient.id,{title:'New guardian message',body:subject,url:'/portal'});return;
+    }catch(error){return fail(req,res,error);}
+  });
+
+  router.get('/portal/family-messages/:threadId', async(req,res)=>{
+    try{const schoolId=req.auth.claims.schoolId;const userId=req.auth.claims.userId;const isParent=req.auth.account.roles.includes('PARENT');if((isParent&&!req.auth.account.permissions.includes('portal.messages.read'))||(!isParent&&!req.auth.account.permissions.includes('communications.read'))){await close(req,false);return res.status(403).json({error:'You do not have access to this family conversation.'});}
+      const thread=await req.auth.client.query(`SELECT t.id,t.subject,t.student_id,t.guardian_user_id,s.first_name,s.last_name FROM family_message_threads t JOIN students s ON s.school_id=t.school_id AND s.id=t.student_id WHERE t.school_id=$1 AND t.id=$2 AND ($3::boolean=false OR t.guardian_user_id=$4)`,[schoolId,req.params.threadId,isParent,userId]);
+      if(!thread.rowCount){await close(req,false);return res.status(404).json({error:'Family conversation not found.'});}
+      const messages=await req.auth.client.query(`SELECT m.id,m.body,m.sender_user_id,m.created_at,m.read_at,u.full_name AS sender_name FROM family_messages m JOIN user_accounts u ON u.school_id=m.school_id AND u.id=m.sender_user_id WHERE m.school_id=$1 AND m.thread_id=$2 ORDER BY m.created_at`,[schoolId,thread.rows[0].id]);
+      await req.auth.client.query(`UPDATE family_messages SET read_at=COALESCE(read_at,now()) WHERE school_id=$1 AND thread_id=$2 AND sender_user_id<>$3`,[schoolId,thread.rows[0].id,userId]);
+      await close(req,true);return res.json({thread:thread.rows[0],messages:messages.rows});
+    }catch(error){return fail(req,res,error);}
+  });
+
+  router.post('/portal/family-messages/:threadId/reply', needsPermission('portal.messages.write'), csrf, async(req,res)=>{
+    if(!req.auth.account.roles.includes('PARENT')){await close(req,false);return res.status(403).json({error:'Only the linked guardian can reply from the family portal.'});}
+    const body=text(req.body?.body,5000);if(!body){await close(req,false);return res.status(400).json({error:'Write a message before sending.'});}
+    try{const schoolId=req.auth.claims.schoolId;const userId=req.auth.claims.userId;const thread=await req.auth.client.query(`SELECT id,subject FROM family_message_threads WHERE school_id=$1 AND id=$2 AND guardian_user_id=$3 AND status='OPEN'`,[schoolId,req.params.threadId,userId]);
+      if(!thread.rowCount){await close(req,false);return res.status(404).json({error:'Open family conversation not found.'});}
+      const message=await req.auth.client.query(`INSERT INTO family_messages(school_id,thread_id,sender_user_id,body) VALUES($1,$2,$3,$4) RETURNING id,body,created_at`,[schoolId,thread.rows[0].id,userId,body]);
+      await req.auth.client.query(`UPDATE family_messages SET read_at=COALESCE(read_at,now()) WHERE school_id=$1 AND thread_id=$2 AND sender_user_id<>$3 AND read_at IS NULL`,[schoolId,thread.rows[0].id,userId]);await req.auth.client.query(`UPDATE family_message_threads SET updated_at=now() WHERE school_id=$1 AND id=$2`,[schoolId,thread.rows[0].id]);
+      const staff=await req.auth.client.query(`SELECT ua.id FROM user_accounts ua JOIN user_role_assignments ura ON ura.school_id=ua.school_id AND ura.user_id=ua.id JOIN school_roles sr ON sr.school_id=ura.school_id AND sr.id=ura.role_id WHERE ua.school_id=$1 AND ua.status='ACTIVE' AND sr.code IN ('SCHOOL_ADMIN','PRINCIPAL','CAMPUS_ADMIN') AND (ura.ends_at IS NULL OR ura.ends_at>now())`,[schoolId]);
+      for(const recipient of staff.rows)await req.auth.client.query(`INSERT INTO portal_notifications(school_id,user_id,kind,title,body,target_url) VALUES($1,$2,'MESSAGE','Guardian replied to a message',$3,'/portal')`,[schoolId,recipient.id,body.slice(0,220)]);
+      await audit(req,'FAMILY_MESSAGE_REPLIED','FAMILY_MESSAGE',message.rows[0].id,{threadId:thread.rows[0].id});await done(req,res,201,{message:message.rows[0],notice:'Reply sent to the school office.'});for(const recipient of staff.rows)void pushToUser(schoolId,recipient.id,{title:'Guardian replied',body:body.slice(0,180),url:'/portal'});return;
+    }catch(error){return fail(req,res,error);}
+  });
+
+  router.post('/communications/family-threads/:threadId/reply', needsPermission('communications.write'), csrf, async(req,res)=>{
+    const body=text(req.body?.body,5000);if(!body){await close(req,false);return res.status(400).json({error:'Write a reply before sending.'});}
+    try{const schoolId=req.auth.claims.schoolId;const userId=req.auth.claims.userId;const thread=await req.auth.client.query(`SELECT id,guardian_user_id,subject FROM family_message_threads WHERE school_id=$1 AND id=$2 AND status='OPEN'`,[schoolId,req.params.threadId]);
+      if(!thread.rowCount){await close(req,false);return res.status(404).json({error:'Open family conversation not found.'});}
+      const message=await req.auth.client.query(`INSERT INTO family_messages(school_id,thread_id,sender_user_id,body) VALUES($1,$2,$3,$4) RETURNING id,body,created_at`,[schoolId,thread.rows[0].id,userId,body]);
+      await req.auth.client.query(`UPDATE family_messages SET read_at=now() WHERE school_id=$1 AND thread_id=$2 AND sender_user_id<>$3 AND read_at IS NULL`,[schoolId,thread.rows[0].id,userId]);
+      await req.auth.client.query(`UPDATE family_message_threads SET updated_at=now() WHERE school_id=$1 AND id=$2`,[schoolId,thread.rows[0].id]);
+      await req.auth.client.query(`INSERT INTO portal_notifications(school_id,user_id,kind,title,body,target_url) VALUES($1,$2,'MESSAGE','School replied to your message',$3,'/portal')`,[schoolId,thread.rows[0].guardian_user_id,body.slice(0,220)]);
+      await audit(req,'FAMILY_MESSAGE_REPLIED','FAMILY_MESSAGE',message.rows[0].id,{threadId:thread.rows[0].id});
+      await done(req,res,201,{message:message.rows[0],notice:'Reply sent to the guardian.'});void pushToUser(schoolId,thread.rows[0].guardian_user_id,{title:'School replied to your message',body:body.slice(0,180),url:'/portal'});return;
+    }catch(error){return fail(req,res,error);}
   });
 
   router.post('/communications', needsPermission('communications.write'), csrf, async(req,res)=>{
