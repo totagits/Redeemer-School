@@ -714,6 +714,21 @@ export function createOperationsRouter({ authenticate, sendInvitation = sendAcco
     } catch (error) { return fail(req, res, error); }
   });
 
+  // Principals can review operating expense requests without gaining access to
+  // learner invoices, payment records, or Finance write actions.
+  router.get('/finance/expense-approvals', needsPermission('finance.expenses.approve'), async(req,res)=>{
+    try {
+      const expenses = await req.auth.client.query(`SELECT e.id,e.expense_number,e.category,e.description,e.vendor,e.currency,e.amount::text,e.incurred_on,e.status,e.created_at,e.reviewed_at,e.paid_at,e.payment_channel,e.payment_reference,e.decision_note,
+        requester.full_name AS requested_by_name,reviewer.full_name AS reviewed_by_name,payer.full_name AS paid_by_name
+        FROM finance_expenses e JOIN user_accounts requester ON requester.school_id=e.school_id AND requester.id=e.requested_by
+        LEFT JOIN user_accounts reviewer ON reviewer.school_id=e.school_id AND reviewer.id=e.reviewed_by
+        LEFT JOIN user_accounts payer ON payer.school_id=e.school_id AND payer.id=e.paid_by
+        WHERE e.school_id=$1 ORDER BY CASE e.status WHEN 'SUBMITTED' THEN 0 ELSE 1 END,e.created_at DESC LIMIT 200`,[req.auth.claims.schoolId]);
+      await close(req,true);
+      return res.json({expenses:expenses.rows});
+    } catch(error) { return fail(req,res,error); }
+  });
+
   router.post('/finance/expenses', needsPermission('finance.write'), csrf, async(req,res)=>{
     const category=text(req.body?.category,80);const description=text(req.body?.description,500);const vendor=text(req.body?.vendor,160);const currency=text(req.body?.currency,3).toUpperCase();const amount=Number(req.body?.amount);const incurredOn=req.body?.incurredOn;
     if(!category||!description||!['LRD','USD'].includes(currency)||!Number.isFinite(amount)||amount<=0||amount>999999999||!validDate(incurredOn)){await close(req,false);return res.status(400).json({error:'Enter an expense category, description, LRD or USD amount, and valid date.'});}
