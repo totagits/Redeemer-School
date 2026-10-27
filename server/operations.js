@@ -670,7 +670,7 @@ export function createOperationsRouter({ authenticate, sendInvitation = sendAcco
   router.get('/finance', needsPermission('finance.read'), async (req, res) => {
     try {
       const schoolId = req.auth.claims.schoolId;
-      const [invoices, payments, students, years, momoIntents] = await Promise.all([
+      const [invoices, payments, students, years, momoIntents, expenses] = await Promise.all([
         req.auth.client.query(`SELECT fi.id, fi.invoice_number, fi.currency, fi.issued_on, fi.due_on, fi.status,
             st.id AS student_id, st.student_number, st.first_name, st.last_name, y.name AS academic_year_name,
             COALESCE(lines.total, 0)::text AS total,
@@ -698,13 +698,50 @@ export function createOperationsRouter({ authenticate, sendInvitation = sendAcco
           FROM payment_intents pi JOIN fee_invoices fi ON fi.school_id = pi.school_id AND fi.id = pi.invoice_id
           JOIN students st ON st.school_id = fi.school_id AND st.id = fi.student_id
           WHERE pi.school_id = $1 ORDER BY pi.initiated_at DESC LIMIT 50`, [schoolId]),
+        req.auth.client.query(`SELECT e.id,e.expense_number,e.category,e.description,e.vendor,e.currency,e.amount::text,e.incurred_on,e.status,e.created_at,e.reviewed_at,e.paid_at,e.payment_channel,e.payment_reference,e.decision_note,
+          requester.full_name AS requested_by_name,reviewer.full_name AS reviewed_by_name,payer.full_name AS paid_by_name
+          FROM finance_expenses e JOIN user_accounts requester ON requester.school_id=e.school_id AND requester.id=e.requested_by
+          LEFT JOIN user_accounts reviewer ON reviewer.school_id=e.school_id AND reviewer.id=e.reviewed_by
+          LEFT JOIN user_accounts payer ON payer.school_id=e.school_id AND payer.id=e.paid_by
+          WHERE e.school_id=$1 ORDER BY e.created_at DESC LIMIT 200`,[schoolId])
       ]);
       await close(req, true);
       return res.json({ invoices: invoices.rows, payments: payments.rows, students: students.rows, years: years.rows,
         momoIntents: momoIntents.rows,
+        expenses: expenses.rows,
         momo: { enabled: momoClient.config.enabled, environment: momoClient.config.environment, currency: momoClient.config.currency, feeRateBps: momoClient.config.feeRateBps, reason: momoClient.config.reason },
-        canWrite: req.auth.account.permissions.includes('finance.write') });
+        canWrite: req.auth.account.permissions.includes('finance.write'),canApproveExpenses:req.auth.account.permissions.includes('finance.expenses.approve') });
     } catch (error) { return fail(req, res, error); }
+  });
+
+  router.post('/finance/expenses', needsPermission('finance.write'), csrf, async(req,res)=>{
+    const category=text(req.body?.category,80);const description=text(req.body?.description,500);const vendor=text(req.body?.vendor,160);const currency=text(req.body?.currency,3).toUpperCase();const amount=Number(req.body?.amount);const incurredOn=req.body?.incurredOn;
+    if(!category||!description||!['LRD','USD'].includes(currency)||!Number.isFinite(amount)||amount<=0||amount>999999999||!validDate(incurredOn)){await close(req,false);return res.status(400).json({error:'Enter an expense category, description, LRD or USD amount, and valid date.'});}
+    try{const schoolId=req.auth.claims.schoolId;const dateTag=new Date().toISOString().slice(0,10).replaceAll('-','');const expenseNumber=`EXP-${dateTag}-${randomBytes(3).toString('hex').toUpperCase()}`;
+      const result=await req.auth.client.query(`INSERT INTO finance_expenses(school_id,expense_number,category,description,vendor,currency,amount,incurred_on,status,requested_by)
+        VALUES($1,$2,$3,$4,NULLIF($5,''),$6,$7,$8,'SUBMITTED',$9) RETURNING id,expense_number,status,currency,amount::text`,[schoolId,expenseNumber,category,description,vendor,currency,amount.toFixed(2),incurredOn,req.auth.claims.userId]);
+      await audit(req,'FINANCE_EXPENSE_SUBMITTED','FINANCE_EXPENSE',result.rows[0].id,{expenseNumber,currency,amount:result.rows[0].amount,category});return done(req,res,201,{expense:result.rows[0],notice:'Expense request submitted for Principal or school administrator review.'});
+    }catch(error){return fail(req,res,error);}
+  });
+
+  router.post('/finance/expenses/:expenseId/decision', needsPermission('finance.expenses.approve'), csrf, async(req,res)=>{
+    const decision=text(req.body?.decision,20).toUpperCase();const note=text(req.body?.note,500);
+    if(!['APPROVED','REJECTED'].includes(decision)||(decision==='REJECTED'&&!note)){await close(req,false);return res.status(400).json({error:'Choose approve or reject. A reason is required when rejecting an expense.'});}
+    try{const result=await req.auth.client.query(`UPDATE finance_expenses SET status=$4,reviewed_by=$3,reviewed_at=now(),decision_note=NULLIF($5,''),updated_at=now()
+      WHERE school_id=$1 AND id=$2 AND status='SUBMITTED' AND requested_by<>$3 RETURNING id,expense_number,status,currency,amount::text`,[req.auth.claims.schoolId,req.params.expenseId,req.auth.claims.userId,decision,note]);
+      if(!result.rowCount){await close(req,false);return res.status(409).json({error:'This expense is no longer awaiting review, or you cannot approve your own request.'});}
+      await audit(req,`FINANCE_EXPENSE_${decision}`,'FINANCE_EXPENSE',result.rows[0].id,{expenseNumber:result.rows[0].expense_number,note});return done(req,res,200,{expense:result.rows[0],notice:`Expense ${decision.toLowerCase()} and recorded.`});
+    }catch(error){return fail(req,res,error);}
+  });
+
+  router.post('/finance/expenses/:expenseId/pay', needsPermission('finance.write'), csrf, async(req,res)=>{
+    const channel=text(req.body?.channel,20).toUpperCase();const reference=text(req.body?.reference,120);
+    if(!['CASH','BANK','OTHER'].includes(channel)){await close(req,false);return res.status(400).json({error:'Choose cash, bank transfer, or another manually verified payment method.'});}
+    try{const result=await req.auth.client.query(`UPDATE finance_expenses SET status='PAID',paid_by=$3,paid_at=now(),payment_channel=$4,payment_reference=NULLIF($5,''),updated_at=now()
+      WHERE school_id=$1 AND id=$2 AND status='APPROVED' RETURNING id,expense_number,status,currency,amount::text`,[req.auth.claims.schoolId,req.params.expenseId,req.auth.claims.userId,channel,reference]);
+      if(!result.rowCount){await close(req,false);return res.status(409).json({error:'Only an approved expense can be recorded as paid.'});}
+      await audit(req,'FINANCE_EXPENSE_PAID','FINANCE_EXPENSE',result.rows[0].id,{expenseNumber:result.rows[0].expense_number,currency:result.rows[0].currency,amount:result.rows[0].amount,channel,reference});return done(req,res,200,{expense:result.rows[0],notice:'Expense payment recorded in the audit trail.'});
+    }catch(error){return fail(req,res,error);}
   });
 
   router.post('/finance/invoices', needsPermission('finance.write'), csrf, async (req, res) => {
