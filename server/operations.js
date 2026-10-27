@@ -1146,17 +1146,22 @@ export function createOperationsRouter({ authenticate, sendInvitation = sendAcco
       const schoolId = req.auth.claims.schoolId;
       const year = await req.auth.client.query(`SELECT id,name FROM academic_years WHERE school_id=$1 AND id=$2`, [schoolId, academicYearId]);
       if (!year.rowCount) { await close(req, false); return res.status(404).json({ error: 'Academic year not found for this school.' }); }
-      const gradeLevels = await req.auth.client.query(`SELECT DISTINCT gl.id,gl.name,e.name AS education_level_name
+      const gradeLevels = await req.auth.client.query(`SELECT DISTINCT
+          COALESCE(gl.id::text, 'legacy:' || NULLIF(BTRIM(cg.grade_level), '')) AS id,
+          COALESCE(gl.name, NULLIF(BTRIM(cg.grade_level), '')) AS name,
+          COALESCE(e.name, 'Existing class grade') AS education_level_name
         FROM class_groups cg
-        JOIN grade_levels gl ON gl.school_id=cg.school_id AND gl.id=cg.grade_level_id AND gl.active
-        JOIN education_levels e ON e.school_id=gl.school_id AND e.id=gl.education_level_id AND e.active
-        WHERE cg.school_id=$1 AND cg.academic_year_id=$2 ORDER BY e.name,gl.name`, [schoolId, academicYearId]);
+        LEFT JOIN grade_levels gl ON gl.school_id=cg.school_id AND gl.id=cg.grade_level_id AND gl.active
+        LEFT JOIN education_levels e ON e.school_id=gl.school_id AND e.id=gl.education_level_id AND e.active
+        WHERE cg.school_id=$1 AND cg.academic_year_id=$2
+          AND COALESCE(gl.id::text, NULLIF(BTRIM(cg.grade_level), '')) IS NOT NULL
+        ORDER BY education_level_name,name`, [schoolId, academicYearId]);
       if (!gradeLevelId) {
         await close(req, true);
         return res.json({ academicYear: year.rows[0], gradeLevels: gradeLevels.rows, gradeLevel: null, results: [] });
       }
       const gradeLevel = gradeLevels.rows.find(row => row.id === gradeLevelId);
-      if (!gradeLevel) { await close(req, false); return res.status(404).json({ error: 'Choose a grade level configured for this academic year.' }); }
+      if (!gradeLevel) { await close(req, false); return res.status(404).json({ error: 'Choose a grade level or existing class grade for this academic year.' }); }
       const results = await req.auth.client.query(`
         SELECT DISTINCT ON (rc.student_id)
           rc.student_id::text AS "studentId",COALESCE(rc.academic_summary #>> '{student,student_number}',st.student_number) AS "studentNumber",
@@ -1168,7 +1173,10 @@ export function createOperationsRouter({ authenticate, sendInvitation = sendAcco
         FROM report_cards rc
         JOIN students st ON st.school_id=rc.school_id AND st.id=rc.student_id
         JOIN class_groups cg ON cg.school_id=rc.school_id AND cg.academic_year_id=rc.academic_year_id
-          AND cg.grade_level_id=$3 AND cg.id::text=rc.academic_summary #>> '{classGroup,id}'
+          AND cg.id::text=rc.academic_summary #>> '{classGroup,id}'
+          AND CASE WHEN $3 LIKE 'legacy:%'
+            THEN cg.grade_level_id IS NULL AND LOWER(BTRIM(cg.grade_level))=LOWER(BTRIM(SUBSTRING($3 FROM 8)))
+            ELSE cg.grade_level_id::text=$3 END
         WHERE rc.school_id=$1 AND rc.academic_year_id=$2 AND rc.academic_term_id IS NULL AND rc.status='PUBLISHED'
           AND NULLIF(rc.academic_summary->>'overallAverage','') IS NOT NULL
         ORDER BY rc.student_id,rc.snapshot_version DESC`, [schoolId, academicYearId, gradeLevelId]);
