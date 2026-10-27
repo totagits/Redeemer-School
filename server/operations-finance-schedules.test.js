@@ -20,7 +20,7 @@ class FakeClient {
       if(this.state.labelMatchedGrade&&(!normalized.includes('lower(btrim(cg.name))=lower(btrim(fee_grade.name))')||!normalized.includes('cg.education_level_id IS NULL OR cg.education_level_id=fee_grade.education_level_id')))return {rows:[{count:0}],rowCount:1};
       return {rows:[{count:2}],rowCount:1};
     }
-    if(normalized.startsWith('WITH class_diagnostics AS'))return {rows:[{academic_year_name:'2027-2028',fee_grade_name:'Grade 4',active_learners_in_year:2,active_classes_in_year:1,classes:[{className:'Grade 4-A',gradeLabel:'Grade 4',linkedGrade:'Grade 3',educationStage:'Primary',activeLearners:2}]}],rowCount:1};
+    if(normalized.startsWith('WITH class_diagnostics AS'))return {rows:[{academic_year_name:'2027-2028',fee_grade_name:'Grade 4',active_learners_in_year:this.state.sameNamedYear?0:2,active_learners_in_other_same_named_years:this.state.sameNamedYear?2:0,active_classes_in_year:1,classes:[{className:'Grade 4-A',gradeLabel:'Grade 4',linkedGrade:'Grade 3',educationStage:'Primary',activeLearners:2}]}],rowCount:1};
     if(normalized.startsWith('WITH enrolled AS MATERIALIZED')){
       if(this.state.labelMatchedGrade&&(!normalized.includes('lower(btrim(cg.name))=lower(btrim(fee_grade.name))')||!normalized.includes('cg.education_level_id IS NULL OR cg.education_level_id=fee_grade.education_level_id')))throw new Error('Invoice selection omitted the legacy class-name match.');
       const count=this.state.created;this.state.created=0;return {rows:[{invoice_count:count}],rowCount:1};
@@ -31,7 +31,7 @@ class FakeClient {
   release(){}
 }
 
-async function startServer(t,permissions=['finance.write'],options={}){const clients=[];const state={created:2,labelMatchedGrade:Boolean(options.labelMatchedGrade),noTargets:Boolean(options.noTargets)};const app=express();app.use(express.json());app.use('/api/operations',createOperationsRouter({authenticate(req,_res,next){const client=new FakeClient(state);clients.push(client);req.auth={account:{id:userId,roles:['FINANCE'],permissions},claims:{schoolId,userId,csrfToken:'csrf-test-token'},client};next();}}));const server=createServer(app).listen(0,'127.0.0.1');await once(server,'listening');t.after(()=>new Promise(resolve=>server.close(resolve)));return{url:`http://127.0.0.1:${server.address().port}`,clients};}
+async function startServer(t,permissions=['finance.write'],options={}){const clients=[];const state={created:2,labelMatchedGrade:Boolean(options.labelMatchedGrade),noTargets:Boolean(options.noTargets),sameNamedYear:Boolean(options.sameNamedYear)};const app=express();app.use(express.json());app.use('/api/operations',createOperationsRouter({authenticate(req,_res,next){const client=new FakeClient(state);clients.push(client);req.auth={account:{id:userId,roles:['FINANCE'],permissions},claims:{schoolId,userId,csrfToken:'csrf-test-token'},client};next();}}));const server=createServer(app).listen(0,'127.0.0.1');await once(server,'listening');t.after(()=>new Promise(resolve=>server.close(resolve)));return{url:`http://127.0.0.1:${server.address().port}`,clients};}
 
 const headers={'Content-Type':'application/json','X-CSRF-Token':'csrf-test-token'};
 
@@ -63,12 +63,21 @@ test('zero-match response reports year and class-grade diagnostics without creat
   const response=await fetch(`${url}/api/operations/finance/fee-schedules/${scheduleId}/issue-installment`,{method:'POST',headers,body:JSON.stringify({installmentNo:1})});
   assert.equal(response.status,409);
   const body=await response.json();
-  assert.match(body.error,/2 active learner\\(s\\) in 1 class\\(es\\)/);
-  assert.match(body.error,/Grade 4-A \\(grade label: Grade 4; linked grade: Grade 3; stage: Primary; active learners: 2\\)/);
+  assert.match(body.error,/2 active learner\(s\) in 1 class\(es\)/);
+  assert.match(body.error,/Grade 4-A \(grade label: Grade 4; linked grade: Grade 3; stage: Primary; active learners: 2\)/);
   assert.doesNotMatch(body.error,/Fictional Learner|Crystal Nyemah/);
   const statements=clients.flatMap(client=>client.statements).map(item=>item.sql);
   assert.ok(statements.some(sql=>sql.startsWith('WITH class_diagnostics AS')));
   assert.equal(statements.some(sql=>sql.startsWith('WITH enrolled AS MATERIALIZED')),false);
+});
+
+test('zero-match response identifies duplicate academic-year labels with enrollments',async t=>{
+  const {url}=await startServer(t,['finance.write'],{noTargets:true,sameNamedYear:true});
+  const response=await fetch(url+'/api/operations/finance/fee-schedules/'+scheduleId+'/issue-installment',{method:'POST',headers,body:JSON.stringify({installmentNo:1})});
+  assert.equal(response.status,409);
+  const body=await response.json();
+  assert.match(body.error,/different academic-year record with the same displayed name/);
+  assert.match(body.error,/2 active learner\(s\)/);
 });
 
 test('non-finance roles cannot bulk issue fee invoices',async t=>{

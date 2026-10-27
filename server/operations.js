@@ -870,6 +870,12 @@ export function createOperationsRouter({ authenticate, sendInvitation = sendAcco
               JOIN class_enrollments ce ON ce.school_id=cg.school_id AND ce.class_group_id=cg.id AND ce.status='ACTIVE'
               JOIN students st ON st.school_id=ce.school_id AND st.id=ce.student_id AND st.status='ACTIVE'
               WHERE cg.school_id=$1 AND cg.academic_year_id=$2),0)::int AS active_learners_in_year,
+            COALESCE((SELECT count(DISTINCT ce.student_id)::int FROM class_groups other_cg
+              JOIN academic_years other_year ON other_year.school_id=other_cg.school_id AND other_year.id=other_cg.academic_year_id
+              JOIN class_enrollments ce ON ce.school_id=other_cg.school_id AND ce.class_group_id=other_cg.id AND ce.status='ACTIVE'
+              JOIN students st ON st.school_id=ce.school_id AND st.id=ce.student_id AND st.status='ACTIVE'
+              WHERE other_cg.school_id=$1 AND other_year.id<>ay.id
+                AND lower(btrim(other_year.name))=lower(btrim(ay.name))),0)::int AS active_learners_in_other_same_named_years,
             COALESCE((SELECT count(*)::int FROM class_diagnostics WHERE active_learners>0),0)::int AS active_classes_in_year,
             COALESCE((SELECT json_agg(json_build_object('className',class_name,'gradeLabel',grade_label,
               'linkedGrade',linked_grade_name,'educationStage',education_stage,'activeLearners',active_learners)
@@ -882,9 +888,12 @@ export function createOperationsRouter({ authenticate, sendInvitation = sendAcco
         const additionalClasses=classes.length>5?`; and ${classes.length-5} more class(es)`:'';
         const yearName=details.academic_year_name||'the selected academic year';
         const activeLearners=Number(details.active_learners_in_year||0);
+        const otherSameNameYearLearners=Number(details.active_learners_in_other_same_named_years||0);
         const error=activeLearners
           ? `No active learners matched ${details.fee_grade_name||'this fee schedule'} for ${yearName}. There are ${activeLearners} active learner(s) in ${Number(details.active_classes_in_year||0)} class(es) for that year: ${classSummary}${additionalClasses}. Check that the class grade label, linked grade, and education stage match the fee schedule.`
-          : `No active class enrollments were found for ${yearName}. Check the class enrollment academic year and active enrollment status.`;
+          : otherSameNameYearLearners
+            ? `The selected academic-year record for ${yearName} has no active enrollments, but ${otherSameNameYearLearners} active learner(s) are attached to a different academic-year record with the same displayed name. The fee schedule and class must use the same academic-year record.`
+            : `No active class enrollments were found for ${yearName}. Check the class enrollment academic year and active enrollment status.`;
         await close(req,false);return res.status(409).json({error});
       }
       const issued=await req.auth.client.query(`WITH enrolled AS MATERIALIZED (
