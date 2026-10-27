@@ -2014,7 +2014,7 @@ export function createOperationsRouter({ authenticate, sendInvitation = sendAcco
           JOIN grade_reporting_periods rp ON rp.school_id=a.school_id AND rp.id=a.reporting_period_id
           JOIN assessment_scores sc ON sc.school_id=a.school_id AND sc.assessment_id=a.id 
           JOIN class_enrollments ce ON ce.school_id=sc.school_id AND ce.student_id=sc.student_id AND ce.class_group_id=ta.class_group_id AND ce.status='ACTIVE'
-          WHERE a.school_id=$1 AND ta.class_group_id=$2 AND ta.academic_year_id=$3 AND rp.academic_year_id=$3 AND a.status='PUBLISHED'
+          WHERE a.school_id=$1 AND ta.class_group_id=$2 AND ta.academic_year_id=$3 AND rp.academic_year_id=$3 AND (sc.review_status='PUBLISHED' OR a.status='PUBLISHED')
           ORDER BY sc.student_id,s.name,rp.sort_order,a.assessment_type,a.title`, [schoolId, classGroupId, academicYearId]),
         req.auth.client.query(`SELECT rc.student_id,rc.status,rc.academic_summary,rc.approved_at,u.full_name AS approved_by_name
           FROM report_cards rc LEFT JOIN user_accounts u ON u.school_id=rc.school_id AND u.id=rc.approved_by
@@ -2062,7 +2062,7 @@ export function createOperationsRouter({ authenticate, sendInvitation = sendAcco
           FROM assessments a JOIN teacher_subject_assignments ta ON ta.school_id=a.school_id AND ta.id=a.teacher_assignment_id
           JOIN grade_reporting_periods rp ON rp.school_id=a.school_id AND rp.id=a.reporting_period_id
           JOIN assessment_scores sc ON sc.school_id=a.school_id AND sc.assessment_id=a.id 
-          WHERE a.school_id=$1 AND ta.class_group_id=$2 AND ta.academic_year_id=$3 AND rp.academic_year_id=$3 AND a.status='PUBLISHED' AND sc.student_id=$4`, [schoolId,classGroupId,academicYearId,studentId]),
+          WHERE a.school_id=$1 AND ta.class_group_id=$2 AND ta.academic_year_id=$3 AND rp.academic_year_id=$3 AND (sc.review_status='PUBLISHED' OR a.status='PUBLISHED') AND sc.student_id=$4`, [schoolId,classGroupId,academicYearId,studentId]),
       ]);
       const { weights, configured: weightsConfigured } = yearEndWeightsFromRows(weightRows.rows);
       if (!weightsConfigured) { await close(req,false); return res.status(409).json({ error: 'The school administrator must save assignment, quiz, and test weights totaling 100% before Principal approval.' }); }
@@ -2489,9 +2489,8 @@ export function createOperationsRouter({ authenticate, sendInvitation = sendAcco
     const isTeacher = req.auth.account.roles.includes('TEACHER') && !req.auth.account.permissions.includes('grades.moderate');
     try {
       const result = await req.auth.client.query(`SELECT a.id AS assessment_id, a.title, a.assessment_type, a.max_score, a.status, rp.label AS reporting_period_label,
-          CASE WHEN a.status='OPEN' THEN returned.details->>'reason' ELSE NULL END AS return_reason,
           ta.id AS assignment_id, c.name AS class_name, s.name AS subject_name,
-          st.id AS student_id, st.student_number, st.first_name, st.last_name, sc.score, sc.feedback
+          st.id AS student_id, st.student_number, st.first_name, st.last_name, sc.score, sc.feedback, sc.review_status, sc.return_reason
         FROM assessments a
         JOIN teacher_subject_assignments ta ON ta.school_id = a.school_id AND ta.id = a.teacher_assignment_id
         JOIN class_groups c ON c.school_id = ta.school_id AND c.id = ta.class_group_id
@@ -2500,18 +2499,12 @@ export function createOperationsRouter({ authenticate, sendInvitation = sendAcco
         JOIN class_enrollments ce ON ce.school_id = ta.school_id AND ce.class_group_id = ta.class_group_id AND ce.status = 'ACTIVE'
         JOIN students st ON st.school_id = ce.school_id AND st.id = ce.student_id AND st.status = 'ACTIVE'
         LEFT JOIN assessment_scores sc ON sc.school_id = a.school_id AND sc.assessment_id = a.id AND sc.student_id = st.id
-        LEFT JOIN LATERAL (
-          SELECT ae.details FROM audit_events ae
-          WHERE ae.school_id=a.school_id AND ae.entity_type='ASSESSMENT' AND ae.entity_id=a.id
-            AND ae.action='ASSESSMENT_RETURNED_FOR_REVISION'
-          ORDER BY ae.occurred_at DESC,ae.id DESC LIMIT 1
-        ) returned ON true
         WHERE a.school_id = $1 AND a.id = $2 AND ($3::boolean = false OR ta.teacher_id = $4)
         ORDER BY st.last_name, st.first_name`, [req.auth.claims.schoolId, assessmentId, isTeacher, req.auth.claims.userId]);
       if (!result.rowCount) { await close(req, false); return res.status(404).json({ error: 'Assessment not found, or no active students are enrolled in its class.' }); }
       await close(req, true);
       const first = result.rows[0];
-      return res.json({ assessment: { id: first.assessment_id, title: first.title, type: first.assessment_type, maxScore: first.max_score, status: first.status, returnReason: first.return_reason, assignmentId: first.assignment_id, className: first.class_name, subjectName: first.subject_name, reporting_period_label: first.reporting_period_label }, students: result.rows.map(row => ({ id: row.student_id, studentNumber: row.student_number, firstName: row.first_name, lastName: row.last_name, score: row.score, feedback: row.feedback })) });
+      return res.json({ assessment: { id: first.assessment_id, title: first.title, type: first.assessment_type, maxScore: first.max_score, status: first.status, assignmentId: first.assignment_id, className: first.class_name, subjectName: first.subject_name, reporting_period_label: first.reporting_period_label }, students: result.rows.map(row => ({ id: row.student_id, studentNumber: row.student_number, firstName: row.first_name, lastName: row.last_name, score: row.score, feedback: row.feedback, reviewStatus: row.review_status || 'OPEN', returnReason: row.return_reason || null })) });
     } catch (error) { return fail(req, res, error); }
   });
 
@@ -2532,20 +2525,26 @@ export function createOperationsRouter({ authenticate, sendInvitation = sendAcco
     const isTeacher = req.auth.account.roles.includes('TEACHER');
     try {
       for (const item of normalized) {
-        const result = await req.auth.client.query(`INSERT INTO assessment_scores (school_id, assessment_id, student_id, score, feedback, entered_by)
-          SELECT $1, a.id, st.id, $5, NULLIF($6, ''), $4
+        const result = await req.auth.client.query(`INSERT INTO assessment_scores (school_id, assessment_id, student_id, score, feedback, entered_by, review_status, return_reason, returned_at)
+          SELECT $1, a.id, st.id, $5, NULLIF($6, ''), $4, CASE WHEN a.status='OPEN' THEN 'OPEN' ELSE 'PENDING_REVIEW' END, NULL, NULL
           FROM assessments a
           JOIN teacher_subject_assignments ta ON ta.school_id = a.school_id AND ta.id = a.teacher_assignment_id
           JOIN class_enrollments ce ON ce.school_id = ta.school_id AND ce.class_group_id = ta.class_group_id AND ce.status = 'ACTIVE'
           JOIN students st ON st.school_id = ce.school_id AND st.id = ce.student_id AND st.status = 'ACTIVE'
-          WHERE a.school_id = $1 AND a.id = $2 AND a.status = 'OPEN' AND st.id = $3
+          WHERE a.school_id = $1 AND a.id = $2 AND st.id = $3
+            AND (a.status='OPEN' OR (a.status='SUBMITTED_FOR_REVIEW' AND EXISTS (
+              SELECT 1 FROM assessment_scores returned_score
+              WHERE returned_score.school_id=a.school_id AND returned_score.assessment_id=a.id
+                AND returned_score.student_id=st.id AND returned_score.review_status='RETURNED'
+            )))
             AND $5 <= a.max_score AND ($7::boolean = false OR ta.teacher_id = $4)
-          ON CONFLICT (school_id, assessment_id, student_id) DO UPDATE SET score = EXCLUDED.score, feedback = EXCLUDED.feedback, entered_by = EXCLUDED.entered_by
+          ON CONFLICT (school_id, assessment_id, student_id) DO UPDATE SET score = EXCLUDED.score, feedback = EXCLUDED.feedback, entered_by = EXCLUDED.entered_by,
+            review_status = EXCLUDED.review_status, return_reason = NULL, returned_at = NULL
           RETURNING id`, [req.auth.claims.schoolId, assessmentId, item.studentId, req.auth.claims.userId, item.score, item.feedback, isTeacher]);
         if (!result.rowCount) { await close(req, false); return res.status(400).json({ error: 'A mark exceeds the assessment maximum, belongs to a non-enrolled student, or the assessment is no longer open.' }); }
       }
       await audit(req, 'ASSESSMENT_SCORES_SAVED', 'ASSESSMENT', assessmentId, { count: normalized.length });
-      return done(req, res, 200, { saved: normalized.length });
+      return done(req, res, 200, { saved: normalized.length, notice: 'Marks saved. Returned marks have been resubmitted to the Principal for review.' });
     } catch (error) { return fail(req, res, error); }
   });
 
@@ -2567,6 +2566,7 @@ export function createOperationsRouter({ authenticate, sendInvitation = sendAcco
         await close(req, false); return res.status(400).json({ error: 'Enter marks for every active student in the class before submitting for review.' });
       }
       await req.auth.client.query(`UPDATE assessments SET status = 'SUBMITTED_FOR_REVIEW' WHERE school_id = $1 AND id = $2 AND status = 'OPEN'`, [req.auth.claims.schoolId, assessmentId]);
+      await req.auth.client.query(`UPDATE assessment_scores SET review_status='PENDING_REVIEW' WHERE school_id=$1 AND assessment_id=$2 AND review_status='OPEN'`, [req.auth.claims.schoolId, assessmentId]);
       await audit(req, 'ASSESSMENT_SUBMITTED_FOR_REVIEW', 'ASSESSMENT', assessmentId, { scoredStudents: row.scored_count });
       return done(req, res, 200, { submitted: true });
     } catch (error) { return fail(req, res, error); }
@@ -2575,47 +2575,53 @@ export function createOperationsRouter({ authenticate, sendInvitation = sendAcco
   router.post('/assessments/:assessmentId/approve', needsPermission('grades.moderate'), csrf, async (req, res) => {
     const assessmentId = text(req.params.assessmentId, 50);
     try {
-      const result = await req.auth.client.query(`UPDATE assessments a SET status = 'APPROVED'
-        FROM teacher_subject_assignments ta
-        WHERE a.school_id = $1 AND a.id = $2 AND a.status = 'SUBMITTED_FOR_REVIEW'
+      const result = await req.auth.client.query(`SELECT a.id FROM assessments a
+        JOIN teacher_subject_assignments ta ON ta.school_id = a.school_id AND ta.id = a.teacher_assignment_id
+        WHERE a.school_id = $1 AND a.id = $2 AND a.status IN ('SUBMITTED_FOR_REVIEW','APPROVED')
           AND ta.school_id = a.school_id AND ta.id = a.teacher_assignment_id AND a.created_by <> $3
-        RETURNING a.id`, [req.auth.claims.schoolId, assessmentId, req.auth.claims.userId]);
+        FOR UPDATE OF a`, [req.auth.claims.schoolId, assessmentId, req.auth.claims.userId]);
       if (!result.rowCount) { await close(req, false); return res.status(403).json({ error: 'Only an authorized reviewer other than the assessment creator can approve submitted marks.' }); }
-      await req.auth.client.query(`UPDATE assessment_scores SET moderated_by = $3, moderated_at = now() WHERE school_id = $1 AND assessment_id = $2`, [req.auth.claims.schoolId, assessmentId, req.auth.claims.userId]);
-      await audit(req, 'ASSESSMENT_APPROVED', 'ASSESSMENT', assessmentId);
-      return done(req, res, 200, { approved: true });
+      const approved = await req.auth.client.query(`UPDATE assessment_scores SET review_status='APPROVED', moderated_by=$3, moderated_at=now()
+        WHERE school_id=$1 AND assessment_id=$2 AND review_status='PENDING_REVIEW' RETURNING student_id`, [req.auth.claims.schoolId, assessmentId, req.auth.claims.userId]);
+      const remaining = await req.auth.client.query(`SELECT COUNT(*)::int AS count FROM assessment_scores WHERE school_id=$1 AND assessment_id=$2 AND review_status IN ('PENDING_REVIEW','RETURNED')`, [req.auth.claims.schoolId, assessmentId]);
+      if (Number(remaining.rows[0]?.count || 0) === 0) await req.auth.client.query(`UPDATE assessments SET status='APPROVED' WHERE school_id=$1 AND id=$2 AND status<>'PUBLISHED'`, [req.auth.claims.schoolId, assessmentId]);
+      await audit(req, 'ASSESSMENT_APPROVED', 'ASSESSMENT', assessmentId, { approvedStudents: approved.rowCount, remainingStudents: Number(remaining.rows[0]?.count || 0) });
+      return done(req, res, 200, { approved: true, approvedCount: approved.rowCount, remainingCount: Number(remaining.rows[0]?.count || 0), notice: Number(remaining.rows[0]?.count || 0) ? 'Eligible marks approved. Returned or pending student marks remain in review.' : 'All marks approved and ready to publish.' });
     } catch (error) { return fail(req, res, error); }
   });
 
   router.post('/assessments/:assessmentId/return', needsPermission('grades.moderate'), csrf, async (req, res) => {
     const assessmentId = text(req.params.assessmentId, 50);
+    const studentId = text(req.body?.studentId, 50);
     const reason = text(req.body?.reason, 1000);
-    if (!assessmentId || !reason) { await close(req, false); return res.status(400).json({ error: 'Enter a reason explaining what the teacher must correct.' }); }
+    if (!assessmentId || !studentId || !reason) { await close(req, false); return res.status(400).json({ error: 'Select one student and enter a reason explaining what that teacher must correct.' }); }
     try {
-      const result = await req.auth.client.query(`UPDATE assessments a SET status='OPEN'
-        FROM teacher_subject_assignments ta
-        WHERE a.school_id=$1 AND a.id=$2 AND a.status='SUBMITTED_FOR_REVIEW'
-          AND ta.school_id=a.school_id AND ta.id=a.teacher_assignment_id AND a.created_by<>$3
-        RETURNING a.id`, [req.auth.claims.schoolId, assessmentId, req.auth.claims.userId]);
-      if (!result.rowCount) { await close(req, false); return res.status(403).json({ error: 'Only an authorized reviewer other than the assessment creator can return submitted marks.' }); }
-      await req.auth.client.query(`UPDATE assessment_scores SET moderated_by=NULL,moderated_at=NULL,published_at=NULL
-        WHERE school_id=$1 AND assessment_id=$2`, [req.auth.claims.schoolId, assessmentId]);
-      await audit(req, 'ASSESSMENT_RETURNED_FOR_REVISION', 'ASSESSMENT', assessmentId, { reason });
-      return done(req, res, 200, { returned: true, reason, notice: 'Marks returned to the teacher for correction. The teacher can edit and resubmit them for review.' });
+      const result = await req.auth.client.query(`UPDATE assessment_scores sc SET review_status='RETURNED', return_reason=$4, returned_at=now(), moderated_by=NULL, moderated_at=NULL, published_at=NULL
+        FROM assessments a JOIN teacher_subject_assignments ta ON ta.school_id=a.school_id AND ta.id=a.teacher_assignment_id
+        WHERE sc.school_id=$1 AND sc.assessment_id=$2 AND sc.student_id=$3 AND a.school_id=sc.school_id AND a.id=sc.assessment_id
+          AND a.status IN ('SUBMITTED_FOR_REVIEW','APPROVED') AND a.created_by<>$5
+          AND sc.review_status IN ('PENDING_REVIEW','APPROVED')
+        RETURNING sc.id`, [req.auth.claims.schoolId, assessmentId, studentId, reason, req.auth.claims.userId]);
+      if (!result.rowCount) { await close(req, false); return res.status(403).json({ error: 'That student mark is not awaiting review or cannot be returned by this reviewer.' }); }
+      await req.auth.client.query(`UPDATE assessments SET status='SUBMITTED_FOR_REVIEW' WHERE school_id=$1 AND id=$2 AND status='APPROVED'`, [req.auth.claims.schoolId, assessmentId]);
+      await audit(req, 'ASSESSMENT_SCORE_RETURNED_FOR_REVISION', 'ASSESSMENT', assessmentId, { studentId, reason });
+      return done(req, res, 200, { returned: true, studentId, reason, notice: 'Only this student’s mark was returned. Other marks remain in their current review or publication state.' });
     } catch (error) { return fail(req, res, error); }
   });
 
   router.post('/assessments/:assessmentId/publish', needsPermission('grades.publish'), csrf, async (req, res) => {
     const assessmentId = text(req.params.assessmentId, 50);
     try {
-      const result = await req.auth.client.query(`UPDATE assessments a SET status = 'PUBLISHED'
-        WHERE a.school_id = $1 AND a.id = $2 AND a.status = 'APPROVED'
-          AND EXISTS (SELECT 1 FROM assessment_scores sc WHERE sc.school_id = a.school_id AND sc.assessment_id = a.id)
-        RETURNING a.id`, [req.auth.claims.schoolId, assessmentId]);
-      if (!result.rowCount) { await close(req, false); return res.status(400).json({ error: 'Only an approved assessment with recorded marks can be published.' }); }
-      await req.auth.client.query(`UPDATE assessment_scores SET published_at = now() WHERE school_id = $1 AND assessment_id = $2`, [req.auth.claims.schoolId, assessmentId]);
-      await audit(req, 'ASSESSMENT_PUBLISHED', 'ASSESSMENT', assessmentId);
-      return done(req, res, 200, { published: true });
+      const result = await req.auth.client.query(`UPDATE assessment_scores sc SET review_status='PUBLISHED', published_at=now()
+        FROM assessments a
+        WHERE sc.school_id=$1 AND sc.assessment_id=$2 AND sc.review_status='APPROVED'
+          AND a.school_id=sc.school_id AND a.id=sc.assessment_id AND a.status IN ('APPROVED','SUBMITTED_FOR_REVIEW')
+        RETURNING sc.student_id`, [req.auth.claims.schoolId, assessmentId]);
+      if (!result.rowCount) { await close(req, false); return res.status(400).json({ error: 'There are no approved marks ready to publish for this assessment.' }); }
+      const remaining = await req.auth.client.query(`SELECT COUNT(*)::int AS count FROM assessment_scores WHERE school_id=$1 AND assessment_id=$2 AND review_status<>'PUBLISHED'`, [req.auth.claims.schoolId, assessmentId]);
+      await req.auth.client.query(`UPDATE assessments SET status=CASE WHEN $3=0 THEN 'PUBLISHED' ELSE 'SUBMITTED_FOR_REVIEW' END WHERE school_id=$1 AND id=$2`, [req.auth.claims.schoolId, assessmentId, Number(remaining.rows[0]?.count || 0)]);
+      await audit(req, 'ASSESSMENT_PUBLISHED', 'ASSESSMENT', assessmentId, { publishedStudents: result.rowCount, remainingStudents: Number(remaining.rows[0]?.count || 0) });
+      return done(req, res, 200, { published: true, publishedCount: result.rowCount, remainingCount: Number(remaining.rows[0]?.count || 0), notice: Number(remaining.rows[0]?.count || 0) ? 'Approved marks published. Returned or pending marks remain private until corrected, approved, and published.' : 'All marks published to learner and guardian portals.' });
     } catch (error) { return fail(req, res, error); }
   });
 
@@ -2844,7 +2850,7 @@ export function createOperationsRouter({ authenticate, sendInvitation = sendAcco
           ) learner_subjects ORDER BY subject_name`, [schoolId, learner.id]),
           req.auth.client.query(`SELECT ts.day_of_week, tp.name AS period_name, tp.starts_at, tp.ends_at, s.name AS subject_name, u.full_name AS teacher_name FROM class_enrollments ce JOIN class_groups c ON c.school_id = ce.school_id AND c.id = ce.class_group_id JOIN teacher_subject_assignments a ON a.school_id = c.school_id AND a.class_group_id = c.id AND a.academic_year_id = c.academic_year_id JOIN timetable_slots ts ON ts.school_id = a.school_id AND ts.teacher_assignment_id = a.id JOIN timetable_periods tp ON tp.school_id = ts.school_id AND tp.id = ts.period_id JOIN subjects s ON s.school_id = a.school_id AND s.id = a.subject_id JOIN user_accounts u ON u.school_id = a.school_id AND u.id = a.teacher_id WHERE ce.school_id = $1 AND ce.student_id = $2 AND ce.status = 'ACTIVE' ORDER BY ts.day_of_week, tp.starts_at`, [schoolId, learner.id]),
           req.auth.client.query(`SELECT sa.status, sa.recorded_at, cs.scheduled_at, s.name AS subject_name FROM student_attendance sa JOIN class_sessions cs ON cs.school_id = sa.school_id AND cs.id = sa.class_session_id JOIN teacher_subject_assignments a ON a.school_id = cs.school_id AND a.id = cs.teacher_assignment_id JOIN subjects s ON s.school_id = a.school_id AND s.id = a.subject_id WHERE sa.school_id = $1 AND sa.student_id = $2 ORDER BY cs.scheduled_at DESC LIMIT 30`, [schoolId, learner.id]),
-          req.auth.client.query(`SELECT a.title, a.assessment_type, a.max_score, sc.score, sc.feedback, sc.published_at, s.name AS subject_name FROM assessment_scores sc JOIN assessments a ON a.school_id = sc.school_id AND a.id = sc.assessment_id JOIN teacher_subject_assignments ta ON ta.school_id = a.school_id AND ta.id = a.teacher_assignment_id JOIN subjects s ON s.school_id = ta.school_id AND s.id = ta.subject_id WHERE sc.school_id = $1 AND sc.student_id = $2 AND a.status = 'PUBLISHED'  ORDER BY COALESCE(sc.published_at,a.created_at) DESC`, [schoolId, learner.id]),
+          req.auth.client.query(`SELECT a.title, a.assessment_type, a.max_score, sc.score, sc.feedback, sc.published_at, s.name AS subject_name FROM assessment_scores sc JOIN assessments a ON a.school_id = sc.school_id AND a.id = sc.assessment_id JOIN teacher_subject_assignments ta ON ta.school_id = a.school_id AND ta.id = a.teacher_assignment_id JOIN subjects s ON s.school_id = ta.school_id AND s.id = ta.subject_id WHERE sc.school_id = $1 AND sc.student_id = $2 AND (sc.review_status='PUBLISHED' OR a.status = 'PUBLISHED') ORDER BY COALESCE(sc.published_at,a.created_at) DESC`, [schoolId, learner.id]),
           req.auth.client.query(`SELECT * FROM (
             SELECT r.resource_type,r.title,r.author,r.publisher,r.isbn,r.edition,r.description,r.resource_url,r.required,s.name AS subject_name
             FROM class_enrollments ce JOIN class_groups c ON c.school_id=ce.school_id AND c.id=ce.class_group_id
@@ -2909,7 +2915,7 @@ export function createOperationsRouter({ authenticate, sendInvitation = sendAcco
           ) learner_subjects ORDER BY subject_name`, [schoolId, child.id]),
             req.auth.client.query(`SELECT ts.day_of_week, tp.name AS period_name, tp.starts_at, tp.ends_at, s.name AS subject_name, u.full_name AS teacher_name FROM class_enrollments ce JOIN class_groups c ON c.school_id = ce.school_id AND c.id = ce.class_group_id JOIN teacher_subject_assignments a ON a.school_id = c.school_id AND a.class_group_id = c.id AND a.academic_year_id = c.academic_year_id JOIN timetable_slots ts ON ts.school_id = a.school_id AND ts.teacher_assignment_id = a.id JOIN timetable_periods tp ON tp.school_id = ts.school_id AND tp.id = ts.period_id JOIN subjects s ON s.school_id = a.school_id AND s.id = a.subject_id JOIN user_accounts u ON u.school_id = a.school_id AND u.id = a.teacher_id WHERE ce.school_id = $1 AND ce.student_id = $2 AND ce.status = 'ACTIVE' ORDER BY ts.day_of_week, tp.starts_at`, [schoolId, child.id]),
             req.auth.client.query(`SELECT sa.status, cs.scheduled_at, s.name AS subject_name FROM student_attendance sa JOIN class_sessions cs ON cs.school_id = sa.school_id AND cs.id = sa.class_session_id JOIN teacher_subject_assignments a ON a.school_id = cs.school_id AND a.id = cs.teacher_assignment_id JOIN subjects s ON s.school_id = a.school_id AND s.id = a.subject_id WHERE sa.school_id = $1 AND sa.student_id = $2 ORDER BY cs.scheduled_at DESC LIMIT 30`, [schoolId, child.id]),
-            child.can_view_results ? req.auth.client.query(`SELECT a.title, a.assessment_type, a.max_score, sc.score, sc.feedback, sc.published_at, s.name AS subject_name FROM assessment_scores sc JOIN assessments a ON a.school_id = sc.school_id AND a.id = sc.assessment_id JOIN teacher_subject_assignments ta ON ta.school_id = a.school_id AND ta.id = a.teacher_assignment_id JOIN subjects s ON s.school_id = ta.school_id AND s.id = ta.subject_id WHERE sc.school_id = $1 AND sc.student_id = $2 AND a.status = 'PUBLISHED'  ORDER BY COALESCE(sc.published_at,a.created_at) DESC`, [schoolId, child.id]) : Promise.resolve({ rows: [] }),
+            child.can_view_results ? req.auth.client.query(`SELECT a.title, a.assessment_type, a.max_score, sc.score, sc.feedback, sc.published_at, s.name AS subject_name FROM assessment_scores sc JOIN assessments a ON a.school_id = sc.school_id AND a.id = sc.assessment_id JOIN teacher_subject_assignments ta ON ta.school_id = a.school_id AND ta.id = a.teacher_assignment_id JOIN subjects s ON s.school_id = ta.school_id AND s.id = ta.subject_id WHERE sc.school_id = $1 AND sc.student_id = $2 AND (sc.review_status='PUBLISHED' OR a.status = 'PUBLISHED') ORDER BY COALESCE(sc.published_at,a.created_at) DESC`, [schoolId, child.id]) : Promise.resolve({ rows: [] }),
             req.auth.client.query(`SELECT * FROM (
               SELECT r.resource_type,r.title,r.author,r.publisher,r.isbn,r.edition,r.description,r.resource_url,r.required,s.name AS subject_name
               FROM class_enrollments ce JOIN class_groups c ON c.school_id=ce.school_id AND c.id=ce.class_group_id

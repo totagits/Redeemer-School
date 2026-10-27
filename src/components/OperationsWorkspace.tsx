@@ -1041,11 +1041,11 @@ const TeachingMaterialsPanel: React.FC<{ setup: Setup; account: SchoolAccount; p
 
 const AssessmentGradebook: React.FC<{ setup: Setup; account: SchoolAccount; csrfToken: string; onUpdated: () => Promise<void> }> = ({ setup, account, csrfToken, onUpdated }) => {
   const [selectedId, setSelectedId] = useState('');
-  const [assessment, setAssessment] = useState<{ id: string; title: string; type: string; maxScore: number; status: string; returnReason?: string | null; className: string; subjectName: string } | null>(null);
-  const [students, setStudents] = useState<Array<{ id: string; studentNumber: string; firstName: string; lastName: string; score: string; feedback: string }>>([]);
+  const [assessment, setAssessment] = useState<{ id: string; title: string; type: string; maxScore: number; status: string; className: string; subjectName: string } | null>(null);
+  const [students, setStudents] = useState<Array<{ id: string; studentNumber: string; firstName: string; lastName: string; score: string; feedback: string; reviewStatus: string; returnReason: string | null }>>([]);
   const [loadingRoster, setLoadingRoster] = useState(false);
   const [busy, setBusy] = useState(false);
-  const [showReturnForm, setShowReturnForm] = useState(false);
+  const [returningStudentId, setReturningStudentId] = useState('');
   const [error, setError] = useState('');
   const [notice, setNotice] = useState('');
   const canEnter = account.permissions.includes('grades.enter');
@@ -1063,7 +1063,7 @@ const AssessmentGradebook: React.FC<{ setup: Setup; account: SchoolAccount; csrf
       setAssessment(result.assessment);
       setStudents((result.students || []).map((student: Record<string, unknown>) => ({
         id: String(student.id), studentNumber: String(student.studentNumber), firstName: String(student.firstName), lastName: String(student.lastName),
-        score: student.score == null ? '' : String(student.score), feedback: student.feedback == null ? '' : String(student.feedback),
+        score: student.score == null ? '' : String(student.score), feedback: student.feedback == null ? '' : String(student.feedback), reviewStatus: String(student.reviewStatus || 'OPEN'), returnReason: student.returnReason == null ? null : String(student.returnReason),
       })));
     } catch (cause) { setError(cause instanceof Error ? cause.message : 'Could not load assessment marks.'); setAssessment(null); setStudents([]); }
     finally { setLoadingRoster(false); }
@@ -1103,25 +1103,29 @@ const AssessmentGradebook: React.FC<{ setup: Setup; account: SchoolAccount; csrf
 
   const saveScores = async () => {
     if (!selectedId) return;
-    const scores = students.filter(student => student.score.trim() !== '').map(student => ({ studentId: student.id, score: Number(student.score), feedback: student.feedback }));
+    const editable = students.filter(student => assessment?.status === 'OPEN' || student.reviewStatus === 'RETURNED');
+    const scores = editable.filter(student => student.score.trim() !== '').map(student => ({ studentId: student.id, score: Number(student.score), feedback: student.feedback }));
     if (!scores.length || scores.some(item => !Number.isFinite(item.score) || item.score < 0 || item.score > Number(assessment?.maxScore))) { setError('Enter valid marks between zero and the assessment maximum.'); return; }
     const result = await sendAction(`assessments/${encodeURIComponent(selectedId)}/scores`, { scores });
     if (result) setNotice(`${result.saved} mark${result.saved === 1 ? '' : 's'} saved.`);
   };
 
-  const returnForCorrection = async (event: React.FormEvent<HTMLFormElement>) => {
+  const returnForCorrection = async (event: React.FormEvent<HTMLFormElement>, studentId: string) => {
     event.preventDefault();
     const form = event.currentTarget;
     const data = new FormData(form);
-    const result = await sendAction(`assessments/${encodeURIComponent(selectedId)}/return`, { reason: data.get('reason') });
+    const result = await sendAction(`assessments/${encodeURIComponent(selectedId)}/return`, { studentId, reason: data.get('reason') });
     if (result) {
       form.reset();
-      setShowReturnForm(false);
+      setReturningStudentId('');
       setNotice(String(result.notice || 'Marks returned to the teacher for correction.'));
     }
   };
 
   const completeCount = students.filter(student => student.score.trim() !== '').length;
+  const returnedCount = students.filter(student => student.reviewStatus === 'RETURNED').length;
+  const pendingCount = students.filter(student => student.reviewStatus === 'PENDING_REVIEW').length;
+  const approvedCount = students.filter(student => student.reviewStatus === 'APPROVED').length;
   return <section className={`${sectionClass} mb-6`}>
     <div className="mb-5 flex flex-col gap-2 sm:flex-row sm:items-end sm:justify-between"><div><p className="text-xs font-bold uppercase tracking-[0.14em] text-blue-700">Teaching & learning</p><h2 className="mt-1 text-lg font-extrabold text-slate-950">Assessments & gradebook</h2><p className="mt-1 text-sm text-slate-600">Create quizzes, tests, exams, assignments, or projects; record marks and route results for review.</p></div>
       {selected && <span className="w-fit rounded-full bg-slate-100 px-3 py-1 text-xs font-bold text-slate-700">{selected.status.replaceAll('_', ' ')}</span>}
@@ -1143,8 +1147,8 @@ const AssessmentGradebook: React.FC<{ setup: Setup; account: SchoolAccount; csrf
         <label className={labelClass}>Assessment<select value={selectedId} onChange={event => setSelectedId(event.target.value)} className={inputClass}><option value="">Choose an assessment</option>{setup.assessments.map(item => <option key={item.id} value={item.id}>{item.class_name} · {item.subject_name} · {item.title} ({item.status.replaceAll('_', ' ')})</option>)}</select></label>
         {loadingRoster ? <p className="flex items-center gap-2 py-8 text-sm text-slate-600"><LoaderCircle className="h-4 w-4 animate-spin"/> Loading class marks…</p> : assessment ? <>
           <div className="flex flex-wrap justify-between gap-2 rounded-xl border border-slate-200 bg-white p-3 text-sm"><span><b>{assessment.className}</b> · {assessment.subjectName} · {assessment.type}{selected?.reporting_period_label?` · ${selected.reporting_period_label}`:''}</span><span>Maximum: <b>{assessment.maxScore}</b></span></div>
-          {canEnter&&assessment.status==='OPEN'&&assessment.returnReason&&<div role="status" className="rounded-lg border border-amber-200 bg-amber-50 p-3 text-sm text-amber-950"><b>Returned by the Principal for correction.</b><span className="ml-1">Reason: {assessment.returnReason}</span><p className="mt-1 text-xs">Correct the marks above, save them, then submit all marks for review again.</p></div>}
-          {students.length ? <div className="overflow-x-auto rounded-xl border border-slate-200"><table className="w-full min-w-[720px] text-left text-sm"><thead className="bg-slate-50 text-xs uppercase text-slate-500"><tr><th className="px-3 py-3">Student</th><th className="px-3 py-3">Mark / {assessment.maxScore}</th><th className="px-3 py-3">Outcome</th><th className="px-3 py-3">Feedback</th></tr></thead><tbody className="divide-y divide-slate-100">{students.map(student => {
+          {(returnedCount>0||pendingCount>0||approvedCount>0)&&<p className="rounded-lg bg-slate-50 p-3 text-sm text-slate-700">Review status: {pendingCount} awaiting review · {approvedCount} approved · {returnedCount} returned for correction.</p>}
+          {students.length ? <div className="overflow-x-auto rounded-xl border border-slate-200"><table className="w-full min-w-[820px] text-left text-sm"><thead className="bg-slate-50 text-xs uppercase text-slate-500"><tr><th className="px-3 py-3">Student</th><th className="px-3 py-3">Mark / {assessment.maxScore}</th><th className="px-3 py-3">Outcome</th><th className="px-3 py-3">Feedback</th><th className="px-3 py-3">Review</th></tr></thead><tbody className="divide-y divide-slate-100">{students.map(student => {
             const numericScore = student.score.trim() ? Number(student.score) : null;
             let outcome = '—'; let percentLabel = '';
             if (numericScore !== null && Number.isFinite(numericScore) && assessment.maxScore > 0 && numericScore >= 0 && numericScore <= assessment.maxScore) {
@@ -1152,15 +1156,18 @@ const AssessmentGradebook: React.FC<{ setup: Setup; account: SchoolAccount; csrf
               const result = classifySchoolGrade(percent);
               outcome = result.outcome === 'FAIL' ? 'Fail' : result.outcome === 'PASS' ? 'Pass' : 'Review required';
             }
-            return <tr key={student.id}><td className="px-3 py-2.5"><span className="font-semibold">{student.firstName} {student.lastName}</span><span className="block text-xs text-slate-500">{student.studentNumber}</span></td><td className="px-3 py-2.5">{canEnter && assessment.status === 'OPEN' ? <input aria-label={`Mark for ${student.firstName} ${student.lastName}`} type="number" min="0" max={assessment.maxScore} step="0.01" value={student.score} onChange={event => setStudents(current => current.map(row => row.id === student.id ? { ...row, score: event.target.value } : row))} className="w-28 rounded-lg border border-slate-300 px-2 py-2"/> : student.score || '—'}</td><td className="px-3 py-2.5"><span className={outcome === 'Pass' ? 'font-semibold text-emerald-700' : outcome === 'Fail' ? 'font-semibold text-red-700' : 'font-semibold text-amber-700'}>{outcome}</span>{percentLabel && <span className="ml-1 text-xs text-slate-500">{percentLabel}</span>}</td><td className="px-3 py-2.5">{canEnter && assessment.status === 'OPEN' ? <input aria-label={`Feedback for ${student.firstName} ${student.lastName}`} value={student.feedback} onChange={event => setStudents(current => current.map(row => row.id === student.id ? { ...row, feedback: event.target.value } : row))} maxLength={1000} className="w-full rounded-lg border border-slate-300 px-2 py-2"/> : student.feedback || '—'}</td></tr>;
+            const canEditStudent=canEnter&&(assessment.status==='OPEN'||student.reviewStatus==='RETURNED');
+            const statusLabel:Record<string,string>={OPEN:'Not submitted',PENDING_REVIEW:'Awaiting review',RETURNED:'Returned for correction',APPROVED:'Approved',PUBLISHED:'Published'};
+            const canReturn=canModerate&&['SUBMITTED_FOR_REVIEW','APPROVED'].includes(assessment.status)&&['PENDING_REVIEW','APPROVED'].includes(student.reviewStatus);
+            return <React.Fragment key={student.id}><tr><td className="px-3 py-2.5"><span className="font-semibold">{student.firstName} {student.lastName}</span><span className="block text-xs text-slate-500">{student.studentNumber}</span></td><td className="px-3 py-2.5">{canEditStudent ? <input aria-label={`Mark for ${student.firstName} ${student.lastName}`} type="number" min="0" max={assessment.maxScore} step="0.01" value={student.score} onChange={event => setStudents(current => current.map(row => row.id === student.id ? { ...row, score: event.target.value } : row))} className="w-28 rounded-lg border border-slate-300 px-2 py-2"/> : student.score || '—'}</td><td className="px-3 py-2.5"><span className={outcome === 'Pass' ? 'font-semibold text-emerald-700' : outcome === 'Fail' ? 'font-semibold text-red-700' : 'font-semibold text-amber-700'}>{outcome}</span>{percentLabel && <span className="ml-1 text-xs text-slate-500">{percentLabel}</span>}</td><td className="px-3 py-2.5">{canEditStudent ? <input aria-label={`Feedback for ${student.firstName} ${student.lastName}`} value={student.feedback} onChange={event => setStudents(current => current.map(row => row.id === student.id ? { ...row, feedback: event.target.value } : row))} maxLength={1000} className="w-full rounded-lg border border-slate-300 px-2 py-2"/> : student.feedback || '—'}</td><td className="px-3 py-2.5"><span className="font-semibold">{statusLabel[student.reviewStatus]||student.reviewStatus}</span>{canReturn&&<button type="button" onClick={()=>setReturningStudentId(current=>current===student.id?'':student.id)} disabled={busy} className="mt-1 block text-xs font-bold text-amber-800 underline">Return this mark</button>}</td></tr>{student.reviewStatus==='RETURNED'&&<tr><td colSpan={5} className="bg-amber-50 px-3 py-2 text-xs text-amber-950"><b>Correction requested:</b> {student.returnReason||'Review the mark and resubmit it.'}{canEditStudent&&<span className="ml-1">Edit this mark and save to resubmit it to the Principal.</span>}</td></tr>}{returningStudentId===student.id&&<tr><td colSpan={5} className="bg-amber-50 p-3"><form onSubmit={event=>void returnForCorrection(event,student.id)} className="grid gap-2 sm:grid-cols-[1fr_auto_auto]"><label className="text-xs font-semibold text-slate-700">Reason for returning {student.firstName}’s mark<textarea required name="reason" minLength={3} maxLength={1000} rows={2} className="mt-1 block w-full rounded-lg border border-slate-300 px-3 py-2 text-sm" placeholder="Explain what this student needs corrected."/></label><button type="submit" disabled={busy} className="self-end rounded-lg bg-amber-800 px-3 py-2 text-xs font-bold text-white">{busy?'Returning…':'Return this mark'}</button><button type="button" disabled={busy} onClick={()=>setReturningStudentId('')} className="self-end rounded-lg border border-slate-300 px-3 py-2 text-xs font-bold">Cancel</button></form></td></tr>}</React.Fragment>;
           })}</tbody></table></div> : <p className="rounded-lg bg-slate-50 p-4 text-sm text-slate-600">No active students are enrolled in this class yet.</p>}
           <p className="text-xs leading-5 text-slate-500">Score bands use percentage of the assessment maximum: 1–69% fail and 70–100% pass. A recorded zero is held for school review; a blank mark is not treated as a zero.</p>
           <div className="flex flex-wrap gap-2">
             {canEnter && assessment.status === 'OPEN' && <><button onClick={() => void saveScores()} disabled={busy || completeCount === 0} className={buttonClass}>{busy ? 'Saving…' : 'Save marks'}</button><button onClick={() => void sendAction(`assessments/${encodeURIComponent(selectedId)}/submit`)} disabled={busy || students.length === 0 || completeCount !== students.length} className="rounded-lg border border-blue-300 px-4 py-2.5 text-sm font-bold text-blue-800 disabled:opacity-50">Submit all marks for review</button></>}
-            {canModerate && assessment.status === 'SUBMITTED_FOR_REVIEW' && <><button onClick={() => void sendAction(`assessments/${encodeURIComponent(selectedId)}/approve`)} disabled={busy} className={buttonClass}>Approve marks</button><button type="button" onClick={() => setShowReturnForm(current => !current)} disabled={busy} className="rounded-lg border border-amber-300 px-4 py-2.5 text-sm font-bold text-amber-900 disabled:opacity-50">Return to teacher</button></>}
-            {canPublish && assessment.status === 'APPROVED' && <button onClick={() => void sendAction(`assessments/${encodeURIComponent(selectedId)}/publish`)} disabled={busy} className={buttonClass}>Publish results to portals</button>}
+            {canEnter && assessment.status === 'SUBMITTED_FOR_REVIEW' && returnedCount>0 && <button onClick={() => void saveScores()} disabled={busy} className={buttonClass}>{busy ? 'Saving…' : 'Save and resubmit corrected mark'}</button>}
+            {canModerate && pendingCount>0 && <button onClick={() => void sendAction(`assessments/${encodeURIComponent(selectedId)}/approve`)} disabled={busy} className={buttonClass}>Approve marks awaiting review</button>}
+            {canPublish && approvedCount>0 && <button onClick={() => void sendAction(`assessments/${encodeURIComponent(selectedId)}/publish`)} disabled={busy} className={buttonClass}>Publish approved marks</button>}
           </div>
-          {canModerate&&assessment.status==='SUBMITTED_FOR_REVIEW'&&showReturnForm&&<form onSubmit={returnForCorrection} className="rounded-xl border border-amber-200 bg-amber-50 p-4"><label className={labelClass}>Reason for returning these marks<textarea required name="reason" minLength={3} maxLength={1000} rows={3} className={inputClass} placeholder="Explain what needs to be reviewed or corrected." /></label><div className="mt-3 flex flex-wrap gap-2"><button type="submit" disabled={busy} className="rounded-lg bg-amber-800 px-4 py-2.5 text-sm font-bold text-white disabled:opacity-50">{busy?'Returning…':'Send back for correction'}</button><button type="button" disabled={busy} onClick={()=>setShowReturnForm(false)} className="rounded-lg border border-slate-300 px-4 py-2.5 text-sm font-bold text-slate-700">Cancel</button></div></form>}
         </> : <p className="rounded-lg bg-slate-50 p-4 text-sm text-slate-600">Choose an assessment to view its class roster and marks. Newly created assessments appear here.</p>}
       </div>
     </div>

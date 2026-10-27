@@ -14,11 +14,12 @@ const reportingPeriodId = 'f6aaf6d0-61a9-41ab-8f17-332b7ec07d59';
 const principalId = '82fe90c2-25a4-4da4-a177-bf93b5be3a13';
 
 class FakeClient {
-  constructor({ account, ownsAssignment = true, assessmentCreator = teacherId, returnReason = null }) {
+  constructor({ account, ownsAssignment = true, assessmentCreator = teacherId, returnReason = null, remainingReviewCount = 0 }) {
     this.account = account;
     this.ownsAssignment = ownsAssignment;
     this.assessmentCreator = assessmentCreator;
     this.returnReason = returnReason;
+    this.remainingReviewCount = remainingReviewCount;
     this.statements = [];
     this.released = false;
   }
@@ -32,16 +33,22 @@ class FakeClient {
       if (params[1] !== ownAssignment || (teacherScoped && !this.ownsAssignment)) return { rows: [], rowCount: 0 };
       return { rows: [{ id: assessmentId, teacher_assignment_id: ownAssignment, reporting_period_id: params[2], title: params[4], assessment_type: params[5], max_score: params[6], due_at: params[7], status: 'OPEN' }], rowCount: 1 };
     }
-    if (normalized.startsWith('UPDATE assessments a SET status = \'APPROVED\'')) {
+    if (normalized.startsWith('SELECT a.id FROM assessments a')) {
       if (params[2] === this.assessmentCreator) return { rows: [], rowCount: 0 };
       return { rows: [{ id: assessmentId }], rowCount: 1 };
     }
-    if (normalized.startsWith("UPDATE assessments a SET status='OPEN'")) {
+    if (normalized.startsWith("UPDATE assessment_scores sc SET review_status='RETURNED'")) {
       if (params[2] === this.assessmentCreator) return { rows: [], rowCount: 0 };
       return { rows: [{ id: assessmentId }], rowCount: 1 };
     }
-    if (normalized.startsWith('UPDATE assessment_scores SET moderated_by=NULL')) return { rows: [], rowCount: 1 };
-    if (normalized.startsWith('SELECT a.id AS assessment_id')) return { rows: [{ assessment_id: assessmentId, title: 'Quiz 1', assessment_type: 'QUIZ', max_score: '20', status: 'OPEN', return_reason: this.returnReason, assignment_id: ownAssignment, class_name: 'Grade 4', subject_name: 'Mathematics', student_id: 'student-1', student_number: 'RIA-001', first_name: 'Crystal', last_name: 'Nyemah', score: '17', feedback: null }], rowCount: 1 };
+    if (normalized.startsWith("UPDATE assessments SET status='SUBMITTED_FOR_REVIEW'")) return { rows: [], rowCount: 1 };
+    if (normalized.startsWith('UPDATE assessment_scores SET review_status=\'APPROVED\'')) return { rows: [{ student_id: 'student-1' }], rowCount: 1 };
+    if (normalized.startsWith('SELECT COUNT(*)::int AS count FROM assessment_scores')) return { rows: [{ count: this.remainingReviewCount }], rowCount: 1 };
+    if (normalized.startsWith('UPDATE assessments SET status=\'APPROVED\'')) return { rows: [], rowCount: 1 };
+    if (normalized.startsWith('UPDATE assessment_scores sc SET review_status=\'PUBLISHED\'')) return { rows: [{ student_id: 'student-1' }], rowCount: 1 };
+    if (normalized.startsWith("SELECT COUNT(*)::int AS count FROM assessment_scores WHERE")) return { rows: [{ count: 0 }], rowCount: 1 };
+    if (normalized.startsWith('UPDATE assessments SET status=CASE')) return { rows: [], rowCount: 1 };
+    if (normalized.startsWith('SELECT a.id AS assessment_id')) return { rows: [{ assessment_id: assessmentId, title: 'Quiz 1', assessment_type: 'QUIZ', max_score: '20', status: 'OPEN', assignment_id: ownAssignment, class_name: 'Grade 4', subject_name: 'Mathematics', student_id: 'student-1', student_number: 'RIA-001', first_name: 'Crystal', last_name: 'Nyemah', score: '17', feedback: null, review_status: 'OPEN', return_reason: this.returnReason }], rowCount: 1 };
     if (normalized.startsWith('INSERT INTO audit_events')) return { rows: [], rowCount: 1 };
     throw new Error(`Unexpected query in grade workflow test: ${normalized}`);
   }
@@ -129,19 +136,19 @@ test('assessment creator cannot approve their own submitted marks', async t => {
   assert.equal(clients[0].statements.at(-1).sql, 'ROLLBACK');
 });
 
-test('Principal can return submitted marks to the teacher with a required reason and audit record', async t => {
+test('Principal can return one student mark with a required reason and an individual audit record', async t => {
   const principal = { id: principalId, roles: ['PRINCIPAL'], permissions: ['grades.moderate'] };
   const { url, clients } = await startServer(t, principal, { assessmentCreator: teacherId });
   const response = await fetch(`${url}/api/operations/assessments/${assessmentId}/return`, {
-    method: 'POST', headers: { 'Content-Type': 'application/json', 'X-CSRF-Token': 'csrf-test-token' }, body: JSON.stringify({ reason: 'Please verify the two blank student marks.' }),
+    method: 'POST', headers: { 'Content-Type': 'application/json', 'X-CSRF-Token': 'csrf-test-token' }, body: JSON.stringify({ studentId: 'student-1', reason: 'Please verify this student’s mark.' }),
   });
   assert.equal(response.status, 200);
   assert.equal((await response.json()).returned, true);
-  assert.ok(clients[0].statements.some(item => item.sql.startsWith("UPDATE assessments a SET status='OPEN'") && /status='SUBMITTED_FOR_REVIEW'/.test(item.sql)));
-  assert.ok(clients[0].statements.some(item => item.sql.startsWith('UPDATE assessment_scores SET moderated_by=NULL')));
+  assert.ok(clients[0].statements.some(item => item.sql.startsWith("UPDATE assessment_scores sc SET review_status='RETURNED'") && item.params[2] === 'student-1'));
+  assert.equal(clients[0].statements.some(item => item.sql.startsWith("UPDATE assessment_scores SET moderated_by=NULL")), false);
   const audit = clients[0].statements.find(item => item.sql.startsWith('INSERT INTO audit_events'));
-  assert.equal(audit.params[2], 'ASSESSMENT_RETURNED_FOR_REVISION');
-  assert.deepEqual(JSON.parse(audit.params[5]), { reason: 'Please verify the two blank student marks.' });
+  assert.equal(audit.params[2], 'ASSESSMENT_SCORE_RETURNED_FOR_REVISION');
+  assert.deepEqual(JSON.parse(audit.params[5]), { studentId: 'student-1', reason: 'Please verify this student’s mark.' });
   assert.equal(clients[0].statements.at(-1).sql, 'COMMIT');
 });
 
@@ -149,20 +156,49 @@ test('returning marks requires a correction reason', async t => {
   const principal = { id: principalId, roles: ['PRINCIPAL'], permissions: ['grades.moderate'] };
   const { url, clients } = await startServer(t, principal, { assessmentCreator: teacherId });
   const response = await fetch(`${url}/api/operations/assessments/${assessmentId}/return`, {
-    method: 'POST', headers: { 'Content-Type': 'application/json', 'X-CSRF-Token': 'csrf-test-token' }, body: JSON.stringify({ reason: '  ' }),
+    method: 'POST', headers: { 'Content-Type': 'application/json', 'X-CSRF-Token': 'csrf-test-token' }, body: JSON.stringify({ studentId: 'student-1', reason: '  ' }),
   });
   assert.equal(response.status, 400);
   assert.match((await response.json()).error, /reason/i);
-  assert.equal(clients[0].statements.some(item => item.sql.startsWith("UPDATE assessments a SET status='OPEN'")), false);
+  assert.equal(clients[0].statements.some(item => item.sql.startsWith("UPDATE assessment_scores sc SET review_status='RETURNED'")), false);
 });
 
-test('teacher sees the Principal correction reason when reopening returned marks', async t => {
+test('Principal can approve eligible marks while a returned mark remains in the review queue', async t => {
+  const principal = { id: principalId, roles: ['PRINCIPAL'], permissions: ['grades.moderate'] };
+  const { url, clients } = await startServer(t, principal, { assessmentCreator: teacherId, remainingReviewCount: 1 });
+  const response = await fetch(`${url}/api/operations/assessments/${assessmentId}/approve`, {
+    method: 'POST', headers: { 'Content-Type': 'application/json', 'X-CSRF-Token': 'csrf-test-token' }, body: JSON.stringify({}),
+  });
+  assert.equal(response.status, 200);
+  const body = await response.json();
+  assert.equal(body.approvedCount, 1);
+  assert.equal(body.remainingCount, 1);
+  assert.match(body.notice, /returned or pending/i);
+  assert.equal(clients[0].statements.some(item => item.sql.startsWith("UPDATE assessments SET status='APPROVED'")), false);
+  assert.ok(clients[0].statements.some(item => item.sql.startsWith("UPDATE assessment_scores SET review_status='APPROVED'")));
+});
+
+test('Principal can publish approved marks while an individual correction stays private', async t => {
+  const principal = { id: principalId, roles: ['PRINCIPAL'], permissions: ['grades.publish'] };
+  const { url, clients } = await startServer(t, principal, { remainingReviewCount: 1 });
+  const response = await fetch(`${url}/api/operations/assessments/${assessmentId}/publish`, {
+    method: 'POST', headers: { 'Content-Type': 'application/json', 'X-CSRF-Token': 'csrf-test-token' }, body: JSON.stringify({}),
+  });
+  assert.equal(response.status, 200);
+  const body = await response.json();
+  assert.equal(body.publishedCount, 1);
+  assert.equal(body.remainingCount, 1);
+  assert.equal(clients[0].statements.find(item => item.sql.startsWith('UPDATE assessments SET status=CASE')).params[2], 1);
+  assert.ok(clients[0].statements.some(item => item.sql.startsWith("UPDATE assessment_scores sc SET review_status='PUBLISHED'")));
+});
+
+test('teacher sees an individual Principal correction reason beside the returned mark', async t => {
   const { url } = await startServer(t, teacher, { returnReason: 'Check the missing marks.' });
   const response = await fetch(`${url}/api/operations/assessments/${assessmentId}/roster`);
   assert.equal(response.status, 200);
   const roster = await response.json();
   assert.equal(roster.assessment.status, 'OPEN');
-  assert.equal(roster.assessment.returnReason, 'Check the missing marks.');
+  assert.equal(roster.students[0].returnReason, 'Check the missing marks.');
 });
 
 
@@ -183,7 +219,7 @@ test('student portal shows scores for published assessments when an older score 
         return { rows: [{ subject_name: 'Mathematics', weekly_minutes: null, periods_per_week: null, required: false, learning_objectives: null }], rowCount: 1 };
       }
       if (normalized.includes('FROM assessment_scores sc JOIN assessments a')) {
-        assert.match(normalized, /a\.status = 'PUBLISHED'/);
+        assert.match(normalized, /sc\.review_status='PUBLISHED' OR a\.status = 'PUBLISHED'/);
         assert.doesNotMatch(normalized, /sc\.published_at IS NOT NULL/);
         return { rows: [{ title: 'Math Quiz 1', assessment_type: 'QUIZ', max_score: '20', score: '17', feedback: null, published_at: null, subject_name: 'Mathematics' }], rowCount: 1 };
       }
