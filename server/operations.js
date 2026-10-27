@@ -670,7 +670,7 @@ export function createOperationsRouter({ authenticate, sendInvitation = sendAcco
   router.get('/finance', needsPermission('finance.read'), async (req, res) => {
     try {
       const schoolId = req.auth.claims.schoolId;
-      const [invoices, payments, students, years, momoIntents, expenses] = await Promise.all([
+      const [invoices, payments, students, years, momoIntents, expenses, feeItems, feeSchedules, gradeLevels, feeScheduleSchema] = await Promise.all([
         req.auth.client.query(`SELECT fi.id, fi.invoice_number, fi.currency, fi.issued_on, fi.due_on, fi.status,
             st.id AS student_id, st.student_number, st.first_name, st.last_name, y.name AS academic_year_name,
             COALESCE(lines.total, 0)::text AS total,
@@ -703,12 +703,27 @@ export function createOperationsRouter({ authenticate, sendInvitation = sendAcco
           FROM finance_expenses e JOIN user_accounts requester ON requester.school_id=e.school_id AND requester.id=e.requested_by
           LEFT JOIN user_accounts reviewer ON reviewer.school_id=e.school_id AND reviewer.id=e.reviewed_by
           LEFT JOIN user_accounts payer ON payer.school_id=e.school_id AND payer.id=e.paid_by
-          WHERE e.school_id=$1 ORDER BY e.created_at DESC LIMIT 200`,[schoolId])
+          WHERE e.school_id=$1 ORDER BY e.created_at DESC LIMIT 200`,[schoolId]),
+        req.auth.client.query(`SELECT id,code,name,category,active FROM fee_items WHERE school_id=$1 ORDER BY active DESC,name`,[schoolId]),
+        req.auth.client.query(`SELECT fs.id,fs.name,fs.currency,fs.effective_from,fs.effective_to,fs.status,fs.academic_year_id,ay.name AS academic_year_name,
+            fs.grade_level_id,gl.name AS grade_level_name,
+            COALESCE(json_agg(json_build_object('id',fsl.id,'feeItemId',fsl.fee_item_id,'itemName',fi.name,'description',fsl.description,'amount',fsl.amount::text,'installmentNo',fsl.installment_no,'dueOffsetDays',fsl.due_offset_days) ORDER BY fsl.installment_no,fi.name) FILTER (WHERE fsl.id IS NOT NULL),'[]'::json) AS lines
+          FROM fee_schedules fs JOIN academic_years ay ON ay.school_id=fs.school_id AND ay.id=fs.academic_year_id
+          LEFT JOIN grade_levels gl ON gl.school_id=fs.school_id AND gl.id=fs.grade_level_id
+          LEFT JOIN fee_schedule_lines fsl ON fsl.school_id=fs.school_id AND fsl.fee_schedule_id=fs.id
+          LEFT JOIN fee_items fi ON fi.school_id=fsl.school_id AND fi.id=fsl.fee_item_id
+          WHERE fs.school_id=$1 GROUP BY fs.id,ay.name,gl.name ORDER BY fs.effective_from DESC,fs.name LIMIT 100`,[schoolId]),
+        req.auth.client.query(`SELECT gl.id,gl.name,el.name AS education_level_name FROM grade_levels gl
+          JOIN education_levels el ON el.school_id=gl.school_id AND el.id=gl.education_level_id
+          WHERE gl.school_id=$1 AND gl.active AND el.active ORDER BY el.name,gl.sort_order,gl.name`,[schoolId]),
+        req.auth.client.query(`SELECT count(*)::int AS column_count FROM information_schema.columns
+          WHERE table_schema=current_schema() AND table_name='fee_invoices' AND column_name=ANY($1::text[])`,[['fee_schedule_id','fee_schedule_installment_no']])
       ]);
       await close(req, true);
       return res.json({ invoices: invoices.rows, payments: payments.rows, students: students.rows, years: years.rows,
         momoIntents: momoIntents.rows,
-        expenses: expenses.rows,
+        expenses: expenses.rows, feeItems: feeItems.rows, feeSchedules: feeSchedules.rows, gradeLevels: gradeLevels.rows,
+        feeScheduleReady:Number(feeScheduleSchema.rows[0]?.column_count||0)===2,
         momo: { enabled: momoClient.config.enabled, environment: momoClient.config.environment, currency: momoClient.config.currency, feeRateBps: momoClient.config.feeRateBps, reason: momoClient.config.reason },
         canWrite: req.auth.account.permissions.includes('finance.write'),canApproveExpenses:req.auth.account.permissions.includes('finance.expenses.approve') });
     } catch (error) { return fail(req, res, error); }
@@ -756,6 +771,92 @@ export function createOperationsRouter({ authenticate, sendInvitation = sendAcco
       WHERE school_id=$1 AND id=$2 AND status='APPROVED' RETURNING id,expense_number,status,currency,amount::text`,[req.auth.claims.schoolId,req.params.expenseId,req.auth.claims.userId,channel,reference]);
       if(!result.rowCount){await close(req,false);return res.status(409).json({error:'Only an approved expense can be recorded as paid.'});}
       await audit(req,'FINANCE_EXPENSE_PAID','FINANCE_EXPENSE',result.rows[0].id,{expenseNumber:result.rows[0].expense_number,currency:result.rows[0].currency,amount:result.rows[0].amount,channel,reference});return done(req,res,200,{expense:result.rows[0],notice:'Expense payment recorded in the audit trail.'});
+    }catch(error){return fail(req,res,error);}
+  });
+
+  router.post('/finance/fee-items', needsPermission('finance.write'), csrf, async(req,res)=>{
+    const code=text(req.body?.code,32).toUpperCase();const name=text(req.body?.name,100);const category=text(req.body?.category,80);
+    if(!/^[A-Z0-9_-]{2,32}$/.test(code)||!name||!category){await close(req,false);return res.status(400).json({error:'Enter a short code, fee item name, and category.'});}
+    try{const result=await req.auth.client.query(`INSERT INTO fee_items(school_id,code,name,category) VALUES($1,$2,$3,$4) RETURNING id,code,name,category,active`,[req.auth.claims.schoolId,code,name,category]);
+      await audit(req,'FEE_ITEM_CREATED','FEE_ITEM',result.rows[0].id,{code,name,category});return done(req,res,201,{feeItem:result.rows[0],notice:'Fee item created.'});
+    }catch(error){return fail(req,res,error);}
+  });
+
+  router.post('/finance/fee-schedules', needsPermission('finance.write'), csrf, async(req,res)=>{
+    const academicYearId=text(req.body?.academicYearId,50);const gradeLevelId=text(req.body?.gradeLevelId,50);const name=text(req.body?.name,120);const currency=text(req.body?.currency,3).toUpperCase();const effectiveFrom=req.body?.effectiveFrom;const effectiveTo=req.body?.effectiveTo||null;
+    if(!academicYearId||!gradeLevelId||!name||!['LRD','USD'].includes(currency)||!validDate(effectiveFrom)||(effectiveTo&&(!validDate(effectiveTo)||effectiveTo<effectiveFrom))){await close(req,false);return res.status(400).json({error:'Choose an academic year and grade, enter a schedule name, currency, and valid effective date range.'});}
+    try{const result=await req.auth.client.query(`INSERT INTO fee_schedules(school_id,academic_year_id,grade_level_id,currency,name,effective_from,effective_to,status,created_by)
+        SELECT $1,ay.id,gl.id,$4,$5,$6,$7,'DRAFT',$8 FROM academic_years ay JOIN grade_levels gl ON gl.school_id=ay.school_id
+          WHERE ay.school_id=$1 AND ay.id=$2 AND gl.id=$3 AND gl.active
+        RETURNING id,name,currency,status,academic_year_id,grade_level_id`,[req.auth.claims.schoolId,academicYearId,gradeLevelId,currency,name,effectiveFrom,effectiveTo,req.auth.claims.userId]);
+      if(!result.rowCount){await close(req,false);return res.status(400).json({error:'Choose an active grade level and academic year from this school.'});}
+      await audit(req,'FEE_SCHEDULE_CREATED','FEE_SCHEDULE',result.rows[0].id,{name,currency,academicYearId,gradeLevelId});return done(req,res,201,{schedule:result.rows[0],notice:'Draft fee schedule created. Add its fee lines before activation.'});
+    }catch(error){return fail(req,res,error);}
+  });
+
+  router.post('/finance/fee-schedules/:scheduleId/lines', needsPermission('finance.write'), csrf, async(req,res)=>{
+    const feeItemId=text(req.body?.feeItemId,50);const description=text(req.body?.description,180);const amount=Number(req.body?.amount);const installmentNo=Number(req.body?.installmentNo);const dueOffsetDays=Number(req.body?.dueOffsetDays||0);
+    if(!feeItemId||!description||!Number.isFinite(amount)||amount<=0||amount>999999999||!Number.isInteger(installmentNo)||installmentNo<1||installmentNo>20||!Number.isInteger(dueOffsetDays)||dueOffsetDays<0||dueOffsetDays>730){await close(req,false);return res.status(400).json({error:'Enter an active fee item, description, positive amount, installment number from 1–20, and due offset from 0–730 days.'});}
+    try{const schedule=await req.auth.client.query(`SELECT id,currency FROM fee_schedules WHERE school_id=$1 AND id=$2 AND status='DRAFT' FOR UPDATE`,[req.auth.claims.schoolId,req.params.scheduleId]);
+      if(!schedule.rowCount){await close(req,false);return res.status(409).json({error:'Only a draft fee schedule can be changed.'});}
+      const result=await req.auth.client.query(`INSERT INTO fee_schedule_lines(school_id,fee_schedule_id,fee_item_id,description,amount,installment_no,due_offset_days)
+        SELECT $1,$2,fi.id,$4,$5,$6,$7 FROM fee_items fi WHERE fi.school_id=$1 AND fi.id=$3 AND fi.active
+        RETURNING id,fee_item_id,description,amount::text,installment_no,due_offset_days`,[req.auth.claims.schoolId,req.params.scheduleId,feeItemId,description,amount.toFixed(2),installmentNo,dueOffsetDays]);
+      if(!result.rowCount){await close(req,false);return res.status(400).json({error:'Choose an active fee item from this school.'});}
+      await audit(req,'FEE_SCHEDULE_LINE_CREATED','FEE_SCHEDULE',req.params.scheduleId,{lineId:result.rows[0].id,feeItemId,amount:result.rows[0].amount,currency:schedule.rows[0].currency,installmentNo});return done(req,res,201,{line:result.rows[0],notice:'Fee line added to the draft schedule.'});
+    }catch(error){return fail(req,res,error);}
+  });
+
+  router.post('/finance/fee-schedules/:scheduleId/activate', needsPermission('finance.write'), csrf, async(req,res)=>{
+    try{const draft=await req.auth.client.query(`SELECT academic_year_id,grade_level_id,currency FROM fee_schedules WHERE school_id=$1 AND id=$2 AND status='DRAFT' FOR UPDATE`,[req.auth.claims.schoolId,req.params.scheduleId]);
+      if(!draft.rowCount){await close(req,false);return res.status(409).json({error:'Only a draft fee schedule can be activated.'});}
+      await req.auth.client.query(`SELECT pg_advisory_xact_lock(hashtext($1),hashtext($2))`,[req.auth.claims.schoolId,`${draft.rows[0].academic_year_id}:${draft.rows[0].grade_level_id}:${draft.rows[0].currency}`]);
+      const result=await req.auth.client.query(`UPDATE fee_schedules fs SET status='ACTIVE'
+        WHERE fs.school_id=$1 AND fs.id=$2 AND fs.status='DRAFT'
+          AND EXISTS(SELECT 1 FROM fee_schedule_lines l WHERE l.school_id=fs.school_id AND l.fee_schedule_id=fs.id)
+          AND NOT EXISTS(SELECT 1 FROM fee_schedules other WHERE other.school_id=fs.school_id AND other.id<>fs.id AND other.status='ACTIVE'
+            AND other.academic_year_id=fs.academic_year_id AND other.grade_level_id=fs.grade_level_id AND other.currency=fs.currency
+            AND daterange(other.effective_from,COALESCE(other.effective_to+1,'infinity'::date),'[)') && daterange(fs.effective_from,COALESCE(fs.effective_to+1,'infinity'::date),'[)'))
+        RETURNING id,name,currency,status,academic_year_id,grade_level_id`,[req.auth.claims.schoolId,req.params.scheduleId]);
+      if(!result.rowCount){await close(req,false);return res.status(409).json({error:'This schedule is not a draft with fee lines, or another active schedule covers the same grade, year, currency, and date range.'});}
+      await audit(req,'FEE_SCHEDULE_ACTIVATED','FEE_SCHEDULE',result.rows[0].id,{name:result.rows[0].name,currency:result.rows[0].currency});return done(req,res,200,{schedule:result.rows[0],notice:'Fee schedule activated. You can issue each installment to currently enrolled learners.'});
+    }catch(error){return fail(req,res,error);}
+  });
+
+  router.post('/finance/fee-schedules/:scheduleId/issue-installment', needsPermission('finance.write'), csrf, async(req,res)=>{
+    const installmentNo=Number(req.body?.installmentNo);
+    if(!Number.isInteger(installmentNo)||installmentNo<1||installmentNo>20){await close(req,false);return res.status(400).json({error:'Choose a valid installment number from 1 to 20.'});}
+    try{const schoolId=req.auth.claims.schoolId;
+      const schedule=await req.auth.client.query(`SELECT id,name,currency,academic_year_id,grade_level_id FROM fee_schedules WHERE school_id=$1 AND id=$2 AND status='ACTIVE' AND effective_from<=CURRENT_DATE AND (effective_to IS NULL OR effective_to>=CURRENT_DATE) FOR UPDATE`,[schoolId,req.params.scheduleId]);
+      if(!schedule.rowCount){await close(req,false);return res.status(409).json({error:'Only an active fee schedule within its effective dates can issue invoices.'});}
+      const scheduleRow=schedule.rows[0];
+      const lineCheck=await req.auth.client.query(`SELECT count(*)::int AS line_count FROM fee_schedule_lines WHERE school_id=$1 AND fee_schedule_id=$2 AND installment_no=$3`,[schoolId,scheduleRow.id,installmentNo]);
+      if(!Number(lineCheck.rows[0]?.line_count)){await close(req,false);return res.status(404).json({error:'This installment has no fee lines.'});}
+      const targets=await req.auth.client.query(`SELECT count(DISTINCT ce.student_id)::int AS count
+        FROM class_groups cg JOIN class_enrollments ce ON ce.school_id=cg.school_id AND ce.class_group_id=cg.id AND ce.status='ACTIVE'
+        JOIN students st ON st.school_id=ce.school_id AND st.id=ce.student_id AND st.status='ACTIVE'
+        WHERE cg.school_id=$1 AND cg.academic_year_id=$2 AND cg.grade_level_id=$3`,[schoolId,scheduleRow.academic_year_id,scheduleRow.grade_level_id]);
+      const targetCount=Number(targets.rows[0]?.count||0);
+      if(!targetCount){await close(req,false);return res.status(409).json({error:'No actively enrolled learners are currently assigned to this grade and academic year.'});}
+      const issued=await req.auth.client.query(`WITH enrolled AS MATERIALIZED (
+          SELECT DISTINCT ce.student_id FROM class_groups cg JOIN class_enrollments ce ON ce.school_id=cg.school_id AND ce.class_group_id=cg.id AND ce.status='ACTIVE'
+            JOIN students st ON st.school_id=ce.school_id AND st.id=ce.student_id AND st.status='ACTIVE'
+          WHERE cg.school_id=$1 AND cg.academic_year_id=$2 AND cg.grade_level_id=$3
+        ), created AS (
+          INSERT INTO fee_invoices(school_id,student_id,academic_year_id,invoice_number,currency,due_on,status,created_by,fee_schedule_id,fee_schedule_installment_no)
+          SELECT $1,e.student_id,$2,'RIA-'||to_char(CURRENT_DATE,'YYYYMMDD')||'-'||upper(substr(replace(gen_random_uuid()::text,'-',''),1,8)),$4,
+            CURRENT_DATE+COALESCE((SELECT max(l.due_offset_days) FROM fee_schedule_lines l WHERE l.school_id=$1 AND l.fee_schedule_id=$5 AND l.installment_no=$6),0),
+            'ISSUED',$7,$5,$6 FROM enrolled e
+          ON CONFLICT (school_id,student_id,academic_year_id,fee_schedule_id,fee_schedule_installment_no) WHERE fee_schedule_id IS NOT NULL DO NOTHING
+          RETURNING id
+        ), line_rows AS (
+          INSERT INTO fee_invoice_lines(school_id,invoice_id,fee_item_id,description,quantity,unit_amount,fee_schedule_line_id)
+          SELECT $1,c.id,l.fee_item_id,l.description,1,l.amount,l.id FROM created c JOIN fee_schedule_lines l ON l.school_id=$1 AND l.fee_schedule_id=$5 AND l.installment_no=$6
+          RETURNING invoice_id
+        ) SELECT count(DISTINCT invoice_id)::int AS invoice_count FROM line_rows`,[schoolId,scheduleRow.academic_year_id,scheduleRow.grade_level_id,scheduleRow.currency,scheduleRow.id,installmentNo,req.auth.claims.userId]);
+      const invoiceCount=Number(issued.rows[0]?.invoice_count||0);
+      await audit(req,'FEE_SCHEDULE_INSTALLMENT_ISSUED','FEE_SCHEDULE',scheduleRow.id,{scheduleName:scheduleRow.name,installmentNo,currency:scheduleRow.currency,targetLearners:targetCount,invoicesCreated:invoiceCount});
+      return done(req,res,200,{scheduleId:scheduleRow.id,installmentNo,targetLearners:targetCount,invoicesCreated:invoiceCount,alreadyIssued:targetCount-invoiceCount,currency:scheduleRow.currency,notice:`Installment ${installmentNo}: ${invoiceCount} invoice(s) issued; ${targetCount-invoiceCount} already existed. Repeat requests do not create duplicate invoices.`});
     }catch(error){return fail(req,res,error);}
   });
 
