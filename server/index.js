@@ -57,7 +57,7 @@ app.use((_req, res, next) => {
 app.use(express.json({ limit: '9mb' }));
 
 app.get('/api/health/live', (_req, res) => {
-  res.status(200).json({ status: 'ok', release: 'finance-grade-legacy-grade-match-v3' });
+  res.status(200).json({ status: 'ok', release: 'finance-grade-match-debug-v4' });
 });
 
 app.get('/api/health/ready', async (_req, res) => {

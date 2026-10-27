@@ -20,7 +20,7 @@ class FakeClient {
       if(this.state.labelMatchedGrade&&(!normalized.includes('lower(btrim(cg.name))=lower(btrim(fee_grade.name))')||!normalized.includes('cg.education_level_id IS NULL OR fee_grade.education_level_id IS NULL OR cg.education_level_id=fee_grade.education_level_id')||normalized.includes('AND fee_grade.active')))return {rows:[{count:0}],rowCount:1};
       return {rows:[{count:2}],rowCount:1};
     }
-    if(normalized.startsWith('WITH class_diagnostics AS'))return {rows:[{academic_year_name:'2027-2028',fee_grade_name:'Grade 4',active_learners_in_year:this.state.sameNamedYear?0:2,active_learners_in_other_same_named_years:this.state.sameNamedYear?2:0,active_classes_in_year:1,classes:[{className:'Grade 4-A',gradeLabel:'Grade 4',linkedGrade:'Grade 3',educationStage:'Primary',activeLearners:2}]}],rowCount:1};
+    if(normalized.startsWith('WITH class_diagnostics AS'))return {rows:[{academic_year_name:'2027-2028',fee_grade_name:'Grade 4',active_learners_in_year:this.state.sameNamedYear?0:2,active_learners_in_other_same_named_years:this.state.sameNamedYear?2:0,active_classes_in_year:1,classes:[{className:'Grade 4-A',gradeLabel:'Grade 4',linkedGrade:'Grade 3',educationStage:'Primary',scheduleEducationStage:'Primary',scheduleGradeActive:true,gradeLabelMatches:!this.state.noTargets,classNameMatches:true,stageCompatible:true,activeLearners:2}]}],rowCount:1};
     if(normalized.startsWith('WITH enrolled AS MATERIALIZED')){
       if(this.state.labelMatchedGrade&&(!normalized.includes('lower(btrim(cg.name))=lower(btrim(fee_grade.name))')||!normalized.includes('cg.education_level_id IS NULL OR fee_grade.education_level_id IS NULL OR cg.education_level_id=fee_grade.education_level_id')||normalized.includes('AND fee_grade.active')))throw new Error('Invoice selection omitted the legacy class-name match.');
       const count=this.state.created;this.state.created=0;return {rows:[{invoice_count:count}],rowCount:1};
@@ -64,7 +64,7 @@ test('zero-match response reports year and class-grade diagnostics without creat
   assert.equal(response.status,409);
   const body=await response.json();
   assert.match(body.error,/2 active learner\(s\) in 1 class\(es\)/);
-  assert.match(body.error,/Grade 4-A \(grade label: Grade 4; linked grade: Grade 3; stage: Primary; active learners: 2\)/);
+  assert.match(body.error,/Grade 4-A \(grade label: Grade 4; linked grade: Grade 3; class stage: Primary; schedule stage: Primary; grade label match: no; class name match: yes; stage compatible: yes; schedule grade active: yes; active learners: 2\)/);
   assert.doesNotMatch(body.error,/Fictional Learner|Crystal Nyemah/);
   const statements=clients.flatMap(client=>client.statements).map(item=>item.sql);
   assert.ok(statements.some(sql=>sql.startsWith('WITH class_diagnostics AS')));
