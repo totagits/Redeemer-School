@@ -2446,8 +2446,11 @@ export function createOperationsRouter({ authenticate, sendInvitation = sendAcco
           FROM schools WHERE id = $1`, [schoolId, req.auth.account.permissions.includes('school.configure')]),
         req.auth.client.query(`SELECT y.id, y.name, y.starts_on, y.ends_on, y.status FROM academic_years y WHERE y.school_id = $1 ${isTeacher ? 'AND EXISTS (SELECT 1 FROM teacher_subject_assignments a WHERE a.school_id = y.school_id AND a.academic_year_id = y.id AND a.teacher_id = $2)' : ''} ORDER BY y.starts_on DESC`, isTeacher ? [schoolId, req.auth.claims.userId] : [schoolId]),
         req.auth.client.query(`SELECT s.id, s.code, s.name FROM subjects s WHERE s.school_id = $1 AND s.is_active ${isTeacher ? 'AND EXISTS (SELECT 1 FROM teacher_subject_assignments a WHERE a.school_id = s.school_id AND a.subject_id = s.id AND a.teacher_id = $2)' : ''} ORDER BY s.name`, isTeacher ? [schoolId, req.auth.claims.userId] : [schoolId]),
-        req.auth.client.query(`SELECT c.id, c.name, c.grade_level, c.section, c.academic_year_id, y.name AS academic_year_name
+        req.auth.client.query(`SELECT c.id, c.name, c.grade_level, c.section, c.academic_year_id,c.grade_level_id,c.education_level_id,
+            linked_grade.name AS linked_grade_name,education_level.name AS education_level_name,y.name AS academic_year_name
           FROM class_groups c JOIN academic_years y ON y.school_id = c.school_id AND y.id = c.academic_year_id
+          LEFT JOIN grade_levels linked_grade ON linked_grade.school_id=c.school_id AND linked_grade.id=c.grade_level_id
+          LEFT JOIN education_levels education_level ON education_level.school_id=c.school_id AND education_level.id=c.education_level_id
           WHERE c.school_id = $1 ${isTeacher ? 'AND EXISTS (SELECT 1 FROM teacher_subject_assignments a WHERE a.school_id = c.school_id AND a.class_group_id = c.id AND a.teacher_id = $2)' : ''} ORDER BY y.starts_on DESC, c.grade_level, c.section`, isTeacher ? [schoolId, req.auth.claims.userId] : [schoolId]),
         req.auth.client.query(`SELECT u.id, u.full_name, u.email, tp.employee_number
           FROM teacher_profiles tp JOIN user_accounts u ON u.school_id = tp.school_id AND u.id = tp.user_id
@@ -2566,6 +2569,30 @@ export function createOperationsRouter({ authenticate, sendInvitation = sendAcco
       if (!result.rowCount) { await close(req, false); return res.status(400).json({ error: 'The selected academic year or grade does not belong to this school.' }); }
       await audit(req, 'CLASS_GROUP_CREATED', 'CLASS_GROUP', result.rows[0].id, { name, gradeLevel, section });
       return done(req, res, 201, { classGroup: result.rows[0] });
+    } catch (error) { return fail(req, res, error); }
+  });
+
+  router.post('/classes/:classGroupId/grade-level', needsPermission('academics.configure'), csrf, async (req, res) => {
+    const classGroupId = text(req.params.classGroupId, 50);
+    const gradeLevelId = text(req.body?.gradeLevelId, 50);
+    if (!/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(classGroupId)
+      || !/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(gradeLevelId)) {
+      await close(req, false); return res.status(400).json({ error: 'Choose an existing class and grade level.' });
+    }
+    try {
+      const result = await req.auth.client.query(`UPDATE class_groups c
+        SET grade_level_id=g.id,education_level_id=g.education_level_id,grade_level=g.name
+        FROM grade_levels g
+        WHERE c.school_id=$1 AND c.id=$2 AND g.school_id=c.school_id AND g.id=$3 AND g.active
+        RETURNING c.id,c.name,c.grade_level,c.section,c.academic_year_id,c.grade_level_id,
+          g.name AS linked_grade_name,g.education_level_id`, [req.auth.claims.schoolId, classGroupId, gradeLevelId]);
+      if (!result.rowCount) {
+        await close(req, false); return res.status(404).json({ error: 'The class or active grade level could not be found in this school.' });
+      }
+      await audit(req, 'CLASS_GRADE_LEVEL_LINKED', 'CLASS_GROUP', result.rows[0].id, {
+        gradeLevelId: result.rows[0].grade_level_id, gradeLevelName: result.rows[0].linked_grade_name,
+      });
+      return done(req, res, 200, { classGroup: result.rows[0], notice: `Class linked to ${result.rows[0].linked_grade_name}. Student enrollments were preserved.` });
     } catch (error) { return fail(req, res, error); }
   });
 
