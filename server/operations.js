@@ -841,7 +841,10 @@ export function createOperationsRouter({ authenticate, sendInvitation = sendAcco
         JOIN grade_levels fee_grade ON fee_grade.school_id=cg.school_id AND fee_grade.id=$3 AND fee_grade.active
         WHERE cg.school_id=$1 AND cg.academic_year_id=$2
           AND (cg.grade_level_id=fee_grade.id OR (
-            cg.grade_level_id IS NULL AND lower(btrim(cg.grade_level))=lower(btrim(fee_grade.name))
+            cg.grade_level_id IS NULL AND (
+            lower(btrim(cg.grade_level))=lower(btrim(fee_grade.name))
+            OR lower(btrim(cg.name))=lower(btrim(fee_grade.name))
+          )
             AND (SELECT count(*) FROM grade_levels matching_grade WHERE matching_grade.school_id=cg.school_id
               AND matching_grade.active AND lower(btrim(matching_grade.name))=lower(btrim(fee_grade.name)))=1
           ))`,[schoolId,scheduleRow.academic_year_id,scheduleRow.grade_level_id]);
@@ -853,7 +856,10 @@ export function createOperationsRouter({ authenticate, sendInvitation = sendAcco
             JOIN grade_levels fee_grade ON fee_grade.school_id=cg.school_id AND fee_grade.id=$3 AND fee_grade.active
           WHERE cg.school_id=$1 AND cg.academic_year_id=$2
             AND (cg.grade_level_id=fee_grade.id OR (
-              cg.grade_level_id IS NULL AND lower(btrim(cg.grade_level))=lower(btrim(fee_grade.name))
+              cg.grade_level_id IS NULL AND (
+            lower(btrim(cg.grade_level))=lower(btrim(fee_grade.name))
+            OR lower(btrim(cg.name))=lower(btrim(fee_grade.name))
+          )
               AND (SELECT count(*) FROM grade_levels matching_grade WHERE matching_grade.school_id=cg.school_id
                 AND matching_grade.active AND lower(btrim(matching_grade.name))=lower(btrim(fee_grade.name)))=1
             ))

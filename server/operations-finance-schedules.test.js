@@ -16,11 +16,11 @@ class FakeClient {
     if(normalized.startsWith('SELECT id,name,currency,academic_year_id,grade_level_id FROM fee_schedules'))return {rows:[{id:scheduleId,name:'Grade 4 schedule',currency:'LRD',academic_year_id:'year-1',grade_level_id:'grade-4'}],rowCount:1};
     if(normalized.startsWith('SELECT count(*)::int AS line_count'))return {rows:[{line_count:1}],rowCount:1};
     if(normalized.startsWith('SELECT count(DISTINCT ce.student_id)::int AS count')){
-      if(this.state.legacyGradeOnly&&!normalized.includes('cg.grade_level_id IS NULL'))return {rows:[{count:0}],rowCount:1};
+      if(this.state.legacyGradeOnly&&(!normalized.includes('cg.grade_level_id IS NULL')||!normalized.includes('lower(btrim(cg.name))=lower(btrim(fee_grade.name))')))return {rows:[{count:0}],rowCount:1};
       return {rows:[{count:2}],rowCount:1};
     }
     if(normalized.startsWith('WITH enrolled AS MATERIALIZED')){
-      if(this.state.legacyGradeOnly&&!normalized.includes('cg.grade_level_id IS NULL'))throw new Error('Invoice selection omitted the legacy grade-level match.');
+      if(this.state.legacyGradeOnly&&(!normalized.includes('cg.grade_level_id IS NULL')||!normalized.includes('lower(btrim(cg.name))=lower(btrim(fee_grade.name))')))throw new Error('Invoice selection omitted the legacy class-name match.');
       const count=this.state.created;this.state.created=0;return {rows:[{invoice_count:count}],rowCount:1};
     }}
     if(normalized.startsWith('INSERT INTO audit_events'))return {rows:[{id:'audit-id'}],rowCount:1};
@@ -44,7 +44,7 @@ test('fee schedule installment issuance is idempotent and audited',async t=>{
   assert.equal(clients.at(-1).statements.at(-1).sql,'COMMIT');
 });
 
-test('installment issuance includes enrolled learners in a legacy class with a matching unique grade label',async t=>{
+test('installment issuance includes enrolled learners in a legacy class whose exact class name matches the unique grade',async t=>{
   const {url,clients}=await startServer(t,['finance.write'],{legacyGradeOnly:true});
   const response=await fetch(`${url}/api/operations/finance/fee-schedules/${scheduleId}/issue-installment`,{method:'POST',headers,body:JSON.stringify({installmentNo:1})});
   assert.equal(response.status,200);
@@ -52,8 +52,8 @@ test('installment issuance includes enrolled learners in a legacy class with a m
   assert.equal(body.targetLearners,2);
   assert.equal(body.invoicesCreated,2);
   const statements=clients.flatMap(client=>client.statements).map(item=>item.sql);
-  assert.ok(statements.some(sql=>sql.startsWith('SELECT count(DISTINCT ce.student_id)::int AS count')&&sql.includes('cg.grade_level_id IS NULL')));
-  assert.ok(statements.some(sql=>sql.startsWith('WITH enrolled AS MATERIALIZED')&&sql.includes('cg.grade_level_id IS NULL')));
+  assert.ok(statements.some(sql=>sql.startsWith('SELECT count(DISTINCT ce.student_id)::int AS count')&&sql.includes('lower(btrim(cg.name))=lower(btrim(fee_grade.name))')));
+  assert.ok(statements.some(sql=>sql.startsWith('WITH enrolled AS MATERIALIZED')&&sql.includes('lower(btrim(cg.name))=lower(btrim(fee_grade.name))')));
 });
 
 test('non-finance roles cannot bulk issue fee invoices',async t=>{
