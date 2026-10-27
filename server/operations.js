@@ -849,7 +849,8 @@ export function createOperationsRouter({ authenticate, sendInvitation = sendAcco
             AND (cg.education_level_id IS NULL OR cg.education_level_id=fee_grade.education_level_id)
 
             AND (SELECT count(*) FROM grade_levels matching_grade WHERE matching_grade.school_id=cg.school_id
-              AND matching_grade.active AND lower(btrim(matching_grade.name))=lower(btrim(fee_grade.name)))=1
+              AND matching_grade.active AND matching_grade.education_level_id=fee_grade.education_level_id
+              AND lower(btrim(matching_grade.name))=lower(btrim(fee_grade.name)))=1
           ))`,[schoolId,scheduleRow.academic_year_id,scheduleRow.grade_level_id]);
       const targetCount=Number(targets.rows[0]?.count||0);
       if(!targetCount){
@@ -909,7 +910,8 @@ export function createOperationsRouter({ authenticate, sendInvitation = sendAcco
               AND (cg.education_level_id IS NULL OR cg.education_level_id=fee_grade.education_level_id)
 
               AND (SELECT count(*) FROM grade_levels matching_grade WHERE matching_grade.school_id=cg.school_id
-                AND matching_grade.active AND lower(btrim(matching_grade.name))=lower(btrim(fee_grade.name)))=1
+                AND matching_grade.active AND matching_grade.education_level_id=fee_grade.education_level_id
+              AND lower(btrim(matching_grade.name))=lower(btrim(fee_grade.name)))=1
             ))
         ), created AS (
           INSERT INTO fee_invoices(school_id,student_id,academic_year_id,invoice_number,currency,due_on,status,created_by,fee_schedule_id,fee_schedule_installment_no)
