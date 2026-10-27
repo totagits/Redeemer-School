@@ -833,9 +833,9 @@ export function createOperationsRouter({ authenticate, sendInvitation = sendAcco
       const lineCheck=await req.auth.client.query(`SELECT count(*)::int AS line_count FROM fee_schedule_lines WHERE school_id=$1 AND fee_schedule_id=$2 AND installment_no=$3`,[schoolId,scheduleRow.id,installmentNo]);
       if(!Number(lineCheck.rows[0]?.line_count)){await close(req,false);return res.status(404).json({error:'This installment has no fee lines.'});}
       // Older or imported classes may have a stale/missing grade_level_id while
-      // their grade label or class name still identifies the correct grade. Use
-      // an exact label match only when the grade name is unique in the school and
-      // the education stage does not conflict, preventing cross-stage billing.
+      // their grade label or class name still identifies the correct grade.
+      // Match an exact label against a grade in the schedule's stage, and reject
+      // a class that already points to a different stage.
       const targets=await req.auth.client.query(`SELECT count(DISTINCT ce.student_id)::int AS count
         FROM class_groups cg JOIN class_enrollments ce ON ce.school_id=cg.school_id AND ce.class_group_id=cg.id AND ce.status='ACTIVE'
         JOIN students st ON st.school_id=ce.school_id AND st.id=ce.student_id AND st.status='ACTIVE'
@@ -848,9 +848,9 @@ export function createOperationsRouter({ authenticate, sendInvitation = sendAcco
           )
             AND (cg.education_level_id IS NULL OR cg.education_level_id=fee_grade.education_level_id)
 
-            AND (SELECT count(*) FROM grade_levels matching_grade WHERE matching_grade.school_id=cg.school_id
+            AND EXISTS (SELECT 1 FROM grade_levels matching_grade WHERE matching_grade.school_id=cg.school_id
               AND matching_grade.active AND matching_grade.education_level_id=fee_grade.education_level_id
-              AND lower(btrim(matching_grade.name))=lower(btrim(fee_grade.name)))=1
+              AND lower(btrim(matching_grade.name))=lower(btrim(fee_grade.name)))
           ))`,[schoolId,scheduleRow.academic_year_id,scheduleRow.grade_level_id]);
       const targetCount=Number(targets.rows[0]?.count||0);
       if(!targetCount){
@@ -909,9 +909,9 @@ export function createOperationsRouter({ authenticate, sendInvitation = sendAcco
           )
               AND (cg.education_level_id IS NULL OR cg.education_level_id=fee_grade.education_level_id)
 
-              AND (SELECT count(*) FROM grade_levels matching_grade WHERE matching_grade.school_id=cg.school_id
-                AND matching_grade.active AND matching_grade.education_level_id=fee_grade.education_level_id
-              AND lower(btrim(matching_grade.name))=lower(btrim(fee_grade.name)))=1
+              AND EXISTS (SELECT 1 FROM grade_levels matching_grade WHERE matching_grade.school_id=cg.school_id
+              AND matching_grade.active AND matching_grade.education_level_id=fee_grade.education_level_id
+              AND lower(btrim(matching_grade.name))=lower(btrim(fee_grade.name)))
             ))
         ), created AS (
           INSERT INTO fee_invoices(school_id,student_id,academic_year_id,invoice_number,currency,due_on,status,created_by,fee_schedule_id,fee_schedule_installment_no)
