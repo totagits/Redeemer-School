@@ -843,8 +843,8 @@ export function createOperationsRouter({ authenticate, sendInvitation = sendAcco
         WHERE cg.school_id=$1 AND cg.academic_year_id=$2
           AND (cg.grade_level_id=fee_grade.id OR (
             (
-            lower(btrim(cg.grade_level))=lower(btrim(fee_grade.name))
-            OR lower(btrim(cg.name))=lower(btrim(fee_grade.name))
+            regexp_replace(lower(btrim(cg.grade_level)), '[^[:alnum:]]+', '', 'g')=regexp_replace(lower(btrim(fee_grade.name)), '[^[:alnum:]]+', '', 'g')
+            OR regexp_replace(lower(btrim(cg.name)), '[^[:alnum:]]+', '', 'g')=regexp_replace(lower(btrim(fee_grade.name)), '[^[:alnum:]]+', '', 'g')
           )
             AND (cg.education_level_id IS NULL OR fee_grade.education_level_id IS NULL
               OR cg.education_level_id=fee_grade.education_level_id)
@@ -855,8 +855,8 @@ export function createOperationsRouter({ authenticate, sendInvitation = sendAcco
             SELECT cg.id,cg.name AS class_name,cg.grade_level AS grade_label,
               linked_grade.name AS linked_grade_name,stage.name AS education_stage,
               fee_stage.name AS schedule_education_stage,fee_grade.active AS schedule_grade_active,
-              lower(btrim(cg.grade_level))=lower(btrim(fee_grade.name)) AS grade_label_matches,
-              lower(btrim(cg.name))=lower(btrim(fee_grade.name)) AS class_name_matches,
+              regexp_replace(lower(btrim(cg.grade_level)), '[^[:alnum:]]+', '', 'g')=regexp_replace(lower(btrim(fee_grade.name)), '[^[:alnum:]]+', '', 'g') AS grade_label_matches,
+              regexp_replace(lower(btrim(cg.name)), '[^[:alnum:]]+', '', 'g')=regexp_replace(lower(btrim(fee_grade.name)), '[^[:alnum:]]+', '', 'g') AS class_name_matches,
               (cg.education_level_id IS NULL OR fee_grade.education_level_id IS NULL
                 OR cg.education_level_id=fee_grade.education_level_id) AS stage_compatible,
               count(DISTINCT ce.student_id) FILTER (WHERE ce.status='ACTIVE' AND st.status='ACTIVE')::int AS active_learners
@@ -911,8 +911,8 @@ export function createOperationsRouter({ authenticate, sendInvitation = sendAcco
           WHERE cg.school_id=$1 AND cg.academic_year_id=$2
             AND (cg.grade_level_id=fee_grade.id OR (
               (
-            lower(btrim(cg.grade_level))=lower(btrim(fee_grade.name))
-            OR lower(btrim(cg.name))=lower(btrim(fee_grade.name))
+            regexp_replace(lower(btrim(cg.grade_level)), '[^[:alnum:]]+', '', 'g')=regexp_replace(lower(btrim(fee_grade.name)), '[^[:alnum:]]+', '', 'g')
+            OR regexp_replace(lower(btrim(cg.name)), '[^[:alnum:]]+', '', 'g')=regexp_replace(lower(btrim(fee_grade.name)), '[^[:alnum:]]+', '', 'g')
           )
               AND (cg.education_level_id IS NULL OR fee_grade.education_level_id IS NULL
               OR cg.education_level_id=fee_grade.education_level_id)
