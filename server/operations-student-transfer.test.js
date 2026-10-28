@@ -12,15 +12,15 @@ const currentClassId = 'd210b463-c02c-4be9-9003-8a9005e8dbe5';
 const nextClassId = 'e210b463-c02c-4be9-9003-8a9005e8dbe5';
 
 class FakeClient {
-  constructor({ permissions = ['students.write'], history = true } = {}) { this.permissions = permissions; this.history = history; this.statements = []; }
+  constructor({ permissions = ['students.write'], history = true, activeEnrollmentCount = 1, targetFound = true } = {}) { this.permissions = permissions; this.history = history; this.activeEnrollmentCount = activeEnrollmentCount; this.targetFound = targetFound; this.statements = []; }
   async query(sql, params = []) {
     const statement = sql.replace(/\s+/g, ' ').trim();
     this.statements.push({ statement, params });
     if (['BEGIN', 'COMMIT', 'ROLLBACK'].includes(statement)) return { rows: [], rowCount: 0 };
     if (statement.startsWith('SELECT id FROM students WHERE school_id=$1 AND id=$2 FOR UPDATE')) return { rows: [{ id: studentId }], rowCount: 1 };
-    if (statement.startsWith('SELECT ce.class_group_id, ce.enrolled_on')) return { rows: [{ class_group_id: currentClassId, enrolled_on: '2026-09-01', academic_year_id: 'year-one', campus_id: 'campus-one', class_name: 'Grade 4A' }], rowCount: 1 };
+    if (statement.startsWith('SELECT ce.class_group_id, ce.enrolled_on')) return { rows: Array.from({ length: this.activeEnrollmentCount }, () => ({ class_group_id: currentClassId, enrolled_on: '2026-09-01', academic_year_id: 'year-one', campus_id: 'campus-one', class_name: 'Grade 4A' })), rowCount: this.activeEnrollmentCount };
     if (statement.startsWith('SELECT effective_on FROM student_enrollment_history')) return { rows: this.history ? [{ effective_on: '2026-09-01' }] : [], rowCount: this.history ? 1 : 0 };
-    if (statement.startsWith('SELECT id, name, academic_year_id, campus_id FROM class_groups')) return { rows: [{ id: nextClassId, name: 'Grade 5A', academic_year_id: 'year-two', campus_id: 'campus-one' }], rowCount: 1 };
+    if (statement.startsWith('SELECT id, name, academic_year_id, campus_id FROM class_groups')) return this.targetFound ? { rows: [{ id: nextClassId, name: 'Grade 5A', academic_year_id: 'year-two', campus_id: 'campus-one' }], rowCount: 1 } : { rows: [], rowCount: 0 };
     if (statement.startsWith('UPDATE class_enrollments SET status=\'COMPLETED\'')) return { rows: [{ class_group_id: currentClassId }], rowCount: 1 };
     if (statement.startsWith('INSERT INTO class_enrollments')) return { rows: [], rowCount: 1 };
     if (statement.startsWith('UPDATE student_enrollment_history SET status=\'TRANSFERRED_OUT\'')) return { rows: this.history ? [{ id: 'history-old' }] : [], rowCount: this.history ? 1 : 0 };
@@ -80,5 +80,42 @@ test('class transfer requires student write permission', async t => {
   const { url, clients } = await startServer(t, { permissions: ['students.read'] });
   const response = await fetch(`${url}/api/operations/students/${studentId}/transfer`, { method: 'POST', headers, body: JSON.stringify({ classGroupId: nextClassId, reason: 'Promotion' }) });
   assert.equal(response.status, 403);
+  assert.equal(clients[0].statements.at(-1).statement, 'ROLLBACK');
+});
+
+test('class transfer rejects a same-class destination without modifying enrollment', async t => {
+  const { url, clients } = await startServer(t);
+  const response = await fetch(`${url}/api/operations/students/${studentId}/transfer`, { method: 'POST', headers, body: JSON.stringify({ classGroupId: currentClassId, effectiveOn: '2026-10-01', reason: 'Correction' }) });
+  assert.equal(response.status, 400);
+  assert.match((await response.json()).error, /different destination/i);
+  assert.equal(clients[0].statements.some(item => item.statement.startsWith("UPDATE class_enrollments SET status='COMPLETED'")), false);
+  assert.equal(clients[0].statements.at(-1).statement, 'ROLLBACK');
+});
+
+test('class transfer rejects learners without exactly one active enrollment', async t => {
+  for (const activeEnrollmentCount of [0, 2]) {
+    const { url, clients } = await startServer(t, { activeEnrollmentCount });
+    const response = await fetch(`${url}/api/operations/students/${studentId}/transfer`, { method: 'POST', headers, body: JSON.stringify({ classGroupId: nextClassId, effectiveOn: '2026-10-01', reason: 'Approved placement change' }) });
+    assert.equal(response.status, 409);
+    assert.equal(clients[0].statements.some(item => item.statement.startsWith("UPDATE class_enrollments SET status='COMPLETED'")), false);
+    assert.equal(clients[0].statements.at(-1).statement, 'ROLLBACK');
+  }
+});
+
+test('class transfer rejects a destination class outside the school before changing enrollment', async t => {
+  const { url, clients } = await startServer(t, { targetFound: false });
+  const response = await fetch(`${url}/api/operations/students/${studentId}/transfer`, { method: 'POST', headers, body: JSON.stringify({ classGroupId: nextClassId, effectiveOn: '2026-10-01', reason: 'Approved placement change' }) });
+  assert.equal(response.status, 400);
+  assert.match((await response.json()).error, /destination class belonging to this school/i);
+  assert.equal(clients[0].statements.some(item => item.statement.startsWith("UPDATE class_enrollments SET status='COMPLETED'")), false);
+  assert.equal(clients[0].statements.at(-1).statement, 'ROLLBACK');
+});
+
+test('class transfer rejects a future effective date before touching enrollment', async t => {
+  const { url, clients } = await startServer(t);
+  const futureDate = new Date(Date.now() + 3 * 24 * 60 * 60 * 1000).toISOString().slice(0, 10);
+  const response = await fetch(`${url}/api/operations/students/${studentId}/transfer`, { method: 'POST', headers, body: JSON.stringify({ classGroupId: nextClassId, effectiveOn: futureDate, reason: 'Approved placement change' }) });
+  assert.equal(response.status, 400);
+  assert.equal(clients[0].statements.some(item => item.statement.startsWith("UPDATE class_enrollments SET status='COMPLETED'")), false);
   assert.equal(clients[0].statements.at(-1).statement, 'ROLLBACK');
 });
