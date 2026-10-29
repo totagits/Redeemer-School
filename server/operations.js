@@ -1814,12 +1814,12 @@ export function createOperationsRouter({ authenticate, sendInvitation = sendAcco
       const schoolId=req.auth.claims.schoolId;
       const {token,tokenHash}=issueCandidateSecret();
       // Atomic eligibility check and insert; no credential can bypass an unpaid or invalid assignment.
-      // Issuance is only permitted ahead of exam start; the token expires at the exam start
+      // Issuance is only permitted ahead of exam start; the token expires 15 minutes after the exam begins
       // or after 24 hours (whichever comes first). A future candidate login flow will
       // need a separate authenticated, rate-limited redemption transaction.
       const issued=await req.auth.client.query(`INSERT INTO admission_exam_candidate_credentials
         (school_id,exam_id,application_id,token_hash,issued_by,expires_at)
-        SELECT $1,e.id,a.application_id,$4,$5,LEAST(e.starts_at,now()+interval '24 hours')
+        SELECT $1,e.id,a.application_id,$4,$5,LEAST(e.starts_at+interval '15 minutes',now()+interval '24 hours')
         FROM admission_entrance_exams e
         JOIN admission_exam_assignments a ON a.school_id=e.school_id AND a.exam_id=e.id AND a.application_id=$3
         JOIN admission_applications app ON app.school_id=a.school_id AND app.id=a.application_id
