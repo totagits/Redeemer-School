@@ -135,10 +135,14 @@ export const Header: React.FC<HeaderProps> = ({
 
       {/* Mobile Sub-Navigation Bar */}
       {currentView === 'home' ? (
-        <div className="flex items-center justify-between border-t border-slate-100 px-4 py-2 md:hidden">
-          <span className="text-[11px] font-medium text-slate-500">ERP workspace setup in progress</span>
-          <span className="rounded-md border border-slate-200 bg-white px-3 py-1.5 text-xs font-bold text-slate-600">ERP setup in progress</span>
-        </div>
+        <nav aria-label="Mobile school navigation" className="flex items-center gap-4 overflow-x-auto border-t border-slate-100 bg-white px-4 py-3 text-xs font-semibold text-blue-900 md:hidden">
+          <a className="shrink-0" href="#about">Our school</a>
+          <a className="shrink-0" href="#academics">Academics</a>
+          <a className="shrink-0" href="#admissions">Admissions</a>
+          <a className="shrink-0" href="#community">News & families</a>
+          <a className="shrink-0" href="#contact">Contact</a>
+          {onPortalSignIn && <button type="button" onClick={onPortalSignIn} className="shrink-0 rounded-lg bg-blue-700 px-3 py-2 text-white">Student & guardian portal</button>}
+        </nav>
       ) : <div className="lg:hidden flex items-center gap-1 px-4 py-2 border-t border-slate-100 overflow-x-auto bg-slate-50">
         <button onClick={() => onSelectView('home')} className="px-2.5 py-1 text-xs font-semibold rounded-md whitespace-nowrap shrink-0 flex items-center gap-1 text-slate-600 bg-white border border-slate-200 cursor-pointer"><Home className="w-3.5 h-3.5" /> Home</button>
         {navItems.map((item) => (
