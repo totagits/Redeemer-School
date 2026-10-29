@@ -1879,6 +1879,36 @@ export function createOperationsRouter({ authenticate, sendInvitation = sendAcco
     }catch(error){return fail(req,res,error);}
   });
 
+  // Allow authorized staff to correct mistaken timezone entry before the session begins.
+  // Existing applicant assignments and payment references remain unchanged.
+  router.post('/admissions/entrance-exams/:examId/reschedule',needsPermission('admissions.write'),csrf,async(req,res)=>{
+    const examId=req.params.examId;
+    const startText=text(req.body?.startsAt,40),endText=text(req.body?.endsAt,40);
+    const validInstant=/^\\d{4}-\\d{2}-\\d{2}T\\d{2}:\\d{2}:\\d{2}\\.\\d{3}Z$/;
+    const start=new Date(startText),end=new Date(endText);
+    if(!/^[0-9a-f-]{36}$/i.test(examId)||!validInstant.test(startText)||!validInstant.test(endText)||
+       !Number.isFinite(start.getTime())||!Number.isFinite(end.getTime())||end<=start||
+       start.getTime()<Date.now()||end.getTime()-start.getTime()>8*60*60*1000){
+      await close(req,false);return res.status(400).json({error:'Choose a future exam date and valid Liberia times, at most eight hours apart.'});
+    }
+    try{
+      if(!await requireEntranceExamSchema(req,res)) return;
+      const schoolId=req.auth.claims.schoolId;
+      const updated=await req.auth.client.query(`UPDATE admission_entrance_exams e
+        SET starts_at=$3,ends_at=$4
+        WHERE e.school_id=$1 AND e.id=$2 AND e.status IN ('DRAFT','SCHEDULED')
+          AND e.starts_at>now()
+          AND NOT EXISTS(SELECT 1 FROM admission_exam_assignments a
+            WHERE a.school_id=e.school_id AND a.exam_id=e.id
+              AND (a.status IN ('ATTENDED','COMPLETED') OR a.score IS NOT NULL))
+        RETURNING id,title,starts_at,ends_at,status`,
+        [schoolId,examId,start.toISOString(),end.toISOString()]);
+      if(!updated.rowCount){await close(req,false);return res.status(409).json({error:'Only future drafts or scheduled sessions with no attendance or grades can be corrected.'});}
+      await audit(req,'ENTRANCE_EXAM_TIME_CORRECTED','ADMISSION_ENTRANCE_EXAM',examId,{startsAt:start.toISOString(),endsAt:end.toISOString()});
+      return done(req,res,200,{exam:updated.rows[0]});
+    }catch(error){return fail(req,res,error);}
+  });
+
   // Admissions, HR, stock control, and school announcements use the same
   // tenant-scoped transaction and audit trail as the academic workspaces.
   router.get('/admissions', needsPermission('admissions.read'), async (req, res) => {
