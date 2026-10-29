@@ -1786,6 +1786,91 @@ export function createOperationsRouter({ authenticate, sendInvitation = sendAcco
     }catch(error){return fail(req,res,error);}
   });
 
+  // Finance-only entrance examination fees. Migration 103 is intentionally separate
+  // from scheduling migration 102 and is never applied during a frontend deploy.
+  async function examFeeSchemaReady(req) {
+    const found=await req.auth.client.query("SELECT to_regclass('public.admission_exam_fee_schedules') IS NOT NULL AND to_regclass('public.admission_exam_fee_settlements') IS NOT NULL AS ready");
+    return found.rows[0]?.ready === true;
+  }
+  async function requireExamFeeSchema(req,res) {
+    if(await examFeeSchemaReady(req)) return true;
+    await close(req,false);
+    res.status(503).json({error:'Entrance examination fees are awaiting verified migration 103.',migrationRequired:'103_admission_exam_fees.sql'});
+    return false;
+  }
+  router.get('/finance/entrance-exam-fees',needsPermission('finance.read'),async(req,res)=>{
+    try {
+      if(!await requireExamFeeSchema(req,res)) return;
+      const schoolId=req.auth.claims.schoolId;
+      const [fees,settlements]=await Promise.all([
+        req.auth.client.query(`SELECT e.id AS exam_id,e.title,e.starts_at,e.status,e.grade_label,
+          f.amount::text,f.currency,
+          (SELECT count(*)::int FROM admission_exam_assignments a WHERE a.school_id=e.school_id AND a.exam_id=e.id) AS applicant_count
+          FROM admission_entrance_exams e LEFT JOIN admission_exam_fee_schedules f
+          ON f.school_id=e.school_id AND f.exam_id=e.id
+          WHERE e.school_id=$1 ORDER BY e.starts_at DESC LIMIT 150`,[schoolId]),
+        req.auth.client.query(`SELECT s.id,s.exam_id,s.application_id,s.kind,s.channel,s.amount::text,s.currency,s.reference,s.verified_at,
+          a.application_number,a.first_name,a.last_name
+          FROM admission_exam_fee_settlements s JOIN admission_applications a ON a.school_id=s.school_id AND a.id=s.application_id
+          WHERE s.school_id=$1 ORDER BY s.verified_at DESC LIMIT 250`,[schoolId])
+      ]);
+      return done(req,res,200,{fees:fees.rows,settlements:settlements.rows});
+    }catch(error){return fail(req,res,error);}
+  });
+
+  router.post('/finance/entrance-exams/:examId/fee',needsPermission('finance.write'),csrf,async(req,res)=>{
+    const examId=req.params.examId,currency=text(req.body?.currency,3).toUpperCase();
+    const rawAmount=String(req.body?.amount??'');
+    if(!/^[0-9]{1,7}(?:\\.[0-9]{1,2})?$/.test(rawAmount)||Number(rawAmount)>1000000||!['LRD','USD'].includes(currency)||!/^[0-9a-f-]{36}$/i.test(examId)){
+      await close(req,false);return res.status(400).json({error:'Provide a valid nonnegative amount (maximum 1,000,000) and LRD or USD currency.'});
+    }
+    try{
+      if(!await requireExamFeeSchema(req,res)) return;
+      const schoolId=req.auth.claims.schoolId;
+      const inserted=await req.auth.client.query(`INSERT INTO admission_exam_fee_schedules(school_id,exam_id,amount,currency,configured_by)
+        SELECT $1,e.id,$3::numeric,$4,$5 FROM admission_entrance_exams e
+        WHERE e.school_id=$1 AND e.id=$2 AND e.status='DRAFT'
+          AND NOT EXISTS (SELECT 1 FROM admission_exam_fee_settlements s WHERE s.school_id=e.school_id AND s.exam_id=e.id)
+        ON CONFLICT(school_id,exam_id) DO UPDATE SET amount=EXCLUDED.amount,currency=EXCLUDED.currency,
+          configured_by=EXCLUDED.configured_by,configured_at=now()
+        RETURNING exam_id,amount::text,currency`,[schoolId,examId,rawAmount,currency,req.auth.claims.userId]);
+      if(!inserted.rowCount){await close(req,false);return res.status(409).json({error:'Fee can only be configured on an exam draft before any payment or waiver is recorded.'});}
+      await audit(req,'ENTRANCE_EXAM_FEE_CONFIGURED','ADMISSION_ENTRANCE_EXAM',examId,{amount:rawAmount,currency});
+      return done(req,res,200,{fee:inserted.rows[0]});
+    }catch(error){return fail(req,res,error);}
+  });
+
+  // Cash/bank evidence must be independently verified by Finance before this action.
+  // Mobile Money is NOT permitted here: provider-signed confirmation will require a separate integration.
+  router.post('/finance/entrance-exams/:examId/applicants/:applicationId/settlement',needsPermission('finance.write'),csrf,async(req,res)=>{
+    const examId=req.params.examId,applicationId=req.params.applicationId;
+    const kind=text(req.body?.kind,12).toUpperCase(),channel=text(req.body?.channel,30).toUpperCase();
+    const reference=text(req.body?.reference,120),reason=text(req.body?.reason,500);
+    if(!/^[0-9a-f-]{36}$/i.test(examId)||!/^[0-9a-f-]{36}$/i.test(applicationId)||
+       !['PAYMENT','WAIVER'].includes(kind)||!(kind==='WAIVER'?channel==='WAIVER'&&reason.length>=10:['CASH','BANK_TRANSFER'].includes(channel))||
+       reference.length<3){
+      await close(req,false);return res.status(400).json({error:'Enter a valid applicant, verified cash/bank payment reference, or a waiver with a detailed reason. MTN Mobile Money cannot be manually marked paid.'});
+    }
+    try{
+      if(!await requireExamFeeSchema(req,res)) return;
+      const schoolId=req.auth.claims.schoolId;
+      const record=await req.auth.client.query(`INSERT INTO admission_exam_fee_settlements
+        (school_id,exam_id,application_id,kind,channel,amount,currency,reference,reason,verified_by)
+        SELECT $1,assign.exam_id,assign.application_id,$4,$5,
+          CASE WHEN $4='WAIVER' THEN 0 ELSE fees.amount END,fees.currency,$6,NULLIF($7,''),$8
+        FROM admission_exam_assignments assign
+        JOIN admission_exam_fee_schedules fees ON fees.school_id=assign.school_id AND fees.exam_id=assign.exam_id
+        WHERE assign.school_id=$1 AND assign.exam_id=$2 AND assign.application_id=$3
+          AND fees.amount>0 AND assign.status IN ('INVITED','ATTENDED')
+        ON CONFLICT(school_id,exam_id,application_id) DO NOTHING
+        RETURNING id,exam_id,application_id,kind,channel,amount::text,currency,reference,verified_at`,
+        [schoolId,examId,applicationId,kind,channel,reference,reason,req.auth.claims.userId]);
+      if(!record.rowCount){await close(req,false);return res.status(409).json({error:'Exam fee or eligible assignment missing, or a settlement was already recorded.'});}
+      await audit(req,'ENTRANCE_EXAM_FEE_SETTLED','ADMISSION_APPLICATION',applicationId,{examId,kind,channel,reference});
+      return done(req,res,201,{settlement:record.rows[0]});
+    }catch(error){return fail(req,res,error);}
+  });
+
   // Admissions, HR, stock control, and school announcements use the same
   // tenant-scoped transaction and audit trail as the academic workspaces.
   router.get('/admissions', needsPermission('admissions.read'), async (req, res) => {
