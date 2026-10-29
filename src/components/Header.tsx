@@ -61,10 +61,7 @@ export const Header: React.FC<HeaderProps> = ({
           <div className="w-10 h-10 rounded-xl bg-white ring-1 ring-amber-400/50 shadow-sm overflow-hidden shrink-0">
             <img src="/redeemer-seal.svg?v=2" alt="Redeemer's International Academy seal" className="w-full h-full object-contain" />
           </div>
-          <button 
-            onClick={() => onSelectView('home')}
-            className="text-left group cursor-pointer focus:outline-hidden"
-          >
+          <a href="/" className="text-left group cursor-pointer focus:outline-hidden">
             <div className="flex items-center gap-2">
               <span className="text-base font-extrabold text-slate-900 tracking-tight whitespace-nowrap block group-hover:text-blue-900 transition-colors">
                 {THE_REDEEMER_SCHOOL_INFO.name}
@@ -76,7 +73,7 @@ export const Header: React.FC<HeaderProps> = ({
             <span className="text-[11px] text-slate-500 font-medium whitespace-nowrap block">
               Academic and Moral Excellence · Paynesville
             </span>
-          </button>
+          </a>
         </div>
 
         {/* Public landing navigation */}
