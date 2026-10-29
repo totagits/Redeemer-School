@@ -26,7 +26,8 @@ class FakeClient {
       return {rows:[document],rowCount:1};
     }
     if(statement.startsWith('SELECT id,title,original_filename,media_type,size_bytes,checksum_sha256,file_content,content_nonce,content_auth_tag')) { const document=FakeClient.documents.get(params[2]);return document&&!document.deleted?{rows:[document],rowCount:1}:{rows:[],rowCount:0}; }
-    if(statement.startsWith('UPDATE student_documents SET deleted_at=now()')) { const document=FakeClient.documents.get(params[2]);if(document)document.deleted=true;return document?{rows:[{id:document.id,title:document.title}],rowCount:1}:{rows:[],rowCount:0}; }
+    if(statement.startsWith('SELECT id FROM students WHERE school_id=$1 AND id=$2 FOR UPDATE')) return {rows:[{id:studentId}],rowCount:1};
+    if(statement.startsWith('UPDATE student_documents d SET deleted_at=now()')) { const document=FakeClient.documents.get(params[2]);if(document)document.deleted=true;return document?{rows:[{id:document.id,title:document.title,category_code:'BIRTH_CERTIFICATE'}],rowCount:1}:{rows:[],rowCount:0}; }
     if(statement.startsWith('INSERT INTO audit_events')) return {rows:[],rowCount:1};
     throw new Error(`Unexpected student document query: ${statement}`);
   }
@@ -121,6 +122,6 @@ test('document removal is a permission-checked audited soft delete',async t=>wit
   const response=await fetch(`${url}/api/operations/students/${studentId}/documents/${saved.id}/delete`,{method:'POST',headers:{...csrf,'Content-Type':'application/json'},body:'{}'});
   assert.equal(response.status,200);
   assert.equal((await response.json()).deleted,true);
-  assert.ok(clients[1].statements.some(item=>item.statement.startsWith('UPDATE student_documents SET deleted_at=now()')));
+  assert.ok(clients[1].statements.some(item=>item.statement.startsWith('UPDATE student_documents d SET deleted_at=now()')));
   assert.ok(clients[1].statements.some(item=>item.statement.startsWith('INSERT INTO audit_events')));
 }));
