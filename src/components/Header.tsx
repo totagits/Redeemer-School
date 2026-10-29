@@ -137,12 +137,12 @@ export const Header: React.FC<HeaderProps> = ({
 
       {/* Mobile Sub-Navigation Bar */}
       {currentView === 'home' ? (
-        <nav aria-label="Mobile school navigation" className="flex gap-2 overflow-x-auto border-t border-slate-100 bg-white px-3 py-2 text-xs font-semibold text-blue-900 lg:hidden">
-          <a href="/" className="shrink-0 rounded-lg px-3 py-2">Home</a>
-          {publicSchoolNavigation.map(group=><details key={group.label} className="relative shrink-0">
-            <summary className="cursor-pointer list-none rounded-lg bg-blue-50 px-3 py-2">{group.label} ⌄</summary>
-            <div className="absolute left-0 top-full z-50 max-h-[45vh] min-w-56 overflow-y-auto rounded-xl border border-blue-100 bg-white p-2 shadow-xl">
-              {group.items.map(item=><a key={item.slug} className="block rounded-md px-3 py-2 hover:bg-blue-50" href={item.slug==='apply-online'?'/apply':item.slug==='student-portal'||item.slug==='guardian-portal'?'/portal':`/school/${item.slug}`}>{item.label}</a>)}
+        <nav aria-label="Mobile school navigation" className="grid grid-cols-2 gap-2 border-t border-slate-100 bg-white px-3 py-3 text-xs font-semibold text-blue-900 lg:hidden">
+          <a href="/" className="rounded-lg bg-blue-50 px-3 py-2">Home</a>
+          {publicSchoolNavigation.map(group=><details key={group.label} className="min-w-0 rounded-lg bg-blue-50">
+            <summary className="cursor-pointer list-none px-3 py-2">{group.label} ⌄</summary>
+            <div className="col-span-full rounded-lg border border-blue-100 bg-white p-2 shadow-sm">
+              {group.items.map(item=><a key={item.slug} className="block rounded-md px-2 py-2 hover:bg-blue-50" href={item.slug==='apply-online'?'/apply':item.slug==='student-portal'||item.slug==='guardian-portal'?'/portal':`/school/${item.slug}`}>{item.label}</a>)}
             </div>
           </details>)}
         </nav>
