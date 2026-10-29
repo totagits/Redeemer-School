@@ -1,6 +1,7 @@
 import { createCipheriv, createDecipheriv, createHash, randomBytes, randomUUID, timingSafeEqual } from 'node:crypto';
 import express from 'express';
 import { hashPassword } from './authCrypto.js';
+import { issueCandidateSecret } from './admissionExamCredential.js';
 import { createInvitationSecret, InvitationDeliveryError, sendAccountInvitation } from './invitations.js';
 import { createMomoClient, MomoProviderError } from './mtnMomo.js';
 import { sendWebPush } from './webPush.js';
@@ -1798,6 +1799,51 @@ export function createOperationsRouter({ authenticate, sendInvitation = sendAcco
     res.status(503).json({error:'Entrance examination fees are awaiting verified migration 103.',migrationRequired:'103_admission_exam_fees.sql'});
     return false;
   }
+  // Registrar/Admin issues a single-use credential only after server-verified eligibility.
+  // Return plaintext once to issuing staff; do not email, log, or persist plaintext.
+  router.post('/admissions/entrance-exams/:examId/applicants/:applicationId/credential',
+    needsPermission('admissions.write'),csrf,async(req,res)=>{
+    const examId=text(req.params.examId,50),applicationId=text(req.params.applicationId,50);
+    const uuid=/^[0-9a-f]{8}(-[0-9a-f]{4}){3}-[0-9a-f]{12}$/i;
+    if(!uuid.test(examId)||!uuid.test(applicationId)){
+      await close(req,false);return res.status(400).json({error:'Select a valid examination and applicant.'});
+    }
+    try{
+      const schema=await req.auth.client.query("SELECT to_regclass('public.admission_exam_candidate_credentials') IS NOT NULL AND to_regclass('public.admission_exam_fee_settlements') IS NOT NULL AS ready");
+      if(schema.rows[0]?.ready!==true){await close(req,false);return res.status(503).json({error:'Candidate credential storage requires reviewed migrations 103–105.'});}
+      const schoolId=req.auth.claims.schoolId;
+      const {token,tokenHash}=issueCandidateSecret();
+      // Atomic eligibility check and insert; no credential can bypass an unpaid or invalid assignment.
+      // Issuance is only permitted ahead of exam start; the token expires at the exam start
+      // or after 24 hours (whichever comes first). A future candidate login flow will
+      // need a separate authenticated, rate-limited redemption transaction.
+      const issued=await req.auth.client.query(`INSERT INTO admission_exam_candidate_credentials
+        (school_id,exam_id,application_id,token_hash,issued_by,expires_at)
+        SELECT $1,e.id,a.application_id,$4,$5,LEAST(e.starts_at,now()+interval '24 hours')
+        FROM admission_entrance_exams e
+        JOIN admission_exam_assignments a ON a.school_id=e.school_id AND a.exam_id=e.id AND a.application_id=$3
+        JOIN admission_applications app ON app.school_id=a.school_id AND app.id=a.application_id
+        JOIN admission_exam_fee_schedules f ON f.school_id=e.school_id AND f.exam_id=e.id
+        LEFT JOIN admission_exam_fee_settlements settled ON settled.school_id=a.school_id AND settled.exam_id=a.exam_id AND settled.application_id=a.application_id
+        WHERE e.school_id=$1 AND e.id=$2 AND e.status='SCHEDULED' AND e.starts_at>now()+interval '5 minutes'
+          AND a.status='INVITED' AND app.status NOT IN ('REJECTED','WITHDRAWN','ENROLLED')
+          AND NOT EXISTS(SELECT 1 FROM admission_exam_attempts t WHERE t.school_id=a.school_id AND t.exam_id=a.exam_id AND t.application_id=a.application_id)
+          AND (f.amount=0 OR
+            (settled.kind='WAIVER' AND settled.channel='WAIVER' AND settled.amount=0)
+            OR (settled.kind='PAYMENT' AND settled.amount=f.amount AND settled.currency=f.currency
+                AND settled.channel IN ('CASH','BANK_TRANSFER','MTN_MOMO_VERIFIED')))
+          AND NOT EXISTS(SELECT 1 FROM admission_exam_candidate_credentials existing
+            WHERE existing.school_id=a.school_id AND existing.exam_id=a.exam_id AND existing.application_id=a.application_id
+            AND existing.revoked_at IS NULL AND existing.redeemed_at IS NULL)
+        RETURNING id,expires_at`,
+        [schoolId,examId,applicationId,tokenHash,req.auth.claims.userId]);
+      if(!issued.rowCount){await close(req,false);return res.status(409).json({error:'Applicant not eligible, examination too close, or an active credential already exists.'});}
+      await audit(req,'ENTRANCE_EXAM_CREDENTIAL_ISSUED','ADMISSION_APPLICATION',applicationId,{examId,credentialId:issued.rows[0].id});
+      return done(req,res,201,{credential:{id:issued.rows[0].id,token,expiresAt:issued.rows[0].expires_at},
+        notice:'Display this credential only to the authorized recipient. It cannot yet be redeemed until candidate login is implemented.'});
+    }catch(error){return fail(req,res,error);}
+  });
+
   // Staff-only question authoring. No applicant question delivery or answer-key exposure.
   // Migration 104 is required and must be independently reviewed before applying in staging.
   router.post('/admissions/entrance-exams/:examId/questions',needsPermission('admissions.write'),csrf,async(req,res)=>{
