@@ -36,6 +36,7 @@ class FakeClient {
     if (statement.startsWith('INSERT INTO class_enrollments')) return { rows: [], rowCount: 1 };
     if (statement.startsWith('INSERT INTO student_enrollment_history')) return { rows: [], rowCount: 1 };
     if (statement.startsWith('SELECT first_name, last_name, relationship, phone, email, is_primary FROM admission_guardians')) return { rows: [{ first_name: 'Alex', last_name: 'Guardian', relationship: 'Parent', phone: '0770000000', email: 'parent@example.test', is_primary: true }], rowCount: 1 };
+    if (statement.startsWith('SELECT id FROM document_categories')) return { rows: [], rowCount: 0 };
     if (statement.startsWith('SELECT id FROM guardians')) return { rows: [], rowCount: 0 };
     if (statement.startsWith('INSERT INTO guardians')) return { rows: [{ id: guardianId }], rowCount: 1 };
     if (statement.startsWith('INSERT INTO student_guardians')) return { rows: [], rowCount: 1 };
