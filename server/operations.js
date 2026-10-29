@@ -3111,6 +3111,33 @@ export function createOperationsRouter({ authenticate, sendInvitation = sendAcco
       return done(req,res,201,{saved:true});}catch(error){return fail(req,res,error);}
   });
 
+  // Notification counts are account-scoped; never infer unread state from the
+  // total number of published announcements.
+  router.get('/portal/notifications/unread', async(req,res)=>{
+    if(!req.auth.account.roles.some(role=>['PARENT','STUDENT'].includes(role))){
+      await close(req,false);return res.status(403).json({error:'Only student and guardian accounts can view these alerts.'});
+    }
+    try{
+      const schoolId=req.auth.claims.schoolId,userId=req.auth.claims.userId;
+      const result=await req.auth.client.query(`SELECT id,kind,title,body,read_at,created_at
+        FROM portal_notifications WHERE school_id=$1 AND user_id=$2
+        ORDER BY created_at DESC LIMIT 100`,[schoolId,userId]);
+      const unread=result.rows.filter(item=>!item.read_at);
+      await close(req,true);
+      return res.json({unreadCount:unread.length,notifications:result.rows});
+    }catch(error){return fail(req,res,error);}
+  });
+
+  // Information endpoint only. Portal payment initiation must be explicitly
+  // authorized and tested before credentials or financial operations are exposed.
+  router.get('/portal/mobile-money/readiness', async(req,res)=>{
+    if(!req.auth.account.roles.some(role=>['PARENT','STUDENT'].includes(role))){
+      await close(req,false);return res.status(403).json({error:'Student and guardian portal access is required.'});
+    }
+    await close(req,true);
+    return res.json({enabled:false,provider:'MTN MoMo Collections',message:'Mobile Money checkout is being prepared. Please use the school’s verified payment channels until online collection is activated.'});
+  });
+
   router.post('/portal/notifications/:notificationId/read', needsPermission('portal.notifications.read'), csrf, async(req,res)=>{
     try{const r=await req.auth.client.query(`UPDATE portal_notifications SET read_at=COALESCE(read_at,now()) WHERE school_id=$1 AND user_id=$2 AND id=$3 RETURNING id`,[req.auth.claims.schoolId,req.auth.claims.userId,req.params.notificationId]);if(!r.rowCount){await close(req,false);return res.status(404).json({error:'Notification not found.'});}return done(req,res,200,{read:true});}catch(error){return fail(req,res,error);}
   });
