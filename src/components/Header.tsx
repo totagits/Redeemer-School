@@ -1,5 +1,5 @@
 import { publicSchoolNavigation } from './PublicSchoolPages.tsx';
-import React, { useState } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
 import { 
   Home,
   Building2, 
@@ -11,6 +11,10 @@ import {
   BarChart3, 
   ShieldCheck,
   GraduationCap,
+  ChevronDown,
+  ArrowUpRight,
+  Menu,
+  X,
 } from 'lucide-react';
 import { THE_REDEEMER_SCHOOL_INFO } from '../data/schoolProfile.ts';
 import { SCHOOL_CONTACT } from '../data/schoolContact.ts';
@@ -42,6 +46,15 @@ export const Header: React.FC<HeaderProps> = ({
   onPortalSignIn,
 }) => {
   const [openMenu,setOpenMenu]=useState<string|null>(null);
+  const [mobileMenuOpen,setMobileMenuOpen]=useState(false);
+  const desktopNavRef=useRef<HTMLElement|null>(null);
+  useEffect(()=>{
+    const onKey=(event:KeyboardEvent)=>{if(event.key==='Escape'){setOpenMenu(null);setMobileMenuOpen(false);}};
+    const onPointer=(event:PointerEvent)=>{if(desktopNavRef.current&&!desktopNavRef.current.contains(event.target as Node))setOpenMenu(null);};
+    document.addEventListener('keydown',onKey);document.addEventListener('pointerdown',onPointer);
+    return ()=>{document.removeEventListener('keydown',onKey);document.removeEventListener('pointerdown',onPointer);};
+  },[]);
+
   const navItems: Array<{ id: ERPView; label: string; icon: React.ReactNode; badge?: number }> = [
     { id: 'dashboard', label: 'Dashboard', icon: <Layers className="w-3.5 h-3.5" /> },
     { id: 'students', label: 'Students & Admissions', icon: <GraduationCap className="w-3.5 h-3.5 text-blue-600" /> },
@@ -77,17 +90,31 @@ export const Header: React.FC<HeaderProps> = ({
           </a>
         </div>
 
-        {/* Public landing navigation */}
+        {/* School navigation; staff administration is intentionally absent. */}
         {currentView === 'home' ? (
-          <nav aria-label="School website" className="hidden items-center gap-1 lg:flex">
-            <a href="/" className="rounded-lg px-2 py-2 text-sm font-semibold text-slate-700 hover:bg-blue-50">Home</a>
-            {publicSchoolNavigation.map(group=><div key={group.label} className="relative" onMouseEnter={()=>setOpenMenu(group.label)} onMouseLeave={()=>setOpenMenu(current=>current===group.label?null:current)}>
-              <button type="button" aria-expanded={openMenu===group.label} aria-haspopup="menu" onClick={()=>setOpenMenu(current=>current===group.label?null:group.label)} onKeyDown={event=>{if(event.key==='Escape'){setOpenMenu(null);event.currentTarget.blur();}}} className={`flex items-center gap-1 rounded-lg px-2.5 py-2 text-sm font-semibold transition-colors ${openMenu===group.label?'bg-blue-100 text-blue-900':'text-slate-700 hover:bg-blue-50'}`}>{group.label} <span aria-hidden="true" className={`inline-block text-blue-600 transition-transform duration-200 ${openMenu===group.label?'rotate-180':''}`}>⌄</span></button>
-              {openMenu===group.label&&<div role="menu" className="absolute right-0 top-full z-[100] max-h-[70vh] w-64 overflow-y-auto rounded-xl border border-slate-200 bg-white p-2 shadow-2xl motion-safe:animate-in motion-safe:fade-in">
-                {group.items.map(item=><a role="menuitem" key={item.slug} onClick={()=>setOpenMenu(null)} href={item.slug==='apply-online'?'/apply':item.slug==='student-portal'||item.slug==='guardian-portal'?'/portal':`/school/${item.slug}`} className="block rounded-md px-3 py-2 text-sm text-slate-700 hover:bg-blue-50 hover:text-blue-900">{item.label}</a>)}
-              </div>}
+          <nav ref={desktopNavRef} aria-label="School website navigation" className="hidden items-center gap-0.5 xl:flex">
+            <a href="/" className="rounded-md px-2.5 py-3 text-sm font-bold text-slate-800 hover:bg-blue-50">Home</a>
+            {publicSchoolNavigation.map((group,index)=><div key={group.label} className="relative"
+              onMouseEnter={()=>setOpenMenu(group.label)}
+              onMouseLeave={()=>setOpenMenu(current=>current===group.label?null:current)}>
+              <button type="button" aria-controls={`school-menu-${index}`} aria-expanded={openMenu===group.label}
+                onClick={()=>setOpenMenu(current=>current===group.label?null:group.label)}
+                className={`flex items-center gap-1 rounded-md border-b-[3px] px-2 py-3 text-sm font-bold transition-all duration-200 ${openMenu===group.label?'border-amber-400 bg-blue-950 text-white':'border-transparent text-slate-800 hover:border-amber-400 hover:bg-blue-50'}`}>
+                {group.label}<ChevronDown aria-hidden="true" className={`h-4 w-4 transition-transform duration-200 ${openMenu===group.label?'rotate-180':''}`}/>
+              </button>
+              <div id={`school-menu-${index}`} aria-label={`${group.label} submenu`} aria-hidden={openMenu!==group.label}
+                className={`absolute top-full z-[100] w-[min(34rem,90vw)] origin-top rounded-b-xl border-t-4 border-amber-400 bg-white p-5 shadow-[0_25px_60px_rgba(4,20,52,.25)] ring-1 ring-slate-200 transition-all duration-200 ease-out ${index>3?'right-0':'left-0'} ${openMenu===group.label?'visible translate-y-0 scale-100 opacity-100':'invisible pointer-events-none -translate-y-2 scale-[.98] opacity-0'}`}>
+                <div className="mb-3 flex items-center justify-between border-b border-slate-100 pb-3"><span className="text-xs font-extrabold uppercase tracking-[.16em] text-blue-900">{group.label}</span><span className="text-xs text-slate-500">Explore Redeemer</span></div>
+                <div className="grid grid-cols-2 gap-x-4 gap-y-1">
+                  {group.items.map(item=><a key={item.slug} tabIndex={openMenu===group.label?0:-1} onClick={()=>setOpenMenu(null)}
+                    href={item.slug==='apply-online'?'/apply':item.slug==='student-portal'||item.slug==='guardian-portal'?'/portal':`/school/${item.slug}`}
+                    className="group flex items-center justify-between gap-2 rounded-lg px-3 py-2.5 text-sm font-medium text-slate-700 transition-colors hover:bg-blue-50 hover:text-blue-900 focus-visible:bg-blue-50 focus-visible:outline-blue-600">
+                    <span>{item.label}</span><ArrowUpRight aria-hidden="true" className="h-3.5 w-3.5 shrink-0 opacity-0 transition-opacity group-hover:opacity-100 group-focus-visible:opacity-100"/>
+                  </a>)}
+                </div>
+              </div>
             </div>)}
-            <a href="/portal" className="shrink-0 rounded-lg bg-blue-700 px-3 py-2 text-xs font-bold text-white hover:bg-blue-800">Student & guardian portal</a>
+            <a href="/portal" className="ml-1 shrink-0 rounded-md bg-blue-800 px-3 py-2.5 text-xs font-bold text-white transition hover:bg-blue-950">Family Portal</a>
           </nav>
         ) : (
         <>
@@ -134,17 +161,26 @@ export const Header: React.FC<HeaderProps> = ({
 
       </div>
 
-      {/* Mobile Sub-Navigation Bar */}
+      {/* Responsive school menu with expandable page groups. */}
       {currentView === 'home' ? (
-        <nav aria-label="Mobile school navigation" className="grid grid-cols-2 gap-2 border-t border-slate-100 bg-white px-3 py-3 text-xs font-semibold text-blue-900 lg:hidden">
-          <a href="/" className="rounded-lg bg-blue-50 px-3 py-2">Home</a>
-          {publicSchoolNavigation.map(group=><details key={group.label} className="min-w-0 rounded-lg bg-blue-50">
-            <summary className="cursor-pointer list-none px-3 py-2">{group.label} ⌄</summary>
-            <div className="col-span-full rounded-lg border border-blue-100 bg-white p-2 shadow-sm">
-              {group.items.map(item=><a key={item.slug} className="block rounded-md px-2 py-2 hover:bg-blue-50" href={item.slug==='apply-online'?'/apply':item.slug==='student-portal'||item.slug==='guardian-portal'?'/portal':`/school/${item.slug}`}>{item.label}</a>)}
-            </div>
-          </details>)}
-        </nav>
+        <div className="border-t border-slate-100 bg-white xl:hidden">
+          <button type="button" aria-label={mobileMenuOpen?'Close school menu':'Open school menu'} aria-expanded={mobileMenuOpen}
+            onClick={()=>setMobileMenuOpen(current=>!current)}
+            className="flex w-full items-center justify-between px-5 py-3 text-sm font-extrabold text-blue-950">
+            Explore Redeemer {mobileMenuOpen?<X className="h-5 w-5"/>:<Menu className="h-5 w-5"/>}
+          </button>
+          {mobileMenuOpen&&<nav aria-label="Mobile school navigation" className="max-h-[70vh] overflow-y-auto border-t border-slate-100 px-4 pb-4">
+            <a href="/" className="block border-b border-slate-100 px-3 py-3 text-sm font-bold">Home</a>
+            {publicSchoolNavigation.map(group=><details key={group.label} className="group border-b border-slate-100">
+              <summary className="flex cursor-pointer list-none items-center justify-between px-3 py-3 text-sm font-extrabold text-slate-800">{group.label}<ChevronDown className="h-4 w-4 transition-transform group-open:rotate-180"/></summary>
+              <div className="grid grid-cols-1 gap-1 rounded-lg bg-blue-50/60 p-2 sm:grid-cols-2">
+                {group.items.map(item=><a key={item.slug} className="rounded-md px-3 py-2.5 text-sm text-slate-700 hover:bg-white"
+                  href={item.slug==='apply-online'?'/apply':item.slug==='student-portal'||item.slug==='guardian-portal'?'/portal':`/school/${item.slug}`}>{item.label}</a>)}
+              </div>
+            </details>)}
+            <a href="/portal" className="mt-3 block rounded-lg bg-blue-800 px-4 py-3 text-center text-sm font-extrabold text-white">Student & Guardian Portal</a>
+          </nav>}
+        </div>
       ) : <div className="lg:hidden flex items-center gap-1 px-4 py-2 border-t border-slate-100 overflow-x-auto bg-slate-50">
         <button onClick={() => onSelectView('home')} className="px-2.5 py-1 text-xs font-semibold rounded-md whitespace-nowrap shrink-0 flex items-center gap-1 text-slate-600 bg-white border border-slate-200 cursor-pointer"><Home className="w-3.5 h-3.5" /> Home</button>
         {navItems.map((item) => (
