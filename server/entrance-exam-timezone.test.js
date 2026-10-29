@@ -31,3 +31,13 @@ test('reschedule is authorized and audited and cannot rewrite attended or graded
  assert.match(operations,/ENTRANCE_EXAM_TIME_CORRECTED/);
  assert.match(operations,/a\.status IN \('ATTENDED','COMPLETED'\) OR a\.score IS NOT NULL/);
 });
+
+test('reschedule validator recognizes real ISO timestamps instead of literal backslash characters',()=>{
+ const match=operations.match(/const validInstant=(\/\^.*?\$\/);/);
+ assert.ok(match, 'rescheduling validator exists');
+ const validator=Function('return '+match[1])();
+ assert.equal(validator.test('2026-11-05T09:00:00.000Z'),true);
+ assert.equal(validator.test('2026-11-05T10:00:00.000Z'),true);
+ assert.equal(validator.test('2026-11-05T15:00:00.000Z'),true);
+ assert.equal(validator.test('2026-11-05 09:00:00'),false);
+});
