@@ -1802,7 +1802,7 @@ export function createOperationsRouter({ authenticate, sendInvitation = sendAcco
     try {
       if(!await requireExamFeeSchema(req,res)) return;
       const schoolId=req.auth.claims.schoolId;
-      const [fees,settlements]=await Promise.all([
+      const [fees,settlements,assignments]=await Promise.all([
         req.auth.client.query(`SELECT e.id AS exam_id,e.title,e.starts_at,e.status,e.grade_label,
           f.amount::text,f.currency,
           (SELECT count(*)::int FROM admission_exam_assignments a WHERE a.school_id=e.school_id AND a.exam_id=e.id) AS applicant_count
@@ -1812,9 +1812,16 @@ export function createOperationsRouter({ authenticate, sendInvitation = sendAcco
         req.auth.client.query(`SELECT s.id,s.exam_id,s.application_id,s.kind,s.channel,s.amount::text,s.currency,s.reference,s.verified_at,
           a.application_number,a.first_name,a.last_name
           FROM admission_exam_fee_settlements s JOIN admission_applications a ON a.school_id=s.school_id AND a.id=s.application_id
-          WHERE s.school_id=$1 ORDER BY s.verified_at DESC LIMIT 250`,[schoolId])
+          WHERE s.school_id=$1 ORDER BY s.verified_at DESC LIMIT 250`,[schoolId]),
+        req.auth.client.query(`SELECT x.exam_id,x.application_id,a.application_number,a.first_name,a.last_name,
+          (settled.id IS NOT NULL) AS settled
+          FROM admission_exam_assignments x
+          JOIN admission_applications a ON a.school_id=x.school_id AND a.id=x.application_id
+          LEFT JOIN admission_exam_fee_settlements settled ON settled.school_id=x.school_id
+            AND settled.exam_id=x.exam_id AND settled.application_id=x.application_id
+          WHERE x.school_id=$1 ORDER BY a.application_number LIMIT 500`,[schoolId])
       ]);
-      return done(req,res,200,{fees:fees.rows,settlements:settlements.rows});
+      return done(req,res,200,{fees:fees.rows,settlements:settlements.rows,assignments:assignments.rows});
     }catch(error){return fail(req,res,error);}
   });
 
@@ -1846,10 +1853,11 @@ export function createOperationsRouter({ authenticate, sendInvitation = sendAcco
     const examId=req.params.examId,applicationId=req.params.applicationId;
     const kind=text(req.body?.kind,12).toUpperCase(),channel=text(req.body?.channel,30).toUpperCase();
     const reference=text(req.body?.reference,120),reason=text(req.body?.reason,500);
+    const confirmed=req.body?.verifiedEvidence===true;
     if(!/^[0-9a-f-]{36}$/i.test(examId)||!/^[0-9a-f-]{36}$/i.test(applicationId)||
        !['PAYMENT','WAIVER'].includes(kind)||!(kind==='WAIVER'?channel==='WAIVER'&&reason.length>=10:['CASH','BANK_TRANSFER'].includes(channel))||
-       reference.length<3){
-      await close(req,false);return res.status(400).json({error:'Enter a valid applicant, verified cash/bank payment reference, or a waiver with a detailed reason. MTN Mobile Money cannot be manually marked paid.'});
+       reference.length<3||!confirmed){
+      await close(req,false);return res.status(400).json({error:'Enter a valid applicant, verified cash/bank payment reference (with Finance confirmation), or a waiver with a detailed reason. MTN Mobile Money cannot be manually marked paid.'});
     }
     try{
       if(!await requireExamFeeSchema(req,res)) return;
