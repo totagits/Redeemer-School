@@ -47,6 +47,16 @@ export const HomeLandingPage: React.FC<HomeLandingPageProps> = ({ onPortalSignIn
       </div>
     </section>
 
+    <section aria-label="Our school in photographs" className="border-b border-slate-200 bg-white py-10">
+      <div className="mx-auto max-w-7xl px-5 sm:px-8 lg:px-10">
+        <div className="mb-5 flex flex-wrap items-center justify-between gap-3"><div><p className="text-xs font-bold uppercase tracking-widest text-blue-700">Our campus</p><h2 className="mt-1 text-2xl font-extrabold">A glimpse of Redeemer’s International Academy</h2></div><a href="/school/photo-albums" className="text-sm font-bold text-blue-800 hover:underline">Explore the photo gallery →</a></div>
+        <div className="grid gap-4 sm:grid-cols-2">
+          <figure className="overflow-hidden rounded-2xl border border-slate-200 bg-slate-100 shadow-sm"><img src="/school-photos/campus-exterior.svg" alt="Exterior of Redeemer’s International Academy campus" loading="lazy" className="h-48 w-full object-cover sm:h-60"/><figcaption className="p-4 text-sm font-semibold text-slate-700">School campus exterior</figcaption></figure>
+          <figure className="overflow-hidden rounded-2xl border border-slate-200 bg-slate-100 shadow-sm"><img src="/school-photos/campus-courtyard.svg" alt="Courtyard of Redeemer’s International Academy" loading="lazy" className="h-48 w-full object-cover sm:h-60"/><figcaption className="p-4 text-sm font-semibold text-slate-700">Our school courtyard</figcaption></figure>
+        </div>
+      </div>
+    </section>
+
     <section id="about" className="scroll-mt-24 bg-slate-50 py-16">
       <div className="mx-auto max-w-7xl px-5 sm:px-8 lg:px-10">
         <div className="max-w-3xl"><p className="text-xs font-extrabold uppercase tracking-widest text-blue-700">Our school</p><h2 className="mt-3 text-3xl font-extrabold sm:text-4xl">A community where every learner matters</h2><p className="mt-4 leading-8 text-slate-600">Redeemer’s International Academy is a school community in Thinker’s Village, Paynesville. We bring families and educators together around academic and moral excellence, providing a foundation for lifelong learning.</p></div>
