@@ -1696,13 +1696,29 @@ export function createOperationsRouter({ authenticate, sendInvitation = sendAcco
     } catch (error) { return fail(req, res, error); }
   });
 
+  // Explicit migration gate: never show a broken admissions workspace when migration 102 is absent.
+  async function entranceExamSchemaReady(req) {
+    const result = await req.auth.client.query(
+      "SELECT to_regclass('public.admission_entrance_exams') IS NOT NULL AND to_regclass('public.admission_exam_assignments') IS NOT NULL AS ready"
+    );
+    return result.rows[0]?.ready === true;
+  }
+  async function requireEntranceExamSchema(req,res) {
+    if(await entranceExamSchemaReady(req)) return true;
+    await close(req,false);
+    res.status(503).json({error:'Entrance examination storage is awaiting the reviewed migration 102. Existing admissions remain available.',migrationRequired:'102_admission_entrance_exams.sql'});
+    return false;
+  }
+
   // Entrance examination sessions are private admissions records, never public announcements.
   // Migration 102 must be separately approved and applied in staging before use.
   router.get('/admissions/entrance-exams', needsPermission('admissions.read'), async (req,res)=>{
     try {
+      if(!await requireEntranceExamSchema(req,res)) return;
       const schoolId=req.auth.claims.schoolId;
-      const result=await req.auth.client.query(`SELECT id,title,grade_label,mode,starts_at,ends_at,venue,status,created_at
-        FROM admission_entrance_exams WHERE school_id=$1 ORDER BY starts_at DESC LIMIT 150`,[schoolId]);
+      const result=await req.auth.client.query(`SELECT e.id,e.title,e.grade_label,e.mode,e.starts_at,e.ends_at,e.venue,e.status,e.created_at,
+        (SELECT count(*)::int FROM admission_exam_assignments a WHERE a.school_id=e.school_id AND a.exam_id=e.id) AS applicant_count
+        FROM admission_entrance_exams e WHERE e.school_id=$1 ORDER BY e.starts_at DESC LIMIT 150`,[schoolId]);
       return done(req,res,200,{exams:result.rows});
     } catch(error){return fail(req,res,error);}
   });
@@ -1718,6 +1734,7 @@ export function createOperationsRouter({ authenticate, sendInvitation = sendAcco
       return res.status(400).json({error:'Provide an exam title, grade, mode, venue, and a future session lasting at most eight hours.'});
     }
     try {
+      if(!await requireEntranceExamSchema(req,res)) return;
       const schoolId=req.auth.claims.schoolId,id=randomUUID();
       const result=await req.auth.client.query(`INSERT INTO admission_entrance_exams
         (id,school_id,title,grade_label,mode,starts_at,ends_at,venue,created_by)
@@ -1735,6 +1752,7 @@ export function createOperationsRouter({ authenticate, sendInvitation = sendAcco
       await close(req,false);return res.status(400).json({error:'Valid exam and application IDs are required.'});
     }
     try {
+      if(!await requireEntranceExamSchema(req,res)) return;
       const schoolId=req.auth.claims.schoolId;
       const assigned=await req.auth.client.query(`INSERT INTO admission_exam_assignments(school_id,exam_id,application_id)
         SELECT $1,e.id,a.id FROM admission_entrance_exams e
@@ -1746,6 +1764,25 @@ export function createOperationsRouter({ authenticate, sendInvitation = sendAcco
       if(!assigned.rowCount){await close(req,false);return res.status(409).json({error:'Assignment already exists, or the examination or applicant is not eligible.'});}
       await audit(req,'ENTRANCE_EXAM_APPLICANT_ASSIGNED','ADMISSION_APPLICATION',applicationId,{examId});
       return done(req,res,201,{assignment:assigned.rows[0]});
+    }catch(error){return fail(req,res,error);}
+  });
+
+  // Drafts become scheduled only after at least one applicant is assigned.
+  // Scheduling does not send email/SMS or publish any identifying information.
+  router.post('/admissions/entrance-exams/:examId/schedule',needsPermission('admissions.write'),csrf,async(req,res)=>{
+    const examId=req.params.examId;
+    if(!/^[0-9a-f-]{36}$/i.test(examId)){await close(req,false);return res.status(400).json({error:'Valid examination ID is required.'});}
+    try{
+      if(!await requireEntranceExamSchema(req,res)) return;
+      const schoolId=req.auth.claims.schoolId;
+      const updated=await req.auth.client.query(`UPDATE admission_entrance_exams e
+        SET status='SCHEDULED'
+        WHERE e.school_id=$1 AND e.id=$2 AND e.status='DRAFT' AND e.starts_at>now()
+          AND EXISTS(SELECT 1 FROM admission_exam_assignments a WHERE a.school_id=e.school_id AND a.exam_id=e.id)
+        RETURNING e.id,e.title,e.starts_at,e.ends_at,e.status`,[schoolId,examId]);
+      if(!updated.rowCount){await close(req,false);return res.status(409).json({error:'Schedule a future draft with at least one assigned applicant. Cancelled or already scheduled sessions cannot be rescheduled here.'});}
+      await audit(req,'ENTRANCE_EXAM_SCHEDULED','ADMISSION_ENTRANCE_EXAM',examId,{});
+      return done(req,res,200,{exam:updated.rows[0]});
     }catch(error){return fail(req,res,error);}
   });
 
