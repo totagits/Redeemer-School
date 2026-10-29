@@ -70,6 +70,27 @@ const pages:Record<string,PageData>={
  'news-events':{eyebrow:'Quick Links',heading:'News & School Events',intro:'Find news and events officially published by the school administration.',sections:[{title:'Official announcements',body:'Publicly approved news and events are displayed on the school homepage. Private classroom notices remain available only through the secure portals.'}]}
 };
 
+const schoolPhotos=[
+ {src:'campus-courtyard.webp',label:'School courtyard'},
+ {src:'campus-exterior.webp',label:'Campus exterior'},
+ {src:'classroom-learning.webp',label:'Classroom learning'},
+ {src:'classroom-activities.webp',label:'Academic activities'},
+ {src:'students-community.webp',label:'School community'},
+ {src:'school-event.webp',label:'School event'},
+ {src:'achievement-awards.webp',label:'Achievement and recognition'},
+ {src:'graduation.webp',label:'Graduation celebration'}
+];
+function PhotoAlbumPreview(){
+ const [available,setAvailable]=React.useState<Record<string,boolean>>({});
+ return <section className="rounded-2xl border border-slate-200 bg-white p-6">
+  <h2 className="text-xl font-bold">Redeemer school photographs</h2>
+  <p className="mt-2 text-sm text-slate-600">Photographs selected from the school’s own collection. Images are displayed only when their reviewed website assets are installed.</p>
+  <div className="mt-4 grid grid-cols-2 gap-3 sm:grid-cols-3">{schoolPhotos.map(photo=><figure key={photo.src} className="overflow-hidden rounded-xl bg-slate-100">
+    <div className="aspect-[4/3] bg-slate-100">{available[photo.src]!==false&&<img src={`/school-photos/${photo.src}`} alt={photo.label} loading="lazy" className="h-full w-full object-cover" onError={()=>setAvailable(previous=>({...previous,[photo.src]:false}))}/>}</div>
+    <figcaption className="p-3 text-xs font-semibold text-slate-700">{photo.label}</figcaption>
+   </figure>)}</div>
+ </section>;
+}
 export function PublicSchoolPages({slug,onApply,onPortalSignIn}:{slug:string;onApply:()=>void;onPortalSignIn:()=>void}){
  const data=pages[slug];
  if(!data)return <div className="mx-auto max-w-5xl px-5 py-20"><h1 className="text-3xl font-bold">Page not found</h1><a className="mt-4 inline-block text-blue-800 underline" href="/">Return to school homepage</a></div>;
@@ -85,7 +106,7 @@ export function PublicSchoolPages({slug,onApply,onPortalSignIn}:{slug:string;onA
    </section>)}
    {['enrollment-process','admission-requirements','admissions-fees','school-visits'].includes(slug)&&<button onClick={onApply} className="inline-flex items-center gap-2 rounded-lg bg-blue-700 px-5 py-3 text-sm font-bold text-white">Apply for admission <ArrowRight className="h-4 w-4"/></button>}
    {['parent-resources','parent-faq','attendance-absence','assessment-progress','learning-resources'].includes(slug)&&<button onClick={onPortalSignIn} className="inline-flex items-center gap-2 rounded-lg bg-blue-700 px-5 py-3 text-sm font-bold text-white">Student & Guardian Portal <ArrowRight className="h-4 w-4"/></button>}
-   {slug==='photo-albums'&&<div className="rounded-xl border border-amber-200 bg-amber-50 p-5 text-sm text-amber-900">The school photo collection is being prepared for web publication; original photographs and student-image consent will be verified before release.</div>}
+   {slug==='photo-albums'&&<PhotoAlbumPreview/>}
    </main>
    <aside className="self-start rounded-2xl border border-slate-200 bg-white p-5 shadow-sm"><h2 className="font-bold">{group?.label||'Explore Redeemer'}</h2>
     <nav aria-label="Related pages" className="mt-3 space-y-1">{group?.items.map(item=><a key={item.slug} href={`/school/${item.slug}`} aria-current={slug===item.slug?'page':undefined} className={`block rounded-lg px-3 py-2 text-sm ${slug===item.slug?'bg-blue-50 font-bold text-blue-800':'text-slate-600 hover:bg-slate-50'}`}>{item.label}</a>)}</nav>
