@@ -237,7 +237,7 @@ export function createOperationsRouter({ authenticate, sendInvitation = sendAcco
         AND (a.audience='ALL_GUARDIANS' OR (a.audience='CLASS' AND ce.class_group_id=a.class_group_id)
           OR (a.audience='CAMPUS' AND (a.campus_id IS NULL OR st.campus_id=a.campus_id)))
         AND NOT EXISTS (SELECT 1 FROM notification_deliveries nd WHERE nd.school_id=$1 AND nd.announcement_id=a.id AND nd.guardian_id=g.id AND nd.channel='SMS')
-      GROUP BY g.id,g.phone,a.id RETURNING id`);
+      GROUP BY g.id,g.phone,a.id RETURNING id`,[schoolId,announcementId]);
   }
 
   async function queueAnnouncementAlerts(client, schoolId, announcementId) {
