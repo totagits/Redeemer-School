@@ -14,7 +14,8 @@ CREATE TABLE admission_exam_candidate_sessions (
  UNIQUE(school_id,session_hash),
  FOREIGN KEY(school_id,exam_id,application_id)
    REFERENCES admission_exam_assignments(school_id,exam_id,application_id),
- FOREIGN KEY(credential_id) REFERENCES admission_exam_candidate_credentials(id)
+ FOREIGN KEY(school_id,exam_id,application_id,credential_id)
+   REFERENCES admission_exam_candidate_credentials(school_id,exam_id,application_id,id)
 );
 CREATE UNIQUE INDEX admission_exam_active_session_per_applicant
  ON admission_exam_candidate_sessions(school_id,exam_id,application_id)
