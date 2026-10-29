@@ -11,7 +11,7 @@ test('selected menu and dropdown use Redeemer navy with white labels and hovered
 });
 test('hero uses a restrained editorial campus composition without fake blurry background',()=>{
  assert.doesNotMatch(landing,/blur-xl|opacity-65/);
- assert.match(landing,/school-photos\/campus-exterior.svg/);
- assert.match(landing,/school-photos\/campus-courtyard.svg/);
+ assert.match(landing,/school-photos\/featured\/03-campus-courtyard.webp/);
+ assert.match(landing,/school-photos\/featured\/02-classroom-learning.webp/);
  assert.match(landing,/<CampusHeroCarousel/);
 });
