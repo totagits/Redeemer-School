@@ -42,9 +42,11 @@ export function PublicContentWorkspace({csrfToken}:{csrfToken:string}){
     const url=URL.createObjectURL(file);
     const img=new Image();
     img.onload=()=>{
+      if(img.width<1200||img.height<675){
+        setImageWarning('Image is below the 1200 × 675 minimum. Choose a higher-resolution original.');URL.revokeObjectURL(url);return;
+      }
       if(img.width<1600||img.height<900){
-        setImageWarning('This photo is too small for a crisp featured card. Please use an original at least 1600 × 900 pixels.');
-        URL.revokeObjectURL(url);return;
+        setImageWarning('Quality advisory: this photo meets the 1200 × 675 minimum. An original of 1600 × 900 or larger is recommended for larger displays.');
       }
       setImageFile(file);setImagePreview(url);
     };
@@ -61,7 +63,9 @@ export function PublicContentWorkspace({csrfToken}:{csrfToken:string}){
     try{
       const bitmap=await createImageBitmap(imageFile);
       const ratio=16/9;
-      const w=1600,h=900;
+      const w=Math.floor(Math.min(1600,bitmap.width,bitmap.height*ratio));
+      const h=Math.floor(w/ratio);
+      if(w<1200||h<675)throw Error('The selected image is too small for a 16:9 crop.');
       const canvas=document.createElement('canvas');canvas.width=w;canvas.height=h;
       const context=canvas.getContext('2d');if(!context)throw Error('Your browser cannot prepare this photo.');
       const sourceWidth=Math.min(bitmap.width,bitmap.height*ratio);
@@ -148,11 +152,11 @@ export function PublicContentWorkspace({csrfToken}:{csrfToken:string}){
         </div>
         {post.status!=='PUBLISHED'&&<div className="mt-4 rounded-xl border border-blue-100 bg-slate-50 p-4">
           <h5 className="font-bold text-[#071d3e]">Featured news or event photo</h5>
-          <p className="mt-1 text-xs text-slate-600">Use an original 1600 × 900 pixels or larger. The browser makes a 16:9 WebP preview without stretching the photo. Small photos are rejected.</p>
+          <p className="mt-1 text-xs text-slate-600">Minimum 1200 × 675 pixels; 1600 × 900 recommended. The browser prepares a 16:9 WebP image without stretching or enlarging the original. Smaller qualifying photos receive a quality advisory.</p>
           {post.has_featured_image&&<div className="mt-3 flex flex-wrap items-center gap-2"><span className="text-sm text-green-800">A featured photo is saved.</span><button type="button" disabled={busy} onClick={()=>void deleteFeaturedImage(post)} className="rounded-lg border border-red-300 bg-white px-3 py-2 text-sm font-bold text-red-800">Delete featured photo</button></div>}
           {selectedPost===post.id?<div className="mt-3 grid gap-3">
             <label className="text-sm font-semibold">Choose photo<input type="file" accept="image/jpeg,image/png,image/webp" onChange={event=>selectImage(event.currentTarget.files?.[0])} className="mt-1 block w-full rounded-lg border bg-white p-2" /></label>
-            {imageWarning&&<p role="alert" className="text-sm font-bold text-red-800">{imageWarning}</p>}
+            {imageWarning&&<p role={imageFile?'status':'alert'} className={imageFile?'text-sm font-semibold text-amber-800':'text-sm font-bold text-red-800'}>{imageWarning}</p>}
             {imagePreview&&<div><img src={imagePreview} alt="Local photo preview, not yet uploaded" className="aspect-video max-w-md rounded-lg object-cover"/><button type="button" onClick={removePendingImage} className="mt-2 rounded-lg border border-red-300 bg-white px-3 py-2 text-sm font-bold text-red-800">Remove selected photo</button></div>}
             <label className="text-sm font-semibold">Alt text<input maxLength={240} value={imageAlt} onChange={event=>setImageAlt(event.target.value)} placeholder="Describe what the photo shows" className="mt-1 block w-full rounded-lg border p-3"/></label>
             <label className="text-sm font-semibold">Caption (optional)<input maxLength={240} value={imageCaption} onChange={event=>setImageCaption(event.target.value)} className="mt-1 block w-full rounded-lg border p-3"/></label>
