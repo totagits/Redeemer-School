@@ -3,22 +3,40 @@ import { ArrowLeft, ArrowRight, Camera } from 'lucide-react';
 
 const slides = [
   {
-    src: '/school-photos/campus-feature-new.svg',
-    title: 'Welcome to our school',
-    description: 'Redeemer’s International Academy and its campus community in Paynesville',
-    alt: 'Photograph of Redeemer’s International Academy campus showing the school building and entrance',
+    src: '/school-photos/featured/01-students-outdoors.webp',
+    title: 'A welcoming learning community',
+    description: 'Discover the joy of learning and growing together.',
+    alt: 'Illustrative school scene with students seated at outdoor desks',
   },
   {
-    src: '/school-photos/campus-exterior.svg',
-    title: 'Discover our campus',
-    description: 'Redeemer’s International Academy · Thinker’s Village, Paynesville',
-    alt: 'Exterior view of the Redeemer’s International Academy school campus',
+    src: '/school-photos/featured/02-classroom-learning.webp',
+    title: 'Learning together',
+    description: 'Building knowledge, confidence and curiosity in the classroom.',
+    alt: 'Illustrative classroom scene with pupils seated at desks',
   },
   {
-    src: '/school-photos/campus-courtyard.svg',
-    title: 'A place to grow',
-    description: 'A view of Redeemer’s International Academy courtyard',
-    alt: 'Courtyard at Redeemer’s International Academy',
+    src: '/school-photos/featured/03-campus-courtyard.webp',
+    title: 'Room to grow',
+    description: 'A welcoming environment for learning and school community.',
+    alt: 'Illustrative school courtyard with academic buildings and pavilions',
+  },
+  {
+    src: '/school-photos/featured/04-classroom-interior.webp',
+    title: 'Space to achieve',
+    description: 'Purposeful spaces that support academic excellence.',
+    alt: 'Illustrative classroom interior with student desks and whiteboard',
+  },
+  {
+    src: '/school-photos/featured/05-computer-laboratory.webp',
+    title: 'Digital learning',
+    description: 'Developing the skills and confidence for tomorrow.',
+    alt: 'Illustrative computer laboratory with learners at desktop computers',
+  },
+  {
+    src: '/school-photos/featured/06-science-laboratory.webp',
+    title: 'Discover through science',
+    description: 'Encouraging exploration, questions and hands-on learning.',
+    alt: 'Illustrative science lesson with students and a microscope',
   },
 ];
 

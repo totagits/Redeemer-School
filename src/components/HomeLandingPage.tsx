@@ -41,7 +41,7 @@ export const HomeLandingPage: React.FC<HomeLandingPageProps> = ({ onPortalSignIn
         <div className="min-w-0 w-full lg:pl-4">
           <CampusHeroCarousel/>
           <div className="mt-4 flex items-center justify-between gap-4">
-            <p className="text-xs text-slate-300">Real photographs of Redeemer’s campus</p>
+            <p className="text-xs text-slate-300">Illustrative school-life images · Staging preview</p>
             <a href="/school/photo-albums" className="inline-flex shrink-0 items-center gap-2 text-sm font-bold text-white hover:text-amber-300">View gallery <ArrowRight className="h-4 w-4"/></a>
           </div>
         </div>
@@ -50,10 +50,10 @@ export const HomeLandingPage: React.FC<HomeLandingPageProps> = ({ onPortalSignIn
 
     <section aria-label="Our school in photographs" className="border-b border-slate-200 bg-white py-10">
       <div className="mx-auto max-w-7xl px-5 sm:px-8 lg:px-10">
-        <div className="mb-5 flex flex-wrap items-center justify-between gap-3"><div><p className="text-xs font-bold uppercase tracking-widest text-blue-700">Our campus</p><h2 className="mt-1 text-2xl font-extrabold">A glimpse of Redeemer’s International Academy</h2></div><a href="/school/photo-albums" className="text-sm font-bold text-blue-800 hover:underline">Explore the photo gallery →</a></div>
+        <div className="mb-5 flex flex-wrap items-center justify-between gap-3"><div><p className="text-xs font-bold uppercase tracking-widest text-blue-700">Our campus</p><h2 className="mt-1 text-2xl font-extrabold">A vision of the school experience</h2></div><a href="/school/photo-albums" className="text-sm font-bold text-blue-800 hover:underline">Explore the photo gallery →</a></div>
         <div className="grid gap-4 sm:grid-cols-2">
-          <figure className="overflow-hidden rounded-2xl border border-slate-200 bg-slate-100 shadow-sm"><img src="/school-photos/campus-exterior.svg" alt="Exterior of Redeemer’s International Academy campus" loading="lazy" className="mx-auto h-44 w-44 object-cover sm:h-52 sm:w-52"/><figcaption className="p-4 text-sm font-semibold text-slate-700">School campus exterior</figcaption></figure>
-          <figure className="overflow-hidden rounded-2xl border border-slate-200 bg-slate-100 shadow-sm"><img src="/school-photos/campus-courtyard.svg" alt="Courtyard of Redeemer’s International Academy" loading="lazy" className="mx-auto h-44 w-44 object-cover sm:h-52 sm:w-52"/><figcaption className="p-4 text-sm font-semibold text-slate-700">Our school courtyard</figcaption></figure>
+          <figure className="overflow-hidden rounded-2xl border border-slate-200 bg-slate-100 shadow-sm"><img src="/school-photos/featured/03-campus-courtyard.webp" alt="Illustrative view of a school courtyard" loading="lazy" className="aspect-video w-full object-cover"/><figcaption className="p-4 text-sm font-semibold text-slate-700">Illustrative campus environment</figcaption></figure>
+          <figure className="overflow-hidden rounded-2xl border border-slate-200 bg-slate-100 shadow-sm"><img src="/school-photos/featured/02-classroom-learning.webp" alt="Illustrative school classroom with learners" loading="lazy" className="mx-auto h-44 w-44 object-cover sm:h-52 sm:w-52"/><figcaption className="p-4 text-sm font-semibold text-slate-700">Illustrative classroom experience</figcaption></figure>
         </div>
       </div>
     </section>
