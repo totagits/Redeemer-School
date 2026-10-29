@@ -71,6 +71,7 @@ const pages:Record<string,PageData>={
 };
 
 const schoolPhotos=[
+ {src:'campus-feature-new.svg',label:'Redeemer school campus and community'},
  {src:'campus-courtyard.svg',label:'School courtyard'},
  {src:'campus-exterior.svg',label:'Campus exterior'}
 ];
