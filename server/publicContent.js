@@ -105,6 +105,18 @@ export function createPublicContentRouter({pool,authenticate}){
      return release(req,res,201,{post:result.rows[0],notice:'Saved as a private draft.'});
    }catch{return release(req,res,503,{error:'Could not save public content.'},false);}
  });
+ router.get('/manage/:id/image',async(req,res)=>{
+   if(!validId.test(req.params.id))return release(req,res,400,{error:'Invalid post ID.'},false);
+   try{
+     const img=await req.auth.client.query(`SELECT i.image_bytes FROM public_school_post_images i
+       JOIN public_school_posts p ON p.school_id=i.school_id AND p.id=i.post_id
+       WHERE i.school_id=$1 AND i.post_id=$2`,[req.auth.claims.schoolId,req.params.id]);
+     const client=req.auth.client;req.auth.client=null;
+     try{await client.query('COMMIT');}finally{client.release();}
+     if(!img.rowCount)return res.status(404).end();
+     return res.set('Content-Type','image/webp').set('X-Content-Type-Options','nosniff').set('Cache-Control','no-store').send(img.rows[0].image_bytes);
+   }catch{return release(req,res,503,{error:'Could not load private image preview.'},false);}
+ });
  router.post('/manage/:id/image',async(req,res)=>{
    if(req.get('x-csrf-token')!==req.auth.claims.csrfToken)return release(req,res,403,{error:'Invalid request verification.'},false);
    if(!validId.test(req.params.id))return release(req,res,400,{error:'Invalid post ID.'},false);
