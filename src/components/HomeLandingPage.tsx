@@ -1,4 +1,5 @@
 import React from 'react';
+import { CampusHeroCarousel } from './CampusHeroCarousel.tsx';
 import { ArrowRight, BookOpen, CalendarDays, CheckCircle2, ClipboardList, GraduationCap, HeartHandshake, Mail, MapPin, Phone, ShieldCheck, Users } from 'lucide-react';
 import { SCHOOL_CONTACT } from '../data/schoolContact.ts';
 
@@ -35,31 +36,11 @@ export const HomeLandingPage: React.FC<HomeLandingPageProps> = ({ onPortalSignIn
           </div>
           <div className="mt-9 flex flex-wrap gap-3 text-xs font-semibold text-blue-100"><span className="rounded-md border border-white/15 px-3 py-2">Established 2022</span><span className="rounded-md border border-white/15 px-3 py-2">Paynesville, Liberia</span><span className="rounded-md border border-white/15 px-3 py-2">Academic & Moral Excellence</span></div>
         </div>
-        <div className="relative lg:pl-8">
-          <div className="absolute -right-6 top-3 h-48 w-48 rounded-full bg-amber-400/10 blur-3xl" aria-hidden="true"/>
-          <div className="relative mx-auto max-w-lg overflow-hidden rounded-2xl border border-white/20 bg-white/[.065] p-5 shadow-[0_30px_65px_rgba(0,0,0,.22)] sm:p-7">
-            <div className="mb-5 flex items-center justify-between gap-2 border-b border-white/15 pb-4">
-              <span className="text-xs font-extrabold uppercase tracking-[.18em] text-amber-300">Our school, our community</span>
-              <span className="text-xs font-medium text-white/65">Paynesville · Liberia</span>
-            </div>
-            <div className="grid grid-cols-2 gap-4">
-              <figure className="min-w-0">
-                <div className="overflow-hidden rounded-xl bg-[#102b4f] p-1 ring-1 ring-white/15">
-                  <img src="/school-photos/campus-exterior.svg" alt="Redeemer’s International Academy school exterior" className="mx-auto aspect-square w-full max-w-[206px] rounded-lg object-cover" />
-                </div>
-                <figcaption className="mt-3 text-xs font-semibold text-white/85">School campus</figcaption>
-              </figure>
-              <figure className="min-w-0 pt-7">
-                <div className="overflow-hidden rounded-xl bg-[#102b4f] p-1 ring-1 ring-white/15">
-                  <img src="/school-photos/campus-courtyard.svg" alt="Redeemer’s International Academy courtyard" className="mx-auto aspect-square w-full max-w-[206px] rounded-lg object-cover" />
-                </div>
-                <figcaption className="mt-3 text-xs font-semibold text-white/85">Learning environment</figcaption>
-              </figure>
-            </div>
-            <div className="mt-6 flex items-center justify-between border-t border-white/15 pt-5">
-              <div><p className="text-lg font-extrabold text-white">Welcome to Redeemer</p><p className="mt-1 text-xs text-white/70">See more from our school community</p></div>
-              <a href="/school/photo-albums" className="inline-flex items-center gap-2 rounded-lg bg-white px-4 py-2.5 text-xs font-extrabold text-[#071d3e] transition hover:bg-amber-300">View gallery <ArrowRight className="h-4 w-4"/></a>
-            </div>
+        <div className="min-w-0 w-full lg:pl-4">
+          <CampusHeroCarousel/>
+          <div className="mt-4 flex items-center justify-between gap-4">
+            <p className="text-xs text-slate-300">Real photographs of Redeemer’s campus</p>
+            <a href="/school/photo-albums" className="inline-flex shrink-0 items-center gap-2 text-sm font-bold text-white hover:text-amber-300">View gallery <ArrowRight className="h-4 w-4"/></a>
           </div>
         </div>
       </div>
