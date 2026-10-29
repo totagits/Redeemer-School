@@ -2,10 +2,12 @@ import React, { useCallback, useEffect, useState } from 'react';
 
 type ExamFee = { exam_id:string;title:string;grade_label:string;starts_at:string;status:string;amount:string|null;currency:string|null;applicant_count:number };
 type Settlement = {id:string;exam_id:string;application_id:string;kind:string;channel:string;amount:string;currency:string;reference:string;verified_at:string;application_number:string;first_name:string;last_name:string};
+type Assignment = {exam_id:string;application_id:string;application_number:string;first_name:string;last_name:string;settled:boolean};
 type Props = {canWrite:boolean;post:(path:string,body:Record<string,unknown>)=>Promise<Record<string,unknown>>};
 export const EntranceExamFinance:React.FC<Props> = ({canWrite,post})=>{
  const [fees,setFees]=useState<ExamFee[]>([]);
  const [settlements,setSettlements]=useState<Settlement[]>([]);
+ const [assignments,setAssignments]=useState<Assignment[]>([]);
  const [ready,setReady]=useState(false);
  const [busy,setBusy]=useState(false);
  const [error,setError]=useState('');
@@ -16,7 +18,7 @@ export const EntranceExamFinance:React.FC<Props> = ({canWrite,post})=>{
      const response=await fetch('/api/operations/finance/entrance-exam-fees',{credentials:'same-origin'});
      const result=await response.json();
      if(!response.ok)throw Error(result.error||'Unable to load examination fees.');
-     setFees(result.fees||[]);setSettlements(result.settlements||[]);setReady(true);setError('');
+     setFees(result.fees||[]);setSettlements(result.settlements||[]);setAssignments(result.assignments||[]);setReady(true);setError('');
    }catch(cause){setReady(false);setError(cause instanceof Error?cause.message:'Unable to load fees.');}
    finally{setLoading(false);}
  },[]);
@@ -29,6 +31,23 @@ export const EntranceExamFinance:React.FC<Props> = ({canWrite,post})=>{
      setNotice('Examination fee configured. No payment has been collected.');await load();
    }catch(cause){setError(cause instanceof Error?cause.message:'Unable to save the fee.');}
    finally{setBusy(false);}
+ };
+ const settle=async(event:React.FormEvent<HTMLFormElement>,examId:string)=>{
+  event.preventDefault();const form=event.currentTarget;const values=new FormData(form);
+  const kind=String(values.get('kind')||'PAYMENT');
+  const applicant=String(values.get('applicationId')||'');
+  if(!applicant){setError('Select an assigned applicant.');return;}
+  if(!window.confirm(kind==='WAIVER'?'Record an authorized exemption?':'Confirm Finance independently verified the full examination fee, amount and receipt/reference before recording payment?'))return;
+  setBusy(true);setError('');setNotice('');
+  try{
+   await post('finance/entrance-exams/'+encodeURIComponent(examId)+'/applicants/'+encodeURIComponent(applicant)+'/settlement',{
+    kind,channel:kind==='WAIVER'?'WAIVER':String(values.get('channel')||'CASH'),
+    reference:String(values.get('reference')||''),reason:String(values.get('reason')||''),verifiedEvidence:true,
+   });
+   setNotice(kind==='WAIVER'?'Examination fee waiver recorded and audited.':'Payment recorded as Finance-verified. This is not MTN provider confirmation.');
+   await load();form.reset();
+  }catch(cause){setError(cause instanceof Error?cause.message:'Unable to record the settlement.');}
+  finally{setBusy(false);}
  };
  return <section className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm sm:p-6">
   <h2 className="text-lg font-extrabold text-[#071d3e]">Entrance examination fees</h2>
@@ -44,6 +63,20 @@ export const EntranceExamFinance:React.FC<Props> = ({canWrite,post})=>{
       <h3 className="font-bold text-[#071d3e]">{fee.title}</h3>
       <p className="mt-1 text-xs text-slate-600">{fee.grade_label} · {fee.status} · {fee.applicant_count} applicants</p>
       <p className="mt-2 text-sm font-semibold">{fee.amount==null?'No exam fee configured':fee.currency+' '+fee.amount}</p>
+      {canWrite&&fee.amount!=null&&Number(fee.amount)>0&&assignments.some(a=>a.exam_id===fee.exam_id&&!a.settled)&&<form onSubmit={event=>void settle(event,fee.exam_id)} className="mt-4 grid gap-3 rounded-xl border border-slate-200 bg-slate-50 p-3 sm:grid-cols-2">
+       <label className="text-xs font-bold sm:col-span-2">Assigned applicant
+        <select name="applicationId" required defaultValue="" className="mt-1 block w-full rounded-lg border border-slate-300 bg-white p-2 text-sm">
+         <option value="" disabled>Select applicant reference</option>
+         {assignments.filter(a=>a.exam_id===fee.exam_id&&!a.settled).map(a=><option key={a.application_id} value={a.application_id}>{a.application_number} — {a.first_name} {a.last_name}</option>)}
+        </select>
+       </label>
+       <label className="text-xs font-bold">Type<select name="kind" className="mt-1 block w-full rounded-lg border border-slate-300 bg-white p-2 text-sm"><option value="PAYMENT">Verified payment</option><option value="WAIVER">Authorized fee waiver</option></select></label>
+       <label className="text-xs font-bold">Channel (payment only)<select name="channel" className="mt-1 block w-full rounded-lg border border-slate-300 bg-white p-2 text-sm"><option value="CASH">Cash</option><option value="BANK_TRANSFER">Bank transfer</option></select></label>
+       <label className="text-xs font-bold">Receipt / authorization reference<input required minLength={3} maxLength={120} name="reference" className="mt-1 block w-full rounded-lg border border-slate-300 bg-white p-2 text-sm" placeholder="Unique receipt or waiver reference"/></label>
+       <label className="text-xs font-bold">Waiver reason (minimum 10 characters)<input name="reason" maxLength={500} className="mt-1 block w-full rounded-lg border border-slate-300 bg-white p-2 text-sm" placeholder="Required only for an authorized waiver"/></label>
+       <p className="text-xs text-amber-900 sm:col-span-2">Record only funds independently verified by Finance or a properly authorized waiver. Unconfirmed MTN Mobile Money transactions cannot be marked paid here.</p>
+       <button disabled={busy} className="w-fit rounded-lg bg-[#071d3e] px-4 py-2 text-sm font-bold text-white disabled:opacity-50">Record verified payment / waiver</button>
+      </form>}
       {canWrite&&fee.status==='DRAFT'&&<form onSubmit={e=>void save(e,fee.exam_id)} className="mt-3 flex flex-wrap items-end gap-3">
         <label className="text-xs font-bold">Amount<input required name="amount" type="number" min="0" max="1000000" step="0.01" defaultValue={fee.amount||''} className="mt-1 block w-36 rounded-lg border border-slate-300 p-2 text-sm"/></label>
         <label className="text-xs font-bold">Currency<select name="currency" defaultValue={fee.currency||'LRD'} className="mt-1 block rounded-lg border border-slate-300 p-2 text-sm"><option value="LRD">LRD</option><option value="USD">USD</option></select></label>
