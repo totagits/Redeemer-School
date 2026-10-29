@@ -1,4 +1,4 @@
-import React from 'react';
+import React, { useEffect, useState } from 'react';
 import { ArrowRight, BookOpen, CalendarDays, CheckCircle2, ClipboardList, GraduationCap, HeartHandshake, Mail, MapPin, Phone, ShieldCheck, Users } from 'lucide-react';
 import { SCHOOL_CONTACT } from '../data/schoolContact.ts';
 
@@ -19,6 +19,29 @@ const guide = [
   { title: 'Apply for admission', description: 'Begin an application through the school’s official admissions process.', href: '#admissions' },
   { title: 'Stay connected', description: 'Access approved school notices and contact the school office.', href: '#community' },
 ];
+
+type PublicPost={id:string;kind:'NEWS'|'EVENT';title:string;summary:string;body:string;event_starts_at:string|null;published_at:string};
+function PublicSchoolNews(){
+ const [posts,setPosts]=useState<PublicPost[]>([]);
+ const [unavailable,setUnavailable]=useState(false);
+ useEffect(()=>{
+   let active=true;
+   fetch('/api/school-content/public?schoolCode=RIA')
+     .then(async response=>{if(!response.ok)throw new Error('unavailable');return response.json();})
+     .then(result=>{if(active){setPosts(result.posts||[]);setUnavailable(false);}})
+     .catch(()=>{if(active)setUnavailable(true);});
+   return ()=>{active=false;};
+ },[]);
+ return <div className="mt-5 space-y-3">
+   {posts.length?posts.map(post=><article key={post.id} className="rounded-lg border border-slate-200 bg-slate-50 p-4">
+      <p className="text-xs font-bold uppercase tracking-wider text-blue-700">{post.kind==='EVENT'?'School event':'School news'}</p>
+      <h3 className="mt-2 font-extrabold">{post.title}</h3>
+      {post.kind==='EVENT'&&post.event_starts_at&&<time className="mt-1 block text-xs text-slate-600">{new Date(post.event_starts_at).toLocaleString()}</time>}
+      <p className="mt-2 whitespace-pre-wrap text-sm leading-6 text-slate-600">{post.summary}</p>
+      <details className="mt-2 text-sm text-blue-900"><summary className="cursor-pointer font-semibold">Read more</summary><p className="mt-2 whitespace-pre-wrap leading-6 text-slate-700">{post.body}</p></details>
+   </article>):<p className="rounded-lg bg-slate-50 p-4 text-sm text-slate-600">{unavailable?'Public updates are temporarily unavailable.':'No school news or events have been published yet.'}</p>}
+ </div>;
+}
 
 export const HomeLandingPage: React.FC<HomeLandingPageProps> = ({ onPortalSignIn, onApply }) => (
   <div className="bg-white text-slate-900">
@@ -65,7 +88,7 @@ export const HomeLandingPage: React.FC<HomeLandingPageProps> = ({ onPortalSignIn
     </div></section>
 
     <section id="community" className="scroll-mt-24 py-16"><div className="mx-auto grid max-w-7xl gap-6 px-5 sm:px-8 md:grid-cols-2 lg:px-10">
-      <article className="rounded-2xl border border-slate-200 bg-white p-7"><div className="flex items-center gap-3"><CalendarDays className="h-6 w-6 text-blue-700"/><h2 className="text-2xl font-extrabold">News & school calendar</h2></div><p className="mt-4 leading-7 text-slate-600">School-approved public announcements, event dates, and calendars will appear here when published. Private class and guardian notices remain inside the secure family portal.</p><p className="mt-5 rounded-lg bg-slate-50 p-4 text-sm text-slate-600">No public announcements have been published to this page yet.</p></article>
+      <article className="rounded-2xl border border-slate-200 bg-white p-7"><div className="flex items-center gap-3"><CalendarDays className="h-6 w-6 text-blue-700"/><h2 className="text-2xl font-extrabold">News & school calendar</h2></div><p className="mt-4 leading-7 text-slate-600">School-approved public announcements, event dates, and calendars will appear here when published. Private class and guardian notices remain inside the secure family portal.</p><PublicSchoolNews/></article>
       <article id="families" className="scroll-mt-24 rounded-2xl border border-slate-200 bg-white p-7"><div className="flex items-center gap-3"><Users className="h-6 w-6 text-blue-700"/><h2 className="text-2xl font-extrabold">Student & family resources</h2></div><p className="mt-4 leading-7 text-slate-600">Students and guardians can use their secure accounts to view school notices, learning resources, attendance, grades and authorized tuition information.</p><div className="mt-6 flex flex-wrap gap-3"><button onClick={onPortalSignIn} className="inline-flex items-center gap-2 rounded-lg bg-blue-700 px-5 py-3 text-sm font-bold text-white hover:bg-blue-800">Student & guardian portal <ArrowRight className="h-4 w-4"/></button><a href="#contact" className="rounded-lg border border-blue-200 px-5 py-3 text-sm font-semibold text-blue-800 hover:bg-blue-50">Contact the school</a></div></article>
     </div></section>
 
