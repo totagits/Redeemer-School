@@ -29,8 +29,9 @@ class FakeClient {
     if (normalized.startsWith('SELECT COUNT(*)::int AS total FROM student_guardians')) return { rows: [{ total: 0 }], rowCount: 1 };
     if (normalized.startsWith('INSERT INTO guardians')) return { rows: [{ id: 'guardian-new', first_name: params[1], last_name: params[2], email: params[3], phone: params[4] }], rowCount: 1 };
     if (normalized.startsWith('SELECT id FROM students')) return { rows: [{ id: studentId }], rowCount: 1 };
+    if (normalized.startsWith('UPDATE student_guardians SET is_primary=false')) return { rows: [], rowCount: 0 };
     if (normalized.startsWith('INSERT INTO student_guardians') || normalized.startsWith('INSERT INTO audit_events')) return { rows: [], rowCount: 1 };
-    console.error('STUDENT_TEST_UNEXPECTED_SQL', normalized); throw new Error(`Unexpected query in student workflow test: ${normalized}`);
+    throw new Error(`Unexpected query in student workflow test: ${normalized}`);
   }
   release() {}
 }
