@@ -51,7 +51,7 @@ export const EntranceExamFinance:React.FC<Props> = ({canWrite,post})=>{
  };
  return <section className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm sm:p-6">
   <h2 className="text-lg font-extrabold text-[#071d3e]">Entrance examination fees</h2>
-  <p className="mt-1 text-sm text-slate-600">Applicant exam charges are separate from enrolled-student tuition. Only Finance may configure fees and verify payment or a waiver.</p>
+  <p className="mt-1 text-sm text-slate-600">Applicant exam charges are separate from enrolled-student tuition. Authorized School Administrators and Finance/Bursar staff with Finance permissions can configure fees and record verified payment or a waiver.</p>
   {loading&&<p role="status" className="mt-3 text-sm">Checking examination fee storage…</p>}
   {!loading&&!ready&&<p role="alert" className="mt-3 rounded-lg bg-amber-50 p-3 text-sm text-amber-900"><strong>Not enabled yet.</strong> {error} Migration 103 must be verified before fee configuration is available.</p>}
   {ready&&<>
@@ -77,7 +77,7 @@ export const EntranceExamFinance:React.FC<Props> = ({canWrite,post})=>{
        <p className="text-xs text-amber-900 sm:col-span-2">Record only funds independently verified by Finance or a properly authorized waiver. Unconfirmed MTN Mobile Money transactions cannot be marked paid here.</p>
        <button disabled={busy} className="w-fit rounded-lg bg-[#071d3e] px-4 py-2 text-sm font-bold text-white disabled:opacity-50">Record verified payment / waiver</button>
       </form>}
-      {canWrite&&fee.status==='DRAFT'&&<form onSubmit={e=>void save(e,fee.exam_id)} className="mt-3 flex flex-wrap items-end gap-3">
+      {canWrite&&['DRAFT','SCHEDULED'].includes(fee.status)&&new Date(fee.starts_at).getTime()>Date.now()&&!settlements.some(item=>item.exam_id===fee.exam_id)&&<form onSubmit={e=>void save(e,fee.exam_id)} className="mt-3 flex flex-wrap items-end gap-3">
         <label className="text-xs font-bold">Amount<input required name="amount" type="number" min="0" max="1000000" step="0.01" defaultValue={fee.amount||''} className="mt-1 block w-36 rounded-lg border border-slate-300 p-2 text-sm"/></label>
         <label className="text-xs font-bold">Currency<select name="currency" defaultValue={fee.currency||'LRD'} className="mt-1 block rounded-lg border border-slate-300 p-2 text-sm"><option value="LRD">LRD</option><option value="USD">USD</option></select></label>
         <button disabled={busy} className="rounded-lg bg-[#071d3e] px-4 py-2 text-sm font-bold text-white disabled:opacity-50">Save exam fee</button>

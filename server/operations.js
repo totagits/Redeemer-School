@@ -1828,7 +1828,7 @@ export function createOperationsRouter({ authenticate, sendInvitation = sendAcco
   router.post('/finance/entrance-exams/:examId/fee',needsPermission('finance.write'),csrf,async(req,res)=>{
     const examId=req.params.examId,currency=text(req.body?.currency,3).toUpperCase();
     const rawAmount=String(req.body?.amount??'');
-    if(!/^[0-9]{1,7}(?:\\.[0-9]{1,2})?$/.test(rawAmount)||Number(rawAmount)>1000000||!['LRD','USD'].includes(currency)||!/^[0-9a-f-]{36}$/i.test(examId)){
+    if(!/^[0-9]{1,7}(?:\.[0-9]{1,2})?$/.test(rawAmount)||Number(rawAmount)>1000000||!['LRD','USD'].includes(currency)||!/^[0-9a-f-]{36}$/i.test(examId)){
       await close(req,false);return res.status(400).json({error:'Provide a valid nonnegative amount (maximum 1,000,000) and LRD or USD currency.'});
     }
     try{
@@ -1836,12 +1836,12 @@ export function createOperationsRouter({ authenticate, sendInvitation = sendAcco
       const schoolId=req.auth.claims.schoolId;
       const inserted=await req.auth.client.query(`INSERT INTO admission_exam_fee_schedules(school_id,exam_id,amount,currency,configured_by)
         SELECT $1,e.id,$3::numeric,$4,$5 FROM admission_entrance_exams e
-        WHERE e.school_id=$1 AND e.id=$2 AND e.status='DRAFT'
+        WHERE e.school_id=$1 AND e.id=$2 AND e.status IN ('DRAFT','SCHEDULED') AND e.starts_at>now()
           AND NOT EXISTS (SELECT 1 FROM admission_exam_fee_settlements s WHERE s.school_id=e.school_id AND s.exam_id=e.id)
         ON CONFLICT(school_id,exam_id) DO UPDATE SET amount=EXCLUDED.amount,currency=EXCLUDED.currency,
           configured_by=EXCLUDED.configured_by,configured_at=now()
         RETURNING exam_id,amount::text,currency`,[schoolId,examId,rawAmount,currency,req.auth.claims.userId]);
-      if(!inserted.rowCount){await close(req,false);return res.status(409).json({error:'Fee can only be configured on an exam draft before any payment or waiver is recorded.'});}
+      if(!inserted.rowCount){await close(req,false);return res.status(409).json({error:'Fee can only be configured for a future draft or scheduled examination before any payment or waiver is recorded.'});}
       await audit(req,'ENTRANCE_EXAM_FEE_CONFIGURED','ADMISSION_ENTRANCE_EXAM',examId,{amount:rawAmount,currency});
       return done(req,res,200,{fee:inserted.rows[0]});
     }catch(error){return fail(req,res,error);}
