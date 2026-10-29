@@ -1,0 +1,30 @@
+name: Redeemer ERP staging integration checks
+
+on:
+  push:
+    branches:
+      - integration/communications-finance-staging
+  pull_request:
+    branches:
+      - fix/vite-esbuild-peer-conflict
+
+jobs:
+  verify:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - name: Checkout source
+        uses: actions/checkout@v4
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: npm
+      - name: Install locked dependencies
+        run: npm ci
+      - name: TypeScript type-check
+        run: npm run lint
+      - name: Run unit and API regression tests
+        run: npm test
+      - name: Build production frontend
+        run: npm run build

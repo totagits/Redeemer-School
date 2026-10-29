@@ -16,6 +16,7 @@ class FakeClient {
     this.statements.push({ sql: normalized, params });
     if (['BEGIN', 'COMMIT', 'ROLLBACK'].includes(normalized)) return { rows: [], rowCount: 0 };
     if (normalized.startsWith('SELECT st.id, st.student_number') && normalized.includes('WHERE st.school_id = $1 AND st.id = $2')) return this.studentFound ? { rows: [{ id: studentId, student_number: 'RIA-001', first_name: 'Test', middle_name: null, last_name: 'Learner', preferred_name: null, status: 'ACTIVE', date_of_birth: '2015-01-01', sex: 'FEMALE', external_learner_id: 'MOE-01', class_name: 'Grade 1', class_group_id: 'class-1', academic_year_name: '2026-2027', enrolled_on: '2026-09-01', enrollment_status: 'ACTIVE', attendance_records: 3, open_invoices: 1 }], rowCount: 1 } : { rows: [], rowCount: 0 };
+    if (normalized.startsWith('SELECT h.id, h.status, h.effective_on')) return { rows: [], rowCount: 0 };
     if (normalized.startsWith('SELECT g.id, g.first_name')) return { rows: [{ id: 'guardian-1', first_name: 'Family', last_name: 'Member', email: 'family@example.test', phone: '+231000000000', relationship: 'Parent', is_primary: true }], rowCount: 1 };
     if (normalized.startsWith('SELECT count(*)::int AS column_count FROM information_schema.columns')) return { rows: [{ column_count: 0 }], rowCount: 1 };
     if (normalized.startsWith('SELECT id,code,name,required_for_admission FROM document_categories')) return { rows: [], rowCount: 0 };
@@ -23,8 +24,12 @@ class FakeClient {
     if (normalized.startsWith('SELECT a.title')) return { rows: [], rowCount: 0 };
     if (normalized.startsWith('SELECT fi.invoice_number')) return { rows: [], rowCount: 0 };
     if (normalized.startsWith('UPDATE students SET')) return { rows: [{ id: studentId, student_number: 'RIA-001', first_name: params[2], middle_name: null, last_name: params[4], preferred_name: null, date_of_birth: '2015-01-01', sex: 'FEMALE', external_learner_id: 'MOE-01', status: 'ACTIVE' }], rowCount: 1 };
+    if (normalized.startsWith('SELECT id,first_name,last_name,email,phone FROM guardians')) return { rows: [], rowCount: 0 };
+    if (normalized.startsWith('SELECT 1 FROM student_guardians')) return { rows: [], rowCount: 0 };
+    if (normalized.startsWith('SELECT COUNT(*)::int AS total FROM student_guardians')) return { rows: [{ total: 0 }], rowCount: 1 };
     if (normalized.startsWith('INSERT INTO guardians')) return { rows: [{ id: 'guardian-new', first_name: params[1], last_name: params[2], email: params[3], phone: params[4] }], rowCount: 1 };
     if (normalized.startsWith('SELECT id FROM students')) return { rows: [{ id: studentId }], rowCount: 1 };
+    if (normalized.startsWith('UPDATE student_guardians SET is_primary=false')) return { rows: [], rowCount: 0 };
     if (normalized.startsWith('INSERT INTO student_guardians') || normalized.startsWith('INSERT INTO audit_events')) return { rows: [], rowCount: 1 };
     throw new Error(`Unexpected query in student workflow test: ${normalized}`);
   }
@@ -74,7 +79,7 @@ test('student and parent portal users cannot read the staff directory endpoint',
 });
 
 test('guardian contacts require an email or phone and are audited when added', async t => {
-  const { url, clients } = await startServer(t, { id: userId, roles: ['REGISTRAR'], permissions: ['students.write'] });
+  const { url, clients } = await startServer(t, { id: userId, roles: ['REGISTRAR'], permissions: ['students.write','students.sensitive.read'] });
   const response = await fetch(`${url}/api/operations/students/${studentId}/guardians`, { method: 'POST', headers, body: JSON.stringify({ firstName: 'Family', lastName: 'Member', relationship: 'Parent', phone: '+231000000000', canViewResults: true }) });
   assert.equal(response.status, 201);
   assert.equal((await response.json()).guardian.id, 'guardian-new');
