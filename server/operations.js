@@ -1696,6 +1696,59 @@ export function createOperationsRouter({ authenticate, sendInvitation = sendAcco
     } catch (error) { return fail(req, res, error); }
   });
 
+  // Entrance examination sessions are private admissions records, never public announcements.
+  // Migration 102 must be separately approved and applied in staging before use.
+  router.get('/admissions/entrance-exams', needsPermission('admissions.read'), async (req,res)=>{
+    try {
+      const schoolId=req.auth.claims.schoolId;
+      const result=await req.auth.client.query(`SELECT id,title,grade_label,mode,starts_at,ends_at,venue,status,created_at
+        FROM admission_entrance_exams WHERE school_id=$1 ORDER BY starts_at DESC LIMIT 150`,[schoolId]);
+      return done(req,res,200,{exams:result.rows});
+    } catch(error){return fail(req,res,error);}
+  });
+
+  router.post('/admissions/entrance-exams',needsPermission('admissions.write'),csrf,async(req,res)=>{
+    const title=text(req.body?.title,160),gradeLabel=text(req.body?.gradeLabel,100);
+    const mode=text(req.body?.mode,20).toUpperCase(),venue=text(req.body?.venue,200);
+    const start=new Date(req.body?.startsAt),end=new Date(req.body?.endsAt);
+    if(title.length<3||!gradeLabel||!['PAPER','ONLINE','INTERVIEW'].includes(mode)||!venue||
+       !Number.isFinite(start.getTime())||!Number.isFinite(end.getTime())||end<=start||
+       start.getTime()<Date.now()-60000||end.getTime()-start.getTime()>8*60*60*1000){
+      await close(req,false);
+      return res.status(400).json({error:'Provide an exam title, grade, mode, venue, and a future session lasting at most eight hours.'});
+    }
+    try {
+      const schoolId=req.auth.claims.schoolId,id=randomUUID();
+      const result=await req.auth.client.query(`INSERT INTO admission_entrance_exams
+        (id,school_id,title,grade_label,mode,starts_at,ends_at,venue,created_by)
+        VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9)
+        RETURNING id,title,grade_label,mode,starts_at,ends_at,venue,status`,
+        [id,schoolId,title,gradeLabel,mode,start.toISOString(),end.toISOString(),venue,req.auth.claims.userId]);
+      await audit(req,'ENTRANCE_EXAM_DRAFT_CREATED','ADMISSION_ENTRANCE_EXAM',id,{mode,gradeLabel});
+      return done(req,res,201,{exam:result.rows[0]});
+    }catch(error){return fail(req,res,error);}
+  });
+
+  router.post('/admissions/entrance-exams/:examId/assign',needsPermission('admissions.write'),csrf,async(req,res)=>{
+    const examId=req.params.examId,applicationId=text(req.body?.applicationId,60);
+    if(!/^[0-9a-f-]{36}$/i.test(examId)||!/^[0-9a-f-]{36}$/i.test(applicationId)){
+      await close(req,false);return res.status(400).json({error:'Valid exam and application IDs are required.'});
+    }
+    try {
+      const schoolId=req.auth.claims.schoolId;
+      const assigned=await req.auth.client.query(`INSERT INTO admission_exam_assignments(school_id,exam_id,application_id)
+        SELECT $1,e.id,a.id FROM admission_entrance_exams e
+        JOIN admission_applications a ON a.school_id=e.school_id AND a.id=$3
+        WHERE e.school_id=$1 AND e.id=$2 AND e.status IN ('DRAFT','SCHEDULED')
+          AND a.status NOT IN ('REJECTED','WITHDRAWN','ENROLLED')
+        ON CONFLICT(school_id,exam_id,application_id) DO NOTHING
+        RETURNING id,exam_id,application_id,status`,[schoolId,examId,applicationId]);
+      if(!assigned.rowCount){await close(req,false);return res.status(409).json({error:'Assignment already exists, or the examination or applicant is not eligible.'});}
+      await audit(req,'ENTRANCE_EXAM_APPLICANT_ASSIGNED','ADMISSION_APPLICATION',applicationId,{examId});
+      return done(req,res,201,{assignment:assigned.rows[0]});
+    }catch(error){return fail(req,res,error);}
+  });
+
   // Admissions, HR, stock control, and school announcements use the same
   // tenant-scoped transaction and audit trail as the academic workspaces.
   router.get('/admissions', needsPermission('admissions.read'), async (req, res) => {
