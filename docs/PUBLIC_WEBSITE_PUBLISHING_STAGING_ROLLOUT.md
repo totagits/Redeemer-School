@@ -17,10 +17,9 @@ private Guardian/Student/Class announcements.
 4. Inspect `schema_migrations` to confirm migration history and whether
    `100_public_school_posts.sql` has been applied. Review pending migrations
    to avoid unexpectedly applying other schema changes.
-5. Apply the reviewed migration with administrative credentials during the
-   authorized staging maintenance window (standard `npm run db:migrate`
-   applies **all pending migrations**, not just this one). Do not run it
-   blindly against an uninspected DB.
+5. Apply **only** migration 100 with the guarded one-time command below, after confirming the backup and the same staging database identity. Standard `npm run db:migrate` applies **all pending migrations** and must not be used blindly here.
+
+   Set these variables in the authorized **staging migration job only** (not production): `REDEEMER_TARGET_ENV=staging`, `APPLY_PUBLIC_CONTENT_100=true`, `STAGING_DB_BACKUP_CONFIRMED=true`, `STAGING_DB_BACKUP_REFERENCE=<actual backup identifier>`, plus temporary `DATABASE_URL` and `RUNTIME_DATABASE_URL` pointing to the same staging database under different DB accounts. Execute `node server/applyPublicContentMigration.js`, then remove the opt-in and administrative credentials from the application environment. The script refuses to run without the required gate values; it is **not** automatically invoked at app startup.
 6. Verify table, grants and forced RLS as the restricted runtime role, including
    attempted cross-school access returning zero records.
 7. Deploy the branch containing the application endpoints and editor only after
@@ -53,3 +52,7 @@ private Guardian/Student/Class announcements.
 
 **As of authoring: no database migration, staging deployment, or public browser
 verification has been performed by this change set.**
+
+## Access limitation
+
+This GitHub development connection has no access to the Coolify console or staging PostgreSQL service. The script's backup flag and backup reference are manual confirmations, **not** independent proof that a recoverable backup exists. Verify the backup artifact and recovery procedure before running it. The migration must not be treated as executed until its SQL history and Coolify logs have actually been checked.
