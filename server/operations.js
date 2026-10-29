@@ -1819,11 +1819,13 @@ export function createOperationsRouter({ authenticate, sendInvitation = sendAcco
           WHEN app.status IN ('REJECTED','WITHDRAWN','ENROLLED') THEN 'APPLICATION_INACTIVE'
           WHEN a.status <> 'INVITED' THEN 'ASSIGNMENT_NOT_INVITED'
           WHEN f.exam_id IS NULL THEN 'FEE_NOT_CONFIGURED'
-          WHEN f.amount > 0 AND s.id IS NULL THEN 'PAYMENT_REQUIRED'
-          WHEN f.amount > 0 AND s.kind = 'PAYMENT' AND
-            (s.amount <> f.amount OR s.currency <> f.currency) THEN 'PAYMENT_MISMATCH'
-          WHEN f.amount > 0 AND s.kind NOT IN ('PAYMENT','WAIVER') THEN 'PAYMENT_REQUIRED'
-          ELSE 'ELIGIBLE' END AS eligibility_status
+          WHEN f.amount = 0 THEN 'ELIGIBLE'
+          WHEN s.id IS NULL OR s.verified_at IS NULL THEN 'PAYMENT_REQUIRED'
+          WHEN s.kind = 'WAIVER' AND s.channel = 'WAIVER' AND s.amount = 0 THEN 'ELIGIBLE'
+          WHEN s.kind = 'PAYMENT' AND s.channel IN ('CASH','BANK_TRANSFER','MTN_MOMO_VERIFIED')
+            AND s.amount = f.amount AND s.currency = f.currency THEN 'ELIGIBLE'
+          WHEN s.kind = 'PAYMENT' THEN 'PAYMENT_MISMATCH'
+          ELSE 'PAYMENT_REQUIRED' END AS eligibility_status
         FROM admission_exam_assignments a
         JOIN admission_entrance_exams e ON e.school_id=a.school_id AND e.id=a.exam_id
         JOIN admission_applications app ON app.school_id=a.school_id AND app.id=a.application_id
