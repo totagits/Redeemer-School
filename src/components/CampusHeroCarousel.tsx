@@ -3,6 +3,12 @@ import { ArrowLeft, ArrowRight, Camera } from 'lucide-react';
 
 const slides = [
   {
+    src: '/school-photos/campus-feature-new.svg',
+    title: 'Welcome to our school',
+    description: 'Redeemer’s International Academy and its campus community in Paynesville',
+    alt: 'Photograph of Redeemer’s International Academy campus showing the school building and entrance',
+  },
+  {
     src: '/school-photos/campus-exterior.svg',
     title: 'Discover our campus',
     description: 'Redeemer’s International Academy · Thinker’s Village, Paynesville',
