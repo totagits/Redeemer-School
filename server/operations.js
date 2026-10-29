@@ -1798,6 +1798,46 @@ export function createOperationsRouter({ authenticate, sendInvitation = sendAcco
     res.status(503).json({error:'Entrance examination fees are awaiting verified migration 103.',migrationRequired:'103_admission_exam_fees.sql'});
     return false;
   }
+  // Staff-only eligibility preview. Exam-taking endpoints must independently enforce the same
+  // server-side conditions when added; this read endpoint does not grant a sitting credential.
+  router.get('/admissions/entrance-exams/:examId/eligibility',needsPermission('admissions.read'),async(req,res)=>{
+    const examId=text(req.params.examId,50);
+    if(!/^[0-9a-f]{8}(-[0-9a-f]{4}){3}-[0-9a-f]{12}$/i.test(examId)){
+      await close(req,false);return res.status(400).json({error:'Valid examination ID required.'});
+    }
+    try{
+      if(!await requireExamFeeSchema(req,res)) return;
+      const schoolId=req.auth.claims.schoolId;
+      const exam=await req.auth.client.query(`SELECT id,title,status,starts_at,ends_at
+        FROM admission_entrance_exams WHERE school_id=$1 AND id=$2`,[schoolId,examId]);
+      if(!exam.rowCount){await close(req,false);return res.status(404).json({error:'Examination not found.'});}
+      const candidates=await req.auth.client.query(`SELECT a.application_id,app.application_number,
+        app.first_name,app.last_name,app.status AS application_status,a.status AS assignment_status,
+        f.amount::text AS fee_amount,f.currency,
+        s.kind AS settlement_kind,s.reference AS settlement_reference,
+        CASE WHEN e.status <> 'SCHEDULED' THEN 'EXAM_NOT_SCHEDULED'
+          WHEN app.status IN ('REJECTED','WITHDRAWN','ENROLLED') THEN 'APPLICATION_INACTIVE'
+          WHEN a.status <> 'INVITED' THEN 'ASSIGNMENT_NOT_INVITED'
+          WHEN f.exam_id IS NULL THEN 'FEE_NOT_CONFIGURED'
+          WHEN f.amount = 0 THEN 'ELIGIBLE'
+          WHEN s.id IS NULL OR s.verified_at IS NULL THEN 'PAYMENT_REQUIRED'
+          WHEN s.kind = 'WAIVER' AND s.channel = 'WAIVER' AND s.amount = 0 THEN 'ELIGIBLE'
+          WHEN s.kind = 'PAYMENT' AND s.channel IN ('CASH','BANK_TRANSFER','MTN_MOMO_VERIFIED')
+            AND s.amount = f.amount AND s.currency = f.currency THEN 'ELIGIBLE'
+          WHEN s.kind = 'PAYMENT' THEN 'PAYMENT_MISMATCH'
+          ELSE 'PAYMENT_REQUIRED' END AS eligibility_status
+        FROM admission_exam_assignments a
+        JOIN admission_entrance_exams e ON e.school_id=a.school_id AND e.id=a.exam_id
+        JOIN admission_applications app ON app.school_id=a.school_id AND app.id=a.application_id
+        LEFT JOIN admission_exam_fee_schedules f ON f.school_id=a.school_id AND f.exam_id=a.exam_id
+        LEFT JOIN admission_exam_fee_settlements s ON s.school_id=a.school_id AND s.exam_id=a.exam_id AND s.application_id=a.application_id
+        WHERE a.school_id=$1 AND a.exam_id=$2
+        ORDER BY app.application_number LIMIT 500`,[schoolId,examId]);
+      return done(req,res,200,{exam:exam.rows[0],candidates:candidates.rows,
+        note:'Staff-only eligibility preview; examination sitting is not yet enabled.'});
+    }catch(error){return fail(req,res,error);}
+  });
+
   router.get('/finance/entrance-exam-fees',needsPermission('finance.read'),async(req,res)=>{
     try {
       if(!await requireExamFeeSchema(req,res)) return;
