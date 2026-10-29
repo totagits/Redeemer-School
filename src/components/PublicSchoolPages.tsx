@@ -1,4 +1,5 @@
 import React from 'react';
+import { LiveAdmissionsGuide, SchoolFAQ, PublicSchoolSupport } from './SchoolPublicUtilities.tsx';
 import { ArrowRight, BookOpen, CalendarDays, Camera, GraduationCap, HeartHandshake, MapPin, Phone, Users } from 'lucide-react';
 import { SCHOOL_CONTACT } from '../data/schoolContact.ts';
 
@@ -101,6 +102,9 @@ export function PublicSchoolPages({slug,onApply,onPortalSignIn}:{slug:string;onA
    </section>)}
    {['enrollment-process','admission-requirements','admissions-fees','school-visits'].includes(slug)&&<button onClick={onApply} className="inline-flex items-center gap-2 rounded-lg bg-blue-700 px-5 py-3 text-sm font-bold text-white">Apply for admission <ArrowRight className="h-4 w-4"/></button>}
    {['parent-resources','parent-faq','attendance-absence','assessment-progress','learning-resources'].includes(slug)&&<button onClick={onPortalSignIn} className="inline-flex items-center gap-2 rounded-lg bg-blue-700 px-5 py-3 text-sm font-bold text-white">Student & Guardian Portal <ArrowRight className="h-4 w-4"/></button>}
+   {['enrollment-process','admission-requirements','admissions-fees'].includes(slug)&&<LiveAdmissionsGuide onApply={onApply}/>}
+   {slug==='parent-faq'&&<SchoolFAQ/>}
+   {['contact-us','school-visits','request-information','records-requests'].includes(slug)&&<PublicSchoolSupport/>}
    {slug==='photo-albums'&&<PhotoAlbumPreview/>}
    </main>
    <aside className="self-start rounded-2xl border border-slate-200 bg-white p-5 shadow-sm"><h2 className="font-bold">{group?.label||'Explore Redeemer'}</h2>
