@@ -44,16 +44,15 @@ export function CampusHeroCarousel() {
       {slides.map((slide, slideIndex) => <div key={slide.src} aria-hidden={index !== slideIndex}
         className={`absolute inset-0 transition-opacity duration-700 ease-in-out ${index === slideIndex ? 'z-10 opacity-100' : 'pointer-events-none opacity-0'}`}>
         {!errorSlides.includes(slideIndex) ? <img src={slide.src} alt={slide.alt}
-          className="h-full w-full object-cover object-center [filter:contrast(1.06)_saturate(1.08)]"
+          className="h-full w-full object-cover object-center"
           loading={slideIndex === 0 ? 'eager' : 'lazy'}
           onError={() => setErrorSlides(previous => [...previous, slideIndex])} /> :
           <div className="grid h-full place-items-center bg-[#102c4f]"><Camera className="h-14 w-14 text-white/60" aria-label="School photograph unavailable"/></div>}
-        <div aria-hidden="true" className="pointer-events-none absolute inset-x-0 bottom-0 h-2/3 bg-gradient-to-t from-[#071d3e]/95 via-[#071d3e]/40 to-transparent"/>
-        <div className="absolute inset-x-0 bottom-0 px-5 pb-14 pt-10 text-white sm:px-8 sm:pb-16">
+        <div className="absolute inset-x-0 bottom-0 px-4 pb-14 text-white sm:px-6 sm:pb-16"><div className="w-fit max-w-[min(100%,34rem)] rounded-xl bg-[#071d3e]/85 px-4 py-3 shadow-lg backdrop-blur-[2px]">
           <span className="text-[10px] font-bold uppercase tracking-[.2em] text-amber-300">Redeemer’s International Academy</span>
           <h2 className="mt-2 text-xl font-extrabold tracking-tight sm:text-3xl">{slide.title}</h2>
           <p className="mt-2 max-w-lg text-xs text-slate-100 sm:text-sm">{slide.description}</p>
-        </div>
+        </div></div>
       </div>)}
     </div>
     <div className="absolute inset-x-0 bottom-0 z-20 flex items-center justify-between px-5 pb-3 sm:px-8 sm:pb-4">
