@@ -48,11 +48,6 @@ export function CampusHeroCarousel() {
           loading={slideIndex === 0 ? 'eager' : 'lazy'}
           onError={() => setErrorSlides(previous => [...previous, slideIndex])} /> :
           <div className="grid h-full place-items-center bg-[#102c4f]"><Camera className="h-14 w-14 text-white/60" aria-label="School photograph unavailable"/></div>}
-        <div className="absolute inset-x-0 bottom-0 px-4 pb-14 text-white sm:px-6 sm:pb-16"><div className="w-fit max-w-[min(100%,34rem)] rounded-xl bg-[#071d3e]/85 px-4 py-3 shadow-lg backdrop-blur-[2px]">
-          <span className="text-[10px] font-bold uppercase tracking-[.2em] text-amber-300">Redeemer’s International Academy</span>
-          <h2 className="mt-2 text-xl font-extrabold tracking-tight sm:text-3xl">{slide.title}</h2>
-          <p className="mt-2 max-w-lg text-xs text-slate-100 sm:text-sm">{slide.description}</p>
-        </div></div>
       </div>)}
     </div>
     <div className="absolute inset-x-0 bottom-0 z-20 flex items-center justify-between px-5 pb-3 sm:px-8 sm:pb-4">
@@ -67,6 +62,11 @@ export function CampusHeroCarousel() {
         <button type="button" aria-label="Previous campus photograph" onClick={previous} className="grid h-9 w-9 place-items-center rounded-full border border-white/40 bg-[#071d3e]/70 text-white transition hover:border-white hover:bg-[#071d3e] focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-white"><ArrowLeft className="h-4 w-4"/></button>
         <button type="button" aria-label="Next campus photograph" onClick={next} className="grid h-9 w-9 place-items-center rounded-full border border-white/40 bg-[#071d3e]/70 text-white transition hover:border-white hover:bg-[#071d3e] focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-white"><ArrowRight className="h-4 w-4"/></button>
       </div>
+    </div>
+    <div className="border-t border-white/15 bg-[#071d3e] px-5 py-4 text-white sm:px-7" aria-live="polite">
+      <span className="text-[10px] font-bold uppercase tracking-[.2em] text-amber-300">Redeemer’s International Academy</span>
+      <h2 className="mt-1 text-lg font-bold sm:text-xl">{slides[index].title}</h2>
+      <p className="mt-1 text-xs text-slate-200 sm:text-sm">{slides[index].description}</p>
     </div>
   </section>;
 }
