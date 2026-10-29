@@ -90,35 +90,9 @@ export const Header: React.FC<HeaderProps> = ({
           </a>
         </div>
 
-        {/* School navigation; staff administration is intentionally absent. */}
-        {currentView === 'home' ? (
-          <nav ref={desktopNavRef} aria-label="School website navigation" className="hidden items-center gap-0.5 xl:flex">
-            <a href="/" className="rounded-md px-2.5 py-3 text-sm font-bold text-slate-800 hover:bg-blue-50">Home</a>
-            {publicSchoolNavigation.map((group,index)=><div key={group.label} className="relative"
-              onMouseEnter={()=>setOpenMenu(group.label)}
-              onMouseLeave={()=>setOpenMenu(current=>current===group.label?null:current)}>
-              <button type="button" aria-controls={`school-menu-${index}`} aria-expanded={openMenu===group.label}
-                onClick={()=>setOpenMenu(current=>current===group.label?null:group.label)}
-                className={`flex items-center gap-1 rounded-md border-b-[3px] px-2 py-3 text-sm font-bold transition-all duration-200 ${openMenu===group.label?'border-amber-400 bg-blue-950 text-white':'border-transparent text-slate-800 hover:border-amber-400 hover:bg-blue-50'}`}>
-                {group.label}<ChevronDown aria-hidden="true" className={`h-4 w-4 transition-transform duration-200 ${openMenu===group.label?'rotate-180':''}`}/>
-              </button>
-              <div id={`school-menu-${index}`} aria-label={`${group.label} submenu`} aria-hidden={openMenu!==group.label}
-                className={`absolute top-full z-[100] w-[min(34rem,90vw)] origin-top rounded-b-xl border-t-4 border-amber-400 bg-white p-5 shadow-[0_25px_60px_rgba(4,20,52,.25)] ring-1 ring-slate-200 transition-all duration-200 ease-out ${index>3?'right-0':'left-0'} ${openMenu===group.label?'visible translate-y-0 scale-100 opacity-100':'invisible pointer-events-none -translate-y-2 scale-[.98] opacity-0'}`}>
-                <div className="mb-3 flex items-center justify-between border-b border-slate-100 pb-3"><span className="text-xs font-extrabold uppercase tracking-[.16em] text-blue-900">{group.label}</span><span className="text-xs text-slate-500">Explore Redeemer</span></div>
-                <div className="grid grid-cols-2 gap-x-4 gap-y-1">
-                  {group.items.map(item=><a key={item.slug} tabIndex={openMenu===group.label?0:-1} onClick={()=>setOpenMenu(null)}
-                    href={item.slug==='apply-online'?'/apply':item.slug==='student-portal'||item.slug==='guardian-portal'?'/portal':`/school/${item.slug}`}
-                    className="group flex items-center justify-between gap-2 rounded-lg px-3 py-2.5 text-sm font-medium text-slate-700 transition-colors hover:bg-blue-50 hover:text-blue-900 focus-visible:bg-blue-50 focus-visible:outline-blue-600">
-                    <span>{item.label}</span><ArrowUpRight aria-hidden="true" className="h-3.5 w-3.5 shrink-0 opacity-0 transition-opacity group-hover:opacity-100 group-focus-visible:opacity-100"/>
-                  </a>)}
-                </div>
-              </div>
-            </div>)}
-            <a href="/portal" className="ml-1 shrink-0 rounded-md bg-blue-800 px-3 py-2.5 text-xs font-bold text-white transition hover:bg-blue-950">Family Portal</a>
-          </nav>
-        ) : (
+        {currentView === 'home' ? null : (
         <>
-        {/* Zone 2: ERP workspace navigation */}
+        {/* Internal workspace navigation is not rendered for signed-out visitors. */}
         <nav className="hidden lg:flex items-center gap-1">
           <button onClick={() => onSelectView('home')} className="px-2.5 py-1.5 text-xs font-semibold rounded-md text-slate-600 hover:text-slate-900 hover:bg-slate-50 cursor-pointer flex items-center gap-1.5">
             <Home className="w-3.5 h-3.5" /> Home
@@ -161,6 +135,32 @@ export const Header: React.FC<HeaderProps> = ({
 
       </div>
 
+      {currentView==='home'&&<div className="hidden border-t border-slate-200 bg-white xl:block"><div className="mx-auto max-w-7xl">          <nav ref={desktopNavRef} aria-label="School website navigation" className="mx-auto flex max-w-7xl items-center justify-between gap-1 px-4">
+            <a href="/" className="rounded-md px-2.5 py-3 text-sm font-bold text-slate-800 hover:bg-blue-50">Home</a>
+            {publicSchoolNavigation.map((group,index)=><div key={group.label} className="relative"
+              onMouseEnter={()=>setOpenMenu(group.label)}
+              onMouseLeave={()=>setOpenMenu(current=>current===group.label?null:current)}>
+              <button type="button" aria-controls={`school-menu-${index}`} aria-expanded={openMenu===group.label}
+                onClick={()=>setOpenMenu(current=>current===group.label?null:group.label)}
+                className={`flex items-center gap-1 rounded-md border-b-[3px] px-2 py-3 text-sm font-bold transition-all duration-200 ${openMenu===group.label?'border-amber-400 bg-blue-950 text-white':'border-transparent text-slate-800 hover:border-amber-400 hover:bg-blue-50'}`}>
+                {group.label}<ChevronDown aria-hidden="true" className={`h-4 w-4 transition-transform duration-200 ${openMenu===group.label?'rotate-180':''}`}/>
+              </button>
+              <div id={`school-menu-${index}`} aria-label={`${group.label} submenu`} aria-hidden={openMenu!==group.label}
+                className={`absolute top-full z-[100] w-[min(34rem,90vw)] origin-top rounded-b-xl border-t-4 border-amber-400 bg-white p-5 shadow-[0_25px_60px_rgba(4,20,52,.25)] ring-1 ring-slate-200 transition-all duration-200 ease-out ${index>3?'right-0':'left-0'} ${openMenu===group.label?'visible translate-y-0 scale-100 opacity-100':'invisible pointer-events-none -translate-y-2 scale-[.98] opacity-0'}`}>
+                <div className="mb-3 flex items-center justify-between border-b border-slate-100 pb-3"><span className="text-xs font-extrabold uppercase tracking-[.16em] text-blue-900">{group.label}</span><span className="text-xs text-slate-500">Explore Redeemer</span></div>
+                <div className="grid grid-cols-2 gap-x-4 gap-y-1">
+                  {group.items.map(item=><a key={item.slug} tabIndex={openMenu===group.label?0:-1} onClick={()=>setOpenMenu(null)}
+                    href={item.slug==='apply-online'?'/apply':item.slug==='student-portal'||item.slug==='guardian-portal'?'/portal':`/school/${item.slug}`}
+                    className="group flex items-center justify-between gap-2 rounded-lg px-3 py-2.5 text-sm font-medium text-slate-700 transition-colors hover:bg-blue-50 hover:text-blue-900 focus-visible:bg-blue-50 focus-visible:outline-blue-600">
+                    <span>{item.label}</span><ArrowUpRight aria-hidden="true" className="h-3.5 w-3.5 shrink-0 opacity-0 transition-opacity group-hover:opacity-100 group-focus-visible:opacity-100"/>
+                  </a>)}
+                </div>
+              </div>
+            </div>)}
+            <a href="/portal" className="ml-1 shrink-0 rounded-md bg-blue-800 px-3 py-2.5 text-xs font-bold text-white transition hover:bg-blue-950">Family Portal</a>
+          </nav>
+</div></div>}
+      
       {/* Responsive school menu with expandable page groups. */}
       {currentView === 'home' ? (
         <div className="border-t border-slate-100 bg-white xl:hidden">
