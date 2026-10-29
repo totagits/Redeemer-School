@@ -86,6 +86,7 @@ export const Header: React.FC<HeaderProps> = ({
                 {group.items.map(item=><a key={item.slug} href={item.slug==='apply-online'?'/apply':item.slug==='student-portal'||item.slug==='guardian-portal'?'/portal':`/school/${item.slug}`} className="block rounded-md px-3 py-2 text-sm text-slate-700 hover:bg-blue-50 hover:text-blue-900">{item.label}</a>)}
               </div>
             </details>)}
+            <a href="/portal" className="shrink-0 rounded-lg bg-blue-700 px-3 py-2 text-xs font-bold text-white hover:bg-blue-800">Student & guardian portal</a>
           </nav>
         ) : (
         <>
