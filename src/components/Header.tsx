@@ -1,5 +1,5 @@
 import { publicSchoolNavigation } from './PublicSchoolPages.tsx';
-import React from 'react';
+import React, { useState } from 'react';
 import { 
   Home,
   Building2, 
@@ -41,6 +41,7 @@ export const Header: React.FC<HeaderProps> = ({
   onSignIn,
   onPortalSignIn,
 }) => {
+  const [openMenu,setOpenMenu]=useState<string|null>(null);
   const navItems: Array<{ id: ERPView; label: string; icon: React.ReactNode; badge?: number }> = [
     { id: 'dashboard', label: 'Dashboard', icon: <Layers className="w-3.5 h-3.5" /> },
     { id: 'students', label: 'Students & Admissions', icon: <GraduationCap className="w-3.5 h-3.5 text-blue-600" /> },
@@ -80,12 +81,12 @@ export const Header: React.FC<HeaderProps> = ({
         {currentView === 'home' ? (
           <nav aria-label="School website" className="hidden items-center gap-1 lg:flex">
             <a href="/" className="rounded-lg px-2 py-2 text-sm font-semibold text-slate-700 hover:bg-blue-50">Home</a>
-            {publicSchoolNavigation.map(group=><details key={group.label} className="group relative">
-              <summary className="list-none cursor-pointer rounded-lg px-2.5 py-2 text-sm font-semibold text-slate-700 hover:bg-blue-50">{group.label} <span aria-hidden="true" className="text-blue-600">⌄</span></summary>
-              <div className="absolute right-0 top-full z-50 max-h-[70vh] w-64 overflow-y-auto rounded-xl border border-slate-200 bg-white p-2 shadow-2xl">
-                {group.items.map(item=><a key={item.slug} href={item.slug==='apply-online'?'/apply':item.slug==='student-portal'||item.slug==='guardian-portal'?'/portal':`/school/${item.slug}`} className="block rounded-md px-3 py-2 text-sm text-slate-700 hover:bg-blue-50 hover:text-blue-900">{item.label}</a>)}
-              </div>
-            </details>)}
+            {publicSchoolNavigation.map(group=><div key={group.label} className="relative" onMouseEnter={()=>setOpenMenu(group.label)} onMouseLeave={()=>setOpenMenu(current=>current===group.label?null:current)}>
+              <button type="button" aria-expanded={openMenu===group.label} aria-haspopup="menu" onClick={()=>setOpenMenu(current=>current===group.label?null:group.label)} onKeyDown={event=>{if(event.key==='Escape'){setOpenMenu(null);event.currentTarget.blur();}}} className={`flex items-center gap-1 rounded-lg px-2.5 py-2 text-sm font-semibold transition-colors ${openMenu===group.label?'bg-blue-100 text-blue-900':'text-slate-700 hover:bg-blue-50'}`}>{group.label} <span aria-hidden="true" className={`inline-block text-blue-600 transition-transform duration-200 ${openMenu===group.label?'rotate-180':''}`}>⌄</span></button>
+              {openMenu===group.label&&<div role="menu" className="absolute right-0 top-full z-[100] max-h-[70vh] w-64 overflow-y-auto rounded-xl border border-slate-200 bg-white p-2 shadow-2xl motion-safe:animate-in motion-safe:fade-in">
+                {group.items.map(item=><a role="menuitem" key={item.slug} onClick={()=>setOpenMenu(null)} href={item.slug==='apply-online'?'/apply':item.slug==='student-portal'||item.slug==='guardian-portal'?'/portal':`/school/${item.slug}`} className="block rounded-md px-3 py-2 text-sm text-slate-700 hover:bg-blue-50 hover:text-blue-900">{item.label}</a>)}
+              </div>}
+            </div>)}
             <a href="/portal" className="shrink-0 rounded-lg bg-blue-700 px-3 py-2 text-xs font-bold text-white hover:bg-blue-800">Student & guardian portal</a>
           </nav>
         ) : (

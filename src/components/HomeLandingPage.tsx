@@ -22,7 +22,7 @@ const guide = [
 
 export const HomeLandingPage: React.FC<HomeLandingPageProps> = ({ onPortalSignIn, onApply }) => (
   <div className="bg-white text-slate-900">
-    <section className="relative isolate overflow-hidden bg-[#081b3c] bg-cover bg-center text-white" style={{backgroundImage:"linear-gradient(90deg,rgba(8,27,60,.94),rgba(8,27,60,.75)),url(/school-photos/campus-courtyard.webp)"}}>
+    <section className="relative isolate overflow-hidden bg-[#081b3c] bg-cover bg-center text-white" style={{backgroundImage:"linear-gradient(90deg,rgba(8,27,60,.94),rgba(8,27,60,.75)),url(/school-photos/campus-courtyard.svg)"}}>
       <div className="pointer-events-none absolute inset-0 -z-10 bg-[radial-gradient(circle_at_75%_30%,rgba(65,117,234,.32),transparent_42%),radial-gradient(circle_at_15%_90%,rgba(11,140,171,.20),transparent_48%)]"/>
       <div className="mx-auto grid max-w-7xl items-center gap-10 px-5 py-16 sm:px-8 md:py-24 lg:grid-cols-[1.15fr_.85fr] lg:px-10">
         <div>
@@ -43,6 +43,16 @@ export const HomeLandingPage: React.FC<HomeLandingPageProps> = ({ onPortalSignIn
             <a href="#academics" className="rounded-xl border border-white/20 bg-white/10 p-4 text-center text-sm font-bold hover:bg-white/20">Academics</a>
             <a href="#families" className="rounded-xl border border-white/20 bg-white/10 p-4 text-center text-sm font-bold hover:bg-white/20">Family resources</a>
           </div>
+        </div>
+      </div>
+    </section>
+
+    <section aria-label="Our school in photographs" className="border-b border-slate-200 bg-white py-10">
+      <div className="mx-auto max-w-7xl px-5 sm:px-8 lg:px-10">
+        <div className="mb-5 flex flex-wrap items-center justify-between gap-3"><div><p className="text-xs font-bold uppercase tracking-widest text-blue-700">Our campus</p><h2 className="mt-1 text-2xl font-extrabold">A glimpse of Redeemer’s International Academy</h2></div><a href="/school/photo-albums" className="text-sm font-bold text-blue-800 hover:underline">Explore the photo gallery →</a></div>
+        <div className="grid gap-4 sm:grid-cols-2">
+          <figure className="overflow-hidden rounded-2xl border border-slate-200 bg-slate-100 shadow-sm"><img src="/school-photos/campus-exterior.svg" alt="Exterior of Redeemer’s International Academy campus" loading="lazy" className="h-48 w-full object-cover sm:h-60"/><figcaption className="p-4 text-sm font-semibold text-slate-700">School campus exterior</figcaption></figure>
+          <figure className="overflow-hidden rounded-2xl border border-slate-200 bg-slate-100 shadow-sm"><img src="/school-photos/campus-courtyard.svg" alt="Courtyard of Redeemer’s International Academy" loading="lazy" className="h-48 w-full object-cover sm:h-60"/><figcaption className="p-4 text-sm font-semibold text-slate-700">Our school courtyard</figcaption></figure>
         </div>
       </div>
     </section>
