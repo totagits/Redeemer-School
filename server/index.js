@@ -6,6 +6,7 @@ import pg from 'pg';
 import { createAuthRouter } from './auth.js';
 import { createOperationsRouter } from './operations.js';
 import { createPublicAdmissionsRouter } from './publicAdmissions.js';
+import { createPublicContentRouter } from './publicContent.js';
 import { createDigitalStudentIdRouter } from './studentDigitalId.js';
 import { createPortalPhotoRouter } from './portalPhotos.js';
 import { isStrongSessionSecret } from './authCrypto.js';
@@ -107,6 +108,7 @@ app.use('/api/operations', createOperationsRouter({ authenticate: authRouter.req
 app.use('/api/student-id', createDigitalStudentIdRouter({ authenticate: authRouter.requireAuth }));
 app.use('/api/portal-photos', createPortalPhotoRouter({ authenticate: authRouter.requireAuth }));
 app.use('/api/public/admissions', createPublicAdmissionsRouter({ pool: runtimePool }));
+app.use('/api/school-content', createPublicContentRouter({ pool: runtimePool, authenticate: authRouter.requireAuth }));
 
 app.use('/api', (_req, res) => {
   res.status(404).json({ error: 'API route not found' });

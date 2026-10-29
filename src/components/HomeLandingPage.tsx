@@ -1,4 +1,5 @@
 import React from 'react';
+import { PublicSchoolUpdates } from './PublicSchoolUpdates.tsx';
 import { SchoolFAQ } from './SchoolPublicUtilities.tsx';
 import { CampusHeroCarousel } from './CampusHeroCarousel.tsx';
 import { ArrowRight, BookOpen, CalendarDays, CheckCircle2, ClipboardList, GraduationCap, HeartHandshake, Mail, MapPin, Phone, ShieldCheck, Users } from 'lucide-react';
@@ -75,7 +76,7 @@ export const HomeLandingPage: React.FC<HomeLandingPageProps> = ({ onPortalSignIn
     </div></section>
 
     <section id="community" className="scroll-mt-24 py-16"><div className="mx-auto grid max-w-7xl gap-6 px-5 sm:px-8 md:grid-cols-2 lg:px-10">
-      <article className="rounded-2xl border border-slate-200 bg-white p-7"><div className="flex items-center gap-3"><CalendarDays className="h-6 w-6 text-blue-700"/><h2 className="text-2xl font-extrabold">News & school calendar</h2></div><p className="mt-4 leading-7 text-slate-600">School-approved public announcements, event dates, and calendars will appear here when published. Private class and guardian notices remain inside the secure family portal.</p><p className="mt-5 rounded-lg bg-slate-50 p-4 text-sm text-slate-600">No public announcements have been published to this page yet.</p></article>
+      <article className="rounded-2xl border border-slate-200 bg-white p-7"><div className="flex items-center gap-3"><CalendarDays className="h-6 w-6 text-blue-700"/><h2 className="text-2xl font-extrabold">News & school calendar</h2></div><p className="mt-4 leading-7 text-slate-600">School-approved public announcements, event dates, and calendars will appear here when published. Private class and guardian notices remain inside the secure family portal.</p><PublicSchoolUpdates kind="ALL" limit={4}/></article>
       <article id="families" className="scroll-mt-24 rounded-2xl border border-slate-200 bg-white p-7"><div className="flex items-center gap-3"><Users className="h-6 w-6 text-blue-700"/><h2 className="text-2xl font-extrabold">Student & family resources</h2></div><p className="mt-4 leading-7 text-slate-600">Students and guardians can use their secure accounts to view school notices, learning resources, attendance, grades and authorized tuition information.</p><div className="mt-6 flex flex-wrap gap-3"><button onClick={onPortalSignIn} className="inline-flex items-center gap-2 rounded-lg bg-blue-700 px-5 py-3 text-sm font-bold text-white hover:bg-blue-800">Student & guardian portal <ArrowRight className="h-4 w-4"/></button><a href="#contact" className="rounded-lg border border-blue-200 px-5 py-3 text-sm font-semibold text-blue-800 hover:bg-blue-50">Contact the school</a></div></article>
     </div></section>
 
