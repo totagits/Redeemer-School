@@ -22,27 +22,28 @@ const guide = [
 
 export const HomeLandingPage: React.FC<HomeLandingPageProps> = ({ onPortalSignIn, onApply }) => (
   <div className="bg-white text-slate-900">
-    <section className="relative isolate overflow-hidden bg-[#081b3c] bg-cover bg-center text-white" style={{backgroundImage:"linear-gradient(90deg,rgba(8,27,60,.94),rgba(8,27,60,.75)),url(/school-photos/campus-courtyard.svg)"}}>
-      <div className="pointer-events-none absolute inset-0 -z-10 bg-[radial-gradient(circle_at_75%_30%,rgba(65,117,234,.32),transparent_42%),radial-gradient(circle_at_15%_90%,rgba(11,140,171,.20),transparent_48%)]"/>
-      <div className="mx-auto grid max-w-7xl items-center gap-10 px-5 py-16 sm:px-8 md:py-24 lg:grid-cols-[1.15fr_.85fr] lg:px-10">
+    <section className="relative overflow-hidden bg-[#071d3e] text-white">
+      <div className="absolute inset-0 bg-[radial-gradient(circle_at_8%_15%,rgba(24,91,164,.32),transparent_45%)]"/>
+      <div className="relative mx-auto grid max-w-7xl items-center gap-10 px-5 py-12 sm:px-8 md:py-16 lg:grid-cols-[.95fr_1.05fr] lg:px-10">
         <div>
-          <p className="text-xs font-bold uppercase tracking-[.22em] text-sky-200">Welcome to Redeemer’s International Academy</p>
-          <h1 className="mt-5 max-w-3xl text-4xl font-extrabold leading-[1.12] tracking-tight sm:text-5xl lg:text-6xl">Growing minds. <span className="text-sky-300">Building character.</span> Inspiring tomorrow.</h1>
-          <p className="mt-5 max-w-2xl text-lg leading-8 text-slate-200">A nurturing learning community in Thinker’s Village, Paynesville, committed to academic and moral excellence.</p>
-          <div className="mt-8 flex flex-wrap gap-3">
-            <button type="button" onClick={onApply} className="inline-flex items-center gap-2 rounded-lg bg-amber-400 px-5 py-3 font-bold text-slate-950 hover:bg-amber-300">Apply for admission <ArrowRight className="h-4 w-4"/></button>
-            <a href="#about" className="inline-flex items-center gap-2 rounded-lg border border-white/30 px-5 py-3 font-semibold text-white hover:bg-white/10">Explore our school</a>
+          <div className="mb-4 inline-flex items-center gap-2 rounded-full border border-amber-300/50 bg-amber-300/10 px-3 py-1.5 text-xs font-extrabold uppercase tracking-widest text-amber-200">Welcome to our school</div>
+          <h1 className="max-w-2xl text-4xl font-extrabold leading-[1.12] tracking-tight sm:text-5xl xl:text-[3.6rem]">Growing minds. <span className="text-sky-300">Building character.</span> Inspiring tomorrow.</h1>
+          <p className="mt-6 max-w-xl text-base leading-8 text-slate-200 sm:text-lg">Discover Redeemer’s International Academy, a learning community rooted in academic and moral excellence in Thinker’s Village, Paynesville.</p>
+          <div className="mt-7 flex flex-wrap gap-3">
+            <button type="button" onClick={onApply} className="inline-flex items-center gap-2 rounded-lg bg-amber-400 px-5 py-3 text-sm font-extrabold text-slate-950 shadow-lg transition hover:-translate-y-0.5 hover:bg-amber-300">Apply for admission <ArrowRight className="h-4 w-4"/></button>
+            <a href="/school/about-us" className="inline-flex items-center gap-2 rounded-lg border border-white/30 bg-white/10 px-5 py-3 text-sm font-bold text-white transition hover:border-white/50 hover:bg-white/20">Discover Redeemer</a>
           </div>
-          <div className="mt-8 flex flex-wrap gap-x-5 gap-y-2 text-sm text-slate-300"><span>Established 2022</span><span>Paynesville, Liberia</span><span>Academic and Moral Excellence</span></div>
+          <div className="mt-9 flex flex-wrap gap-3 text-xs font-semibold text-blue-100"><span className="rounded-md border border-white/15 px-3 py-2">Established 2022</span><span className="rounded-md border border-white/15 px-3 py-2">Paynesville, Liberia</span><span className="rounded-md border border-white/15 px-3 py-2">Academic & Moral Excellence</span></div>
         </div>
-        <div className="rounded-3xl border border-white/15 bg-white/10 p-6 shadow-2xl backdrop-blur-sm sm:p-8">
-          <div className="mx-auto grid h-24 w-24 place-items-center rounded-full bg-white p-2"><img src="/redeemer-seal.svg?v=3" className="h-20 w-20 object-contain" alt="Redeemer's International Academy school seal"/></div>
-          <h2 className="mt-5 text-center text-2xl font-extrabold">Learning with purpose</h2>
-          <p className="mt-3 text-center text-sm leading-7 text-slate-200">A welcoming environment where students develop the knowledge, values, and confidence to make a positive difference.</p>
-          <div className="mt-6 grid grid-cols-2 gap-3">
-            <a href="#academics" className="rounded-xl border border-white/20 bg-white/10 p-4 text-center text-sm font-bold hover:bg-white/20">Academics</a>
-            <a href="#families" className="rounded-xl border border-white/20 bg-white/10 p-4 text-center text-sm font-bold hover:bg-white/20">Family resources</a>
-          </div>
+        <div className="relative">
+          <figure className="relative overflow-hidden rounded-3xl border-4 border-white/15 bg-slate-700 shadow-[0_25px_60px_rgba(0,0,0,.28)]">
+            <div className="relative aspect-[4/3] overflow-hidden">
+              <img src="/school-photos/campus-exterior.svg" alt="Exterior of Redeemer’s International Academy, Paynesville" className="absolute inset-0 h-full w-full object-cover opacity-65 blur-xl" aria-hidden="true"/>
+              <img src="/school-photos/campus-exterior.svg" alt="Redeemer’s International Academy school campus" className="relative h-full w-full object-contain"/>
+            </div>
+            <figcaption className="absolute bottom-3 left-3 rounded-lg bg-[#071d3e]/85 px-4 py-2 text-xs font-bold text-white backdrop-blur-md">Our school campus · Paynesville, Liberia</figcaption>
+          </figure>
+          <a href="/school/photo-albums" className="absolute -bottom-4 right-4 inline-flex items-center gap-2 rounded-xl border border-blue-100 bg-white px-4 py-3 text-sm font-bold text-blue-900 shadow-xl transition hover:-translate-y-1">Visit the photo gallery <ArrowRight className="h-4 w-4"/></a>
         </div>
       </div>
     </section>
