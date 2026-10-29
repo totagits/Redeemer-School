@@ -71,20 +71,14 @@ const pages:Record<string,PageData>={
 };
 
 const schoolPhotos=[
- {src:'campus-courtyard.webp',label:'School courtyard'},
- {src:'campus-exterior.webp',label:'Campus exterior'},
- {src:'classroom-learning.webp',label:'Classroom learning'},
- {src:'classroom-activities.webp',label:'Academic activities'},
- {src:'students-community.webp',label:'School community'},
- {src:'school-event.webp',label:'School event'},
- {src:'achievement-awards.webp',label:'Achievement and recognition'},
- {src:'graduation.webp',label:'Graduation celebration'}
+ {src:'campus-courtyard.svg',label:'School courtyard'},
+ {src:'campus-exterior.svg',label:'Campus exterior'}
 ];
 function PhotoAlbumPreview(){
  const [available,setAvailable]=React.useState<Record<string,boolean>>({});
  return <section className="rounded-2xl border border-slate-200 bg-white p-6">
   <h2 className="text-xl font-bold">Redeemer school photographs</h2>
-  <p className="mt-2 text-sm text-slate-600">Photographs selected from the school’s own collection. Images are displayed only when their reviewed website assets are installed.</p>
+  <p className="mt-2 text-sm text-slate-600">Campus photographs from the school's collection. These are low-resolution previews; original photographs will replace them when reviewed and approved.</p>
   <div className="mt-4 grid grid-cols-2 gap-3 sm:grid-cols-3">{schoolPhotos.map(photo=><figure key={photo.src} className="overflow-hidden rounded-xl bg-slate-100">
     <div className="aspect-[4/3] bg-slate-100">{available[photo.src]!==false&&<img src={`/school-photos/${photo.src}`} alt={photo.label} loading="lazy" className="h-full w-full object-cover" onError={()=>setAvailable(previous=>({...previous,[photo.src]:false}))}/>}</div>
     <figcaption className="p-3 text-xs font-semibold text-slate-700">{photo.label}</figcaption>
