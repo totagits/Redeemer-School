@@ -37,9 +37,9 @@ export const HomeLandingPage: React.FC<HomeLandingPageProps> = ({ onPortalSignIn
         </div>
         <div className="relative">
           <figure className="relative overflow-hidden rounded-3xl border-4 border-white/15 bg-slate-700 shadow-[0_25px_60px_rgba(0,0,0,.28)]">
-            <div className="relative aspect-[4/3] overflow-hidden">
-              <img src="/school-photos/campus-exterior.svg" alt="Exterior of Redeemer’s International Academy, Paynesville" className="absolute inset-0 h-full w-full object-cover opacity-65 blur-xl" aria-hidden="true"/>
-              <img src="/school-photos/campus-exterior.svg" alt="Redeemer’s International Academy school campus" className="relative h-full w-full object-contain"/>
+            <div className="relative flex min-h-72 items-center justify-center bg-[#eef4ff] px-4 py-9 sm:min-h-80">
+              <img src="/school-photos/campus-exterior.svg" alt="Redeemer’s International Academy school campus" className="relative aspect-square w-52 max-w-full rounded-xl border-4 border-white object-cover shadow-2xl sm:w-60"/>
+              <span className="absolute right-4 top-4 rounded-lg bg-white/95 px-3 py-1.5 text-xs font-bold text-blue-950 shadow">Our campus</span>
             </div>
             <figcaption className="absolute bottom-3 left-3 rounded-lg bg-[#071d3e]/85 px-4 py-2 text-xs font-bold text-white backdrop-blur-md">Our school campus · Paynesville, Liberia</figcaption>
           </figure>
@@ -52,8 +52,8 @@ export const HomeLandingPage: React.FC<HomeLandingPageProps> = ({ onPortalSignIn
       <div className="mx-auto max-w-7xl px-5 sm:px-8 lg:px-10">
         <div className="mb-5 flex flex-wrap items-center justify-between gap-3"><div><p className="text-xs font-bold uppercase tracking-widest text-blue-700">Our campus</p><h2 className="mt-1 text-2xl font-extrabold">A glimpse of Redeemer’s International Academy</h2></div><a href="/school/photo-albums" className="text-sm font-bold text-blue-800 hover:underline">Explore the photo gallery →</a></div>
         <div className="grid gap-4 sm:grid-cols-2">
-          <figure className="overflow-hidden rounded-2xl border border-slate-200 bg-slate-100 shadow-sm"><img src="/school-photos/campus-exterior.svg" alt="Exterior of Redeemer’s International Academy campus" loading="lazy" className="h-48 w-full object-cover sm:h-60"/><figcaption className="p-4 text-sm font-semibold text-slate-700">School campus exterior</figcaption></figure>
-          <figure className="overflow-hidden rounded-2xl border border-slate-200 bg-slate-100 shadow-sm"><img src="/school-photos/campus-courtyard.svg" alt="Courtyard of Redeemer’s International Academy" loading="lazy" className="h-48 w-full object-cover sm:h-60"/><figcaption className="p-4 text-sm font-semibold text-slate-700">Our school courtyard</figcaption></figure>
+          <figure className="overflow-hidden rounded-2xl border border-slate-200 bg-slate-100 shadow-sm"><img src="/school-photos/campus-exterior.svg" alt="Exterior of Redeemer’s International Academy campus" loading="lazy" className="mx-auto h-44 w-44 object-cover sm:h-52 sm:w-52"/><figcaption className="p-4 text-sm font-semibold text-slate-700">School campus exterior</figcaption></figure>
+          <figure className="overflow-hidden rounded-2xl border border-slate-200 bg-slate-100 shadow-sm"><img src="/school-photos/campus-courtyard.svg" alt="Courtyard of Redeemer’s International Academy" loading="lazy" className="mx-auto h-44 w-44 object-cover sm:h-52 sm:w-52"/><figcaption className="p-4 text-sm font-semibold text-slate-700">Our school courtyard</figcaption></figure>
         </div>
       </div>
     </section>
