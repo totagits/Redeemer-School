@@ -1,8 +1,8 @@
 import express from 'express';
 
 const schoolCodePattern=/^[A-Z0-9][A-Z0-9_-]{1,49}$/;
-const validId=/^[0-9a-f]{8}-[0-9a-f-]{27,}$/i;
-function clean(value,max){return typeof value==='string'?value.trim().slice(0,max):'';}
+const validId=/^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
+function clean(value,max){return typeof value==='string' && value.trim().length<=max?value.trim():'';}
 function permitted(auth){
  return auth.account.roles.some(r=>['SCHOOL_ADMIN','PRINCIPAL'].includes(r)) &&
  auth.account.permissions.includes('communications.write');
@@ -18,6 +18,7 @@ export function createPublicContentRouter({pool,authenticate}){
    const schoolCode=clean(req.query.schoolCode,50).toUpperCase();
    if(!schoolCodePattern.test(schoolCode))return res.status(400).json({error:'Valid school code required.'});
    if(!pool)return res.status(503).json({error:'Public notices are temporarily unavailable.'});
+   res.set('Cache-Control','no-store');
    let client;
    try{
      client=await pool.connect();await client.query('BEGIN READ ONLY');
@@ -29,7 +30,7 @@ export function createPublicContentRouter({pool,authenticate}){
        FROM public_school_posts WHERE school_id=$1 AND status='PUBLISHED' AND published_at<=now()
        ORDER BY published_at DESC LIMIT 30`,[schoolId]);
      await client.query('COMMIT');client.release();
-     res.set('Cache-Control','public, max-age=60');return res.json({posts:posts.rows});
+     return res.json({posts:posts.rows});
    }catch(error){
      if(client){try{await client.query('ROLLBACK');}catch{}client.release();}
      return res.status(503).json({error:'Public notices are temporarily unavailable.'});
@@ -54,7 +55,7 @@ export function createPublicContentRouter({pool,authenticate}){
    const summary=clean(req.body?.summary,500);
    const body=clean(req.body?.body,8000);
    const date=clean(req.body?.eventStartsAt,40);
-   const dateValid=!date || !Number.isNaN(Date.parse(date));
+   const dateValid=!date || (!Number.isNaN(Date.parse(date)) && /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}$/.test(date));
    if(!['NEWS','EVENT'].includes(kind)||!title||!summary||!body||!dateValid||(kind==='NEWS'&&date))
      return release(req,res,400,{error:'Enter a title, summary, body and valid event details.'},false);
    try{
