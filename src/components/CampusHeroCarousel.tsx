@@ -50,22 +50,23 @@ export function CampusHeroCarousel() {
           <div className="grid h-full place-items-center bg-[#102c4f]"><Camera className="h-14 w-14 text-white/60" aria-label="School photograph unavailable"/></div>}
       </div>)}
     </div>
-    <div className="border-t border-white/15 bg-[#071d3e] px-5 py-4 text-white sm:px-7" aria-live="polite">
-      <span className="text-[10px] font-bold uppercase tracking-[.2em] text-amber-300">Redeemer’s International Academy</span>
-      <h2 className="mt-1 text-lg font-bold sm:text-xl">{slides[index].title}</h2>
-      <p className="mt-1 text-xs text-slate-200 sm:text-sm">{slides[index].description}</p>
-    </div>
-    <div className="flex items-center justify-between border-t border-white/15 bg-[#071d3e] px-5 py-3 sm:px-7">
-      <div aria-label="Choose a campus photograph" className="flex items-center gap-2">
-        {slides.map((slide, slideIndex) => <button type="button" key={slide.src}
-          aria-label={`Show photo ${slideIndex + 1}: ${slide.title}`}
-          aria-current={index === slideIndex ? 'true' : undefined}
-          onClick={() => setIndex(slideIndex)}
-          className={`h-2.5 rounded-full border border-white/70 transition-all duration-200 ${index === slideIndex ? 'w-8 bg-amber-400' : 'w-2.5 bg-white/50 hover:bg-white'}`}/>)}
+    <div className="flex flex-col gap-3 border-t border-white/15 bg-[#071d3e] px-4 py-3 text-white sm:flex-row sm:items-center sm:justify-between sm:px-6">
+      <div aria-live="polite" className="min-w-0 flex-1">
+        <h2 className="text-sm font-bold leading-snug sm:text-base">{slides[index].title}</h2>
+        <p className="mt-0.5 text-xs leading-snug text-slate-200">{slides[index].description}</p>
       </div>
-      <div className="flex gap-2">
-        <button type="button" aria-label="Previous campus photograph" onClick={previous} className="grid h-9 w-9 place-items-center rounded-full border border-white/40 bg-[#071d3e]/70 text-white transition hover:border-white hover:bg-[#071d3e] focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-white"><ArrowLeft className="h-4 w-4"/></button>
-        <button type="button" aria-label="Next campus photograph" onClick={next} className="grid h-9 w-9 place-items-center rounded-full border border-white/40 bg-[#071d3e]/70 text-white transition hover:border-white hover:bg-[#071d3e] focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-white"><ArrowRight className="h-4 w-4"/></button>
+      <div className="flex shrink-0 items-center justify-between gap-5 sm:justify-end">
+        <div aria-label="Choose a campus photograph" className="flex items-center gap-2">
+          {slides.map((slide, slideIndex) => <button type="button" key={slide.src}
+            aria-label={`Show photo ${slideIndex + 1}: ${slide.title}`}
+            aria-current={index === slideIndex ? 'true' : undefined}
+            onClick={() => setIndex(slideIndex)}
+            className={`h-2.5 rounded-full border border-white/70 transition-all duration-200 ${index === slideIndex ? 'w-8 bg-amber-400' : 'w-2.5 bg-white/50 hover:bg-white'}`}/>)}
+        </div>
+        <div className="flex gap-2">
+          <button type="button" aria-label="Previous campus photograph" onClick={previous} className="grid h-9 w-9 place-items-center rounded-full border border-white/40 bg-[#071d3e]/70 text-white transition hover:border-white hover:bg-[#071d3e] focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-white"><ArrowLeft className="h-4 w-4"/></button>
+          <button type="button" aria-label="Next campus photograph" onClick={next} className="grid h-9 w-9 place-items-center rounded-full border border-white/40 bg-[#071d3e]/70 text-white transition hover:border-white hover:bg-[#071d3e] focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-white"><ArrowRight className="h-4 w-4"/></button>
+        </div>
       </div>
     </div>
   </section>;
