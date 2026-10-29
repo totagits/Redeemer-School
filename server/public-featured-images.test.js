@@ -26,5 +26,8 @@ test('public cards include real image with captions and alt text',()=>{
  assert.match(publicUI,/post.has_featured_image/);
  assert.match(publicUI,/post.image_alt/);
  assert.match(publicUI,/post.image_caption/);
+ assert.match(ui,/img.width<1200\|\|img.height<675/);
  assert.match(ui,/img.width<1600\|\|img.height<900/);
+ assert.match(ui,/Math.min\(1600,bitmap.width,bitmap.height\*ratio\)/);
+ assert.match(ui,/role=\{imageFile\?'status':'alert'\}/);
 });
