@@ -16,6 +16,7 @@ CREATE TABLE admission_exam_candidate_credentials (
  CHECK(expires_at>issued_at),
  CHECK(redeemed_at IS NULL OR redeemed_at >= issued_at),
  UNIQUE(school_id,token_hash),
+ UNIQUE(school_id,exam_id,application_id,id),
  FOREIGN KEY(school_id,exam_id,application_id)
    REFERENCES admission_exam_assignments(school_id,exam_id,application_id),
  FOREIGN KEY(school_id,issued_by) REFERENCES user_accounts(school_id,id)
