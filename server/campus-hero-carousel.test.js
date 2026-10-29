@@ -10,9 +10,9 @@ test('homepage uses a single wide carousel rather than small campus image cards'
  assert.match(carousel,/object-cover object-center/);
 });
 test('campus carousel has actual photos, navigable slides and motion-safe behavior',()=>{
- assert.match(carousel,/campus-feature-new.svg/);
- assert.match(carousel,/campus-exterior.svg/);
- assert.match(carousel,/campus-courtyard.svg/);
+ assert.match(carousel,/featured/01-students-outdoors.webp/);
+ assert.match(carousel,/featured/02-classroom-learning.webp/);
+ assert.match(carousel,/featured/03-campus-courtyard.webp/);
  assert.match(carousel,/Previous campus photograph/);
  assert.match(carousel,/Next campus photograph/);
  assert.match(carousel,/aria-current/);
