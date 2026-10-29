@@ -1,3 +1,4 @@
+import { publicSchoolNavigation } from './PublicSchoolPages.tsx';
 import React from 'react';
 import { 
   Home,
@@ -80,13 +81,14 @@ export const Header: React.FC<HeaderProps> = ({
 
         {/* Public landing navigation */}
         {currentView === 'home' ? (
-          <nav className="hidden items-center gap-6 md:flex">
-            <a href="#about" className="text-sm font-semibold text-slate-600 transition hover:text-slate-950">Our school</a>
-            <a href="#academics" className="text-sm font-semibold text-slate-600 transition hover:text-slate-950">Academics</a>
-            <a href="#admissions" className="text-sm font-semibold text-slate-600 transition hover:text-slate-950">Admissions</a>
-            <a href="#community" className="text-sm font-semibold text-slate-600 transition hover:text-slate-950">News & families</a>
-            <a href="#contact" className="text-sm font-semibold text-slate-600 transition hover:text-slate-950">Contact</a>
-            {onPortalSignIn && <button onClick={onPortalSignIn} className="rounded-lg bg-blue-700 px-4 py-2.5 text-sm font-bold text-white shadow-sm transition hover:bg-blue-800">Student & guardian portal</button>}
+          <nav aria-label="School website" className="hidden items-center gap-1 lg:flex">
+            <a href="/" className="rounded-lg px-2 py-2 text-sm font-semibold text-slate-700 hover:bg-blue-50">Home</a>
+            {publicSchoolNavigation.map(group=><details key={group.label} className="group relative">
+              <summary className="list-none cursor-pointer rounded-lg px-2.5 py-2 text-sm font-semibold text-slate-700 hover:bg-blue-50">{group.label} <span aria-hidden="true" className="text-blue-600">⌄</span></summary>
+              <div className="absolute right-0 top-full z-50 max-h-[70vh] w-64 overflow-y-auto rounded-xl border border-slate-200 bg-white p-2 shadow-2xl">
+                {group.items.map(item=><a key={item.slug} href={item.slug==='apply-online'?'/apply':item.slug==='student-portal'||item.slug==='guardian-portal'?'/portal':`/school/${item.slug}`} className="block rounded-md px-3 py-2 text-sm text-slate-700 hover:bg-blue-50 hover:text-blue-900">{item.label}</a>)}
+              </div>
+            </details>)}
           </nav>
         ) : (
         <>
@@ -135,13 +137,14 @@ export const Header: React.FC<HeaderProps> = ({
 
       {/* Mobile Sub-Navigation Bar */}
       {currentView === 'home' ? (
-        <nav aria-label="Mobile school navigation" className="flex items-center gap-4 overflow-x-auto border-t border-slate-100 bg-white px-4 py-3 text-xs font-semibold text-blue-900 md:hidden">
-          <a className="shrink-0" href="#about">Our school</a>
-          <a className="shrink-0" href="#academics">Academics</a>
-          <a className="shrink-0" href="#admissions">Admissions</a>
-          <a className="shrink-0" href="#community">News & families</a>
-          <a className="shrink-0" href="#contact">Contact</a>
-          {onPortalSignIn && <button type="button" onClick={onPortalSignIn} className="shrink-0 rounded-lg bg-blue-700 px-3 py-2 text-white">Student & guardian portal</button>}
+        <nav aria-label="Mobile school navigation" className="flex gap-2 overflow-x-auto border-t border-slate-100 bg-white px-3 py-2 text-xs font-semibold text-blue-900 lg:hidden">
+          <a href="/" className="shrink-0 rounded-lg px-3 py-2">Home</a>
+          {publicSchoolNavigation.map(group=><details key={group.label} className="relative shrink-0">
+            <summary className="cursor-pointer list-none rounded-lg bg-blue-50 px-3 py-2">{group.label} ⌄</summary>
+            <div className="absolute left-0 top-full z-50 max-h-[45vh] min-w-56 overflow-y-auto rounded-xl border border-blue-100 bg-white p-2 shadow-xl">
+              {group.items.map(item=><a key={item.slug} className="block rounded-md px-3 py-2 hover:bg-blue-50" href={item.slug==='apply-online'?'/apply':item.slug==='student-portal'||item.slug==='guardian-portal'?'/portal':`/school/${item.slug}`}>{item.label}</a>)}
+            </div>
+          </details>)}
         </nav>
       ) : <div className="lg:hidden flex items-center gap-1 px-4 py-2 border-t border-slate-100 overflow-x-auto bg-slate-50">
         <button onClick={() => onSelectView('home')} className="px-2.5 py-1 text-xs font-semibold rounded-md whitespace-nowrap shrink-0 flex items-center gap-1 text-slate-600 bg-white border border-slate-200 cursor-pointer"><Home className="w-3.5 h-3.5" /> Home</button>
