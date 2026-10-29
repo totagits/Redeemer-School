@@ -13,5 +13,5 @@ test('hero uses a restrained editorial campus composition without fake blurry ba
  assert.doesNotMatch(landing,/blur-xl|opacity-65/);
  assert.match(landing,/school-photos\/campus-exterior.svg/);
  assert.match(landing,/school-photos\/campus-courtyard.svg/);
- assert.match(landing,/max-w-\[206px\]/);
+ assert.match(landing,/<CampusHeroCarousel/);
 });
