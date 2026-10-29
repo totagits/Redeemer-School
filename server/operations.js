@@ -1884,7 +1884,7 @@ export function createOperationsRouter({ authenticate, sendInvitation = sendAcco
   router.post('/admissions/entrance-exams/:examId/reschedule',needsPermission('admissions.write'),csrf,async(req,res)=>{
     const examId=req.params.examId;
     const startText=text(req.body?.startsAt,40),endText=text(req.body?.endsAt,40);
-    const validInstant=/^\\d{4}-\\d{2}-\\d{2}T\\d{2}:\\d{2}:\\d{2}\\.\\d{3}Z$/;
+    const validInstant=/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\.\d{3}Z$/;
     const start=new Date(startText),end=new Date(endText);
     if(!/^[0-9a-f-]{36}$/i.test(examId)||!validInstant.test(startText)||!validInstant.test(endText)||
        !Number.isFinite(start.getTime())||!Number.isFinite(end.getTime())||end<=start||
