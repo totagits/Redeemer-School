@@ -1,5 +1,5 @@
 import React, { useEffect, useState } from 'react';
-type PublicPost={id:string;kind:'NEWS'|'EVENT';title:string;summary:string;body:string;event_starts_at:string|null;published_at:string};
+type PublicPost={id:string;kind:'NEWS'|'EVENT';title:string;summary:string;body:string;event_starts_at:string|null;published_at:string;has_featured_image?:boolean;image_caption?:string;image_alt?:string};
 export function PublicSchoolUpdates({kind='ALL',limit=10}:{kind?:'ALL'|'NEWS'|'EVENT';limit?:number}){
  const [posts,setPosts]=useState<PublicPost[]>([]);
  const [unavailable,setUnavailable]=useState(false);
@@ -19,6 +19,10 @@ export function PublicSchoolUpdates({kind='ALL',limit=10}:{kind?:'ALL'|'NEWS'|'E
  return <div className="mt-5 space-y-3" aria-live="polite">
   {loading?<p className="rounded-lg bg-slate-50 p-4 text-sm text-slate-600">Loading school updates…</p>:
   filtered.length?filtered.map(post=><article key={post.id} className="rounded-lg border border-slate-200 bg-slate-50 p-5">
+    {post.has_featured_image&&<figure className="mb-4 overflow-hidden rounded-xl">
+      <img loading="lazy" src={`/api/school-content/public/${encodeURIComponent(post.id)}/image?schoolCode=RIA`} alt={post.image_alt||post.title} className="aspect-video w-full object-cover" />
+      {post.image_caption&&<figcaption className="bg-white px-3 py-2 text-xs text-slate-600">{post.image_caption}</figcaption>}
+    </figure>}
     <p className="text-xs font-extrabold uppercase tracking-wider text-[#173b67]">{post.kind==='EVENT'?'School event':'School news'}</p>
     <h3 className="mt-2 text-lg font-extrabold text-[#071d3e]">{post.title}</h3>
     {post.kind==='EVENT'&&post.event_starts_at&&<time className="mt-2 block text-sm font-semibold text-[#173b67]" dateTime={post.event_starts_at}>{new Date(post.event_starts_at).toLocaleString('en-LR',{timeZone:'Africa/Monrovia',dateStyle:'medium',timeStyle:'short'})}</time>}
