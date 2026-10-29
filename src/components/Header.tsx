@@ -141,7 +141,7 @@ export const Header: React.FC<HeaderProps> = ({
               onMouseEnter={()=>setOpenMenu(group.label)}
               onMouseLeave={()=>setOpenMenu(current=>current===group.label?null:current)}>
               <button type="button" aria-controls={`school-menu-${index}`} aria-expanded={openMenu===group.label}
-                onClick={()=>setOpenMenu(current=>current===group.label?null:group.label)}
+                onClick={()=>setOpenMenu(group.label)}
                 className={`flex items-center gap-1 rounded-md border-b-[3px] px-2 py-3 text-sm font-bold transition-all duration-200 ${openMenu===group.label?'border-amber-400 bg-blue-950 text-white':'border-transparent text-slate-800 hover:border-amber-400 hover:bg-blue-50'}`}>
                 {group.label}<ChevronDown aria-hidden="true" className={`h-4 w-4 transition-transform duration-200 ${openMenu===group.label?'rotate-180':''}`}/>
               </button>
@@ -157,7 +157,7 @@ export const Header: React.FC<HeaderProps> = ({
                 </div>
               </div>
             </div>)}
-            <a href="/portal" className="ml-1 shrink-0 rounded-md bg-blue-800 px-3 py-2.5 text-xs font-bold text-white transition hover:bg-blue-950">Family Portal</a>
+            <a href="/portal" className="ml-1 shrink-0 rounded-md bg-blue-800 px-3 py-2.5 text-xs font-bold text-white transition hover:bg-blue-950">Student & guardian portal</a>
           </nav>
 </div></div>}
       
