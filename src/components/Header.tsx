@@ -142,11 +142,11 @@ export const Header: React.FC<HeaderProps> = ({
               onMouseLeave={()=>setOpenMenu(current=>current===group.label?null:current)}>
               <button type="button" aria-controls={`school-menu-${index}`} aria-expanded={openMenu===group.label}
                 onClick={()=>setOpenMenu(group.label)}
-                className={`flex items-center gap-1 rounded-md border-b-[3px] px-2 py-3 text-sm font-bold transition-all duration-200 ${openMenu===group.label?'border-[#f6b900] bg-[#f6b900] text-[#071d3e]':'border-transparent text-[#071d3e] hover:border-[#f6b900] hover:bg-[#f6b900] hover:text-[#071d3e]'}`}>
+                className={`flex items-center gap-1 rounded-md border-b-[3px] px-2 py-3 text-sm font-bold transition-all duration-200 ${openMenu===group.label?'border-amber-400 bg-amber-400 text-[#071d3e]':'border-transparent text-[#071d3e] hover:border-amber-400 hover:bg-amber-400 hover:text-[#071d3e]'}`}>
                 {group.label}<ChevronDown aria-hidden="true" className={`h-4 w-4 transition-transform duration-200 ${openMenu===group.label?'rotate-180':''}`}/>
               </button>
               <div id={`school-menu-${index}`} aria-label={`${group.label} submenu`} aria-hidden={openMenu!==group.label}
-                className={`absolute top-full z-[100] w-[min(34rem,90vw)] origin-top rounded-b-xl border-t-4 border-[#f6b900] bg-[#f6b900] p-5 shadow-[0_25px_60px_rgba(4,20,52,.25)] ring-1 ring-[#e4aa00] transition-all duration-200 ease-out ${index>3?'right-0':'left-0'} ${openMenu===group.label?'visible translate-y-0 scale-100 opacity-100':'invisible pointer-events-none -translate-y-2 scale-[.98] opacity-0'}`}>
+                className={`absolute top-full z-[100] w-[min(34rem,90vw)] origin-top rounded-b-xl border-t-4 border-amber-400 bg-amber-400 p-5 shadow-[0_25px_60px_rgba(4,20,52,.25)] ring-1 ring-[#e4aa00] transition-all duration-200 ease-out ${index>3?'right-0':'left-0'} ${openMenu===group.label?'visible translate-y-0 scale-100 opacity-100':'invisible pointer-events-none -translate-y-2 scale-[.98] opacity-0'}`}>
                 <div className="mb-3 flex items-center justify-between border-b border-[#071d3e]/20 pb-3"><span className="text-xs font-extrabold uppercase tracking-[.16em] text-[#071d3e]">{group.label}</span><span className="text-xs text-[#071d3e]/75">Explore Redeemer</span></div>
                 <div className="grid grid-cols-2 gap-x-4 gap-y-1">
                   {group.items.map(item=><a key={item.slug} tabIndex={openMenu===group.label?0:-1} onClick={()=>setOpenMenu(null)}
@@ -172,8 +172,8 @@ export const Header: React.FC<HeaderProps> = ({
           {mobileMenuOpen&&<nav aria-label="Mobile school navigation" className="max-h-[70vh] overflow-y-auto border-t border-slate-100 px-4 pb-4">
             <a href="/" className="block border-b border-slate-100 px-3 py-3 text-sm font-bold">Home</a>
             {publicSchoolNavigation.map(group=><details key={group.label} className="group border-b border-slate-100">
-              <summary className="flex cursor-pointer list-none items-center justify-between px-3 py-3 text-sm font-extrabold text-slate-800 group-open:bg-[#f6b900] group-open:text-[#071d3e]">{group.label}<ChevronDown className="h-4 w-4 transition-transform group-open:rotate-180"/></summary>
-              <div className="grid grid-cols-1 gap-1 rounded-lg bg-[#f6b900] p-2 sm:grid-cols-2">
+              <summary className="flex cursor-pointer list-none items-center justify-between px-3 py-3 text-sm font-extrabold text-slate-800 group-open:bg-amber-400 group-open:text-[#071d3e]">{group.label}<ChevronDown className="h-4 w-4 transition-transform group-open:rotate-180"/></summary>
+              <div className="grid grid-cols-1 gap-1 rounded-lg bg-amber-400 p-2 sm:grid-cols-2">
                 {group.items.map(item=><a key={item.slug} className="rounded-md px-3 py-2.5 text-sm font-semibold text-[#071d3e] hover:bg-[#071d3e] hover:text-white focus-visible:bg-[#071d3e] focus-visible:text-white"
                   href={item.slug==='apply-online'?'/apply':item.slug==='student-portal'||item.slug==='guardian-portal'?'/portal':`/school/${item.slug}`}>{item.label}</a>)}
               </div>
