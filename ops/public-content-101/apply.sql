@@ -15,7 +15,7 @@ BEGIN
    RAISE EXCEPTION 'Migration 101 already applied or table exists';
  END IF;
 END $guard$;
-\ir ../../server/migrations/101_public_school_post_featured_images.sql
+\ir 101_public_school_post_featured_images.sql
 INSERT INTO public.schema_migrations(version) VALUES('101_public_school_post_featured_images.sql');
 DO $check$
 BEGIN
