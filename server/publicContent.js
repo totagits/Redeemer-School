@@ -3,6 +3,24 @@ import express from 'express';
 const schoolCodePattern=/^[A-Z0-9][A-Z0-9_-]{1,49}$/;
 const validId=/^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 function clean(value,max){return typeof value==='string' && value.trim().length<=max?value.trim():'';}
+
+function webpDimensions(bytes){
+ if(bytes.length<30||bytes.toString('ascii',0,4)!=='RIFF'||bytes.toString('ascii',8,12)!=='WEBP'||bytes.readUInt32LE(4)+8!==bytes.length)return null;
+ const kind=bytes.toString('ascii',12,16);
+ if(kind==='VP8 '&&bytes.length>=30&&bytes[23]===0x9d&&bytes[24]===1&&bytes[25]===0x2a)return {width:bytes.readUInt16LE(26)&0x3fff,height:bytes.readUInt16LE(28)&0x3fff};
+ if(kind==='VP8L'&&bytes.length>=25&&bytes[20]===0x2f)return {width:1+(((bytes[22]&63)<<8)|bytes[21]),height:1+(((bytes[24]&15)<<10)|(bytes[23]<<2)|((bytes[22]&192)>>6))};
+ if(kind==='VP8X'&&bytes.length>=30)return {width:1+bytes.readUIntLE(24,3),height:1+bytes.readUIntLE(27,3)};
+ return null;
+}
+function decodeImage(value){
+ if(typeof value!=='string'||!/^data:image\/webp;base64,[A-Za-z0-9+/]+={0,2}$/.test(value)||value.length>2200000)return null;
+ const bytes=Buffer.from(value.slice('data:image/webp;base64,'.length),'base64');
+ if(bytes.length<100||bytes.length>1572864)return null;
+ const size=webpDimensions(bytes);
+ if(!size||size.width<1200||size.height<675||size.width>4096||size.height>4096)return null;
+ return {bytes,...size};
+}
+
 function permitted(auth){
  return auth.account.roles.some(r=>['SCHOOL_ADMIN','PRINCIPAL'].includes(r)) &&
  auth.account.permissions.includes('communications.write');
@@ -26,14 +44,35 @@ export function createPublicContentRouter({pool,authenticate}){
      const schoolId=resolved.rows[0]?.id;
      if(!schoolId){await client.query('ROLLBACK');client.release();return res.status(404).json({error:'School not found.'});}
      await client.query("SELECT set_config('app.current_school_id',$1,true)",[schoolId]);
-     const posts=await client.query(`SELECT id,kind,title,summary,body,event_starts_at,published_at
-       FROM public_school_posts WHERE school_id=$1 AND status='PUBLISHED' AND published_at<=now()
+     const posts=await client.query(`SELECT p.id,p.kind,p.title,p.summary,p.body,p.event_starts_at,p.published_at,\n       (i.post_id IS NOT NULL) AS has_featured_image,i.caption AS image_caption,i.alt_text AS image_alt\n       FROM public_school_posts p LEFT JOIN public_school_post_images i ON i.school_id=p.school_id AND i.post_id=p.id\n       WHERE p.school_id=$1 AND p.status='PUBLISHED' AND p.published_at<=now()
        ORDER BY published_at DESC LIMIT 30`,[schoolId]);
      await client.query('COMMIT');client.release();
      return res.json({posts:posts.rows});
    }catch(error){
      if(client){try{await client.query('ROLLBACK');}catch{}client.release();}
      return res.status(503).json({error:'Public notices are temporarily unavailable.'});
+   }
+ });
+ router.get('/public/:id/image',async(req,res)=>{
+   if(!validId.test(req.params.id))return res.status(400).end();
+   const code=clean(req.query.schoolCode,50).toUpperCase();
+   if(!schoolCodePattern.test(code)||!pool)return res.status(400).end();
+   let client;
+   try{
+     client=await pool.connect();await client.query('BEGIN READ ONLY');
+     const school=await client.query('SELECT app.resolve_school_id_by_code($1) AS id',[code]);
+     const schoolId=school.rows[0]?.id;
+     if(!schoolId){await client.query('ROLLBACK');client.release();return res.status(404).end();}
+     await client.query("SELECT set_config('app.current_school_id',$1,true)",[schoolId]);
+     const result=await client.query(`SELECT i.image_bytes FROM public_school_post_images i JOIN public_school_posts p
+       ON p.school_id=i.school_id AND p.id=i.post_id
+       WHERE i.school_id=$1 AND i.post_id=$2 AND p.status='PUBLISHED' AND p.published_at<=now()`,[schoolId,req.params.id]);
+     await client.query('COMMIT');client.release();
+     if(!result.rowCount)return res.status(404).end();
+     return res.set('Content-Type','image/webp').set('X-Content-Type-Options','nosniff').set('Cache-Control','no-store').send(result.rows[0].image_bytes);
+   }catch{
+     if(client){try{await client.query('ROLLBACK');}catch{}client.release();}
+     return res.status(503).end();
    }
  });
  router.use('/manage',authenticate);
@@ -43,8 +82,7 @@ export function createPublicContentRouter({pool,authenticate}){
  });
  router.get('/manage',async(req,res)=>{
    try{
-     const result=await req.auth.client.query(`SELECT id,kind,title,summary,body,status,event_starts_at,published_at,created_at
-       FROM public_school_posts WHERE school_id=$1 ORDER BY created_at DESC LIMIT 100`,[req.auth.claims.schoolId]);
+     const result=await req.auth.client.query(`SELECT p.id,p.kind,p.title,p.summary,p.body,p.status,p.event_starts_at,p.published_at,p.created_at,\n       (i.post_id IS NOT NULL) AS has_featured_image,i.caption AS image_caption,i.alt_text AS image_alt\n       FROM public_school_posts p LEFT JOIN public_school_post_images i ON i.school_id=p.school_id AND i.post_id=p.id\n       WHERE p.school_id=$1 ORDER BY p.created_at DESC LIMIT 100`,[req.auth.claims.schoolId]);
      return release(req,res,200,{posts:result.rows});
    }catch {return release(req,res,503,{error:'Could not load public content.'},false);}
  });
@@ -66,6 +104,50 @@ export function createPublicContentRouter({pool,authenticate}){
        [req.auth.claims.schoolId,kind,title,summary,body,date||null,req.auth.claims.userId]);
      return release(req,res,201,{post:result.rows[0],notice:'Saved as a private draft.'});
    }catch{return release(req,res,503,{error:'Could not save public content.'},false);}
+ });
+ router.get('/manage/:id/image',async(req,res)=>{
+   if(!validId.test(req.params.id))return release(req,res,400,{error:'Invalid post ID.'},false);
+   try{
+     const img=await req.auth.client.query(`SELECT i.image_bytes FROM public_school_post_images i
+       JOIN public_school_posts p ON p.school_id=i.school_id AND p.id=i.post_id
+       WHERE i.school_id=$1 AND i.post_id=$2`,[req.auth.claims.schoolId,req.params.id]);
+     const client=req.auth.client;req.auth.client=null;
+     try{await client.query('COMMIT');}finally{client.release();}
+     if(!img.rowCount)return res.status(404).end();
+     return res.set('Content-Type','image/webp').set('X-Content-Type-Options','nosniff').set('Cache-Control','no-store').send(img.rows[0].image_bytes);
+   }catch{return release(req,res,503,{error:'Could not load private image preview.'},false);}
+ });
+ router.post('/manage/:id/image',async(req,res)=>{
+   if(req.get('x-csrf-token')!==req.auth.claims.csrfToken)return release(req,res,403,{error:'Invalid request verification.'},false);
+   if(!validId.test(req.params.id))return release(req,res,400,{error:'Invalid post ID.'},false);
+   const image=decodeImage(req.body?.imageData);
+   const alt=clean(req.body?.altText,240);
+   const caption=clean(req.body?.caption||'',240);
+   if(!image||alt.length<5)return release(req,res,400,{error:'Upload a clear WebP image of at least 1200 by 675 pixels, with descriptive alt text.'},false);
+   try{
+     const result=await req.auth.client.query(`INSERT INTO public_school_post_images
+       (school_id,post_id,image_bytes,mime_type,pixel_width,pixel_height,caption,alt_text)
+       SELECT p.school_id,p.id,$3,'image/webp',$4,$5,$6,$7 FROM public_school_posts p
+       WHERE p.school_id=$1 AND p.id=$2 AND p.status<>'PUBLISHED'
+       ON CONFLICT(school_id,post_id) DO UPDATE SET image_bytes=EXCLUDED.image_bytes,
+         pixel_width=EXCLUDED.pixel_width,pixel_height=EXCLUDED.pixel_height,
+         caption=EXCLUDED.caption,alt_text=EXCLUDED.alt_text
+       RETURNING post_id`,
+       [req.auth.claims.schoolId,req.params.id,image.bytes,image.width,image.height,caption,alt]);
+     if(!result.rowCount)return release(req,res,409,{error:'Only private drafts or unpublished posts may have their image changed.'},false);
+     return release(req,res,200,{notice:'Featured photo saved to this private post.'});
+   }catch{return release(req,res,503,{error:'Could not save featured photo.'},false);}
+ });
+ router.delete('/manage/:id/image',async(req,res)=>{
+   if(req.get('x-csrf-token')!==req.auth.claims.csrfToken)return release(req,res,403,{error:'Invalid request verification.'},false);
+   if(!validId.test(req.params.id))return release(req,res,400,{error:'Invalid post ID.'},false);
+   try{
+     const removed=await req.auth.client.query(`DELETE FROM public_school_post_images i USING public_school_posts p
+       WHERE i.school_id=$1 AND i.post_id=$2 AND p.school_id=i.school_id AND p.id=i.post_id
+       AND p.status<>'PUBLISHED' RETURNING i.post_id`,[req.auth.claims.schoolId,req.params.id]);
+     if(!removed.rowCount)return release(req,res,404,{error:'No removable photo found. Unpublish the post first if it is public.'},false);
+     return release(req,res,200,{notice:'Featured photo deleted. The news or event is retained.'});
+   }catch{return release(req,res,503,{error:'Could not delete featured photo.'},false);}
  });
  router.post('/manage/:id/status',async(req,res)=>{
    if(req.get('x-csrf-token')!==req.auth.claims.csrfToken)return release(req,res,403,{error:'Invalid request verification.'},false);

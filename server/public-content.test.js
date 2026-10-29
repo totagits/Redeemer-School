@@ -15,12 +15,12 @@ async function fixture(t,role='SCHOOL_ADMIN'){
    const q=sql.replace(/\s+/g,' ').trim();calls.push({q,params});
    if(q.startsWith('SELECT app.resolve_school_id_by_code'))return {rows:[{id:school}],rowCount:1};
    if(q.startsWith('SELECT set_config('))return {rows:[],rowCount:1};
-   if(q.startsWith('SELECT id,kind,title,summary,body,event_starts_at,published_at FROM public_school_posts')){
+   if(q.startsWith('SELECT p.id,p.kind,p.title,p.summary,p.body,p.event_starts_at,p.published_at')){
       assert.match(q,/status='PUBLISHED'/); assert.match(q,/published_at<=now\(\)/);
       assert.deepEqual(params,[school]);
       return {rows:[{id,title:'Public news',kind:'NEWS',summary:'Public update',body:'Public details'}],rowCount:1};
    }
-   if(q.startsWith('SELECT id,kind,title,summary,body,status,event_starts_at,published_at,created_at')){
+   if(q.startsWith('SELECT p.id,p.kind,p.title,p.summary,p.body,p.status,p.event_starts_at,p.published_at,p.created_at')){
       return {rows:[{id,title:'Draft',status:'DRAFT'}],rowCount:1};
    }
    if(q.startsWith('INSERT INTO public_school_posts')){
@@ -48,7 +48,7 @@ test('public school feed only returns published material and excludes private gu
  const {url,calls}=await fixture(t);
  const response=await fetch(url+'/public?schoolCode=RIA');assert.equal(response.status,200);
  const data=await response.json();assert.equal(data.posts.length,1);
- assert.ok(calls.some(x=>x.q.includes("FROM public_school_posts WHERE school_id=$1 AND status='PUBLISHED'")));
+ assert.ok(calls.some(x=>x.q.includes("FROM public_school_posts p LEFT JOIN public_school_post_images") && x.q.includes("p.status='PUBLISHED'")));
  assert.ok(!calls.some(x=>x.q.includes('FROM announcements')));
 });
 test('school website drafts are created only with leadership role and valid CSRF',async t=>{

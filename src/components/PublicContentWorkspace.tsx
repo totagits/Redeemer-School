@@ -1,5 +1,5 @@
 import React, { useCallback, useEffect, useState } from 'react';
-type Post={id:string;kind:'NEWS'|'EVENT';title:string;summary:string;body:string;status:'DRAFT'|'PUBLISHED'|'UNPUBLISHED';event_starts_at:string|null;published_at:string|null;created_at:string};
+type Post={id:string;kind:'NEWS'|'EVENT';title:string;summary:string;body:string;status:'DRAFT'|'PUBLISHED'|'UNPUBLISHED';event_starts_at:string|null;published_at:string|null;created_at:string;has_featured_image?:boolean;image_caption?:string;image_alt?:string};
 export function PublicContentWorkspace({csrfToken}:{csrfToken:string}){
   const [posts,setPosts]=useState<Post[]>([]);
   const [error,setError]=useState('');
@@ -7,6 +7,12 @@ export function PublicContentWorkspace({csrfToken}:{csrfToken:string}){
   const [busy,setBusy]=useState(false);
   const [kind,setKind]=useState<'NEWS'|'EVENT'>('NEWS');
   const [sessionExpired,setSessionExpired]=useState(false);
+  const [selectedPost,setSelectedPost]=useState('');
+  const [imageFile,setImageFile]=useState<File|null>(null);
+  const [imagePreview,setImagePreview]=useState('');
+  const [imageWarning,setImageWarning]=useState('');
+  const [imageAlt,setImageAlt]=useState('');
+  const [imageCaption,setImageCaption]=useState('');
   const load=useCallback(async()=>{
     try{
       const response=await fetch('/api/school-content/manage',{credentials:'same-origin'});
@@ -25,6 +31,68 @@ export function PublicContentWorkspace({csrfToken}:{csrfToken:string}){
     if(response.status===401){setSessionExpired(true);throw new Error('Your staff session has expired. Copy your unsaved text, then sign out and sign in again.');}
     if(!response.ok)throw new Error(result.error||'School website action failed.');
     return result;
+  }
+  function selectImage(file:File|undefined){
+    if(imagePreview)URL.revokeObjectURL(imagePreview);
+    setImageFile(null);setImagePreview('');setImageWarning('');
+    if(!file)return;
+    if(!['image/jpeg','image/png','image/webp'].includes(file.type)||file.size>8*1024*1024){
+      setImageWarning('Use a JPG, PNG or WebP photo smaller than 8 MB.');return;
+    }
+    const url=URL.createObjectURL(file);
+    const img=new Image();
+    img.onload=()=>{
+      if(img.width<1600||img.height<900){
+        setImageWarning('This photo is too small for a crisp featured card. Please use an original at least 1600 × 900 pixels.');
+        URL.revokeObjectURL(url);return;
+      }
+      setImageFile(file);setImagePreview(url);
+    };
+    img.onerror=()=>{setImageWarning('This image could not be opened. Choose another photo.');URL.revokeObjectURL(url);};
+    img.src=url;
+  }
+  function removePendingImage(){
+    if(imagePreview)URL.revokeObjectURL(imagePreview);
+    setImageFile(null);setImagePreview('');setImageWarning('');
+  }
+  async function saveFeaturedImage(postId:string){
+    if(!imageFile||!imageAlt.trim()||imageAlt.trim().length<5){setError('Select a sharp photo and describe it in the alt text field.');return;}
+    setBusy(true);setError('');setNotice('');
+    try{
+      const bitmap=await createImageBitmap(imageFile);
+      const ratio=16/9;
+      const w=1600,h=900;
+      const canvas=document.createElement('canvas');canvas.width=w;canvas.height=h;
+      const context=canvas.getContext('2d');if(!context)throw Error('Your browser cannot prepare this photo.');
+      const sourceWidth=Math.min(bitmap.width,bitmap.height*ratio);
+      const sourceHeight=sourceWidth/ratio;
+      context.drawImage(bitmap,(bitmap.width-sourceWidth)/2,(bitmap.height-sourceHeight)/2,sourceWidth,sourceHeight,0,0,w,h);
+      bitmap.close();
+      const encoded=canvas.toDataURL('image/webp',.88);
+      if(!encoded.startsWith('data:image/webp;')||encoded.length>2_100_000)throw Error('Photo cannot be safely optimized. Choose a smaller original.');
+      const result=await fetch('/api/school-content/manage/'+encodeURIComponent(postId)+'/image',{
+        method:'POST',credentials:'same-origin',headers:{'Content-Type':'application/json','X-CSRF-Token':csrfToken},
+        body:JSON.stringify({imageData:encoded,caption:imageCaption,altText:imageAlt})
+      });
+      const payload=await result.json().catch(()=>({}));
+      if(result.status===401){setSessionExpired(true);throw Error('Your session expired. Sign in again before uploading.');}
+      if(!result.ok)throw Error(payload.error||'Could not save photo.');
+      removePendingImage();setImageCaption('');setImageAlt('');setNotice(payload.notice||'Featured photo saved.');
+      await load();
+    }catch(e){setError(e instanceof Error?e.message:'Could not upload photo.');}
+    finally{setBusy(false);}
+  }
+  async function deleteFeaturedImage(post:Post){
+    if(!window.confirm('Delete the featured photo from this post? The article or event will remain.'))return;
+    setBusy(true);setError('');setNotice('');
+    try{
+      const response=await fetch('/api/school-content/manage/'+encodeURIComponent(post.id)+'/image',{method:'DELETE',credentials:'same-origin',headers:{'X-CSRF-Token':csrfToken}});
+      const data=await response.json().catch(()=>({}));
+      if(response.status===401){setSessionExpired(true);throw Error('Your session expired. Sign in again before deleting an image.');}
+      if(!response.ok)throw Error(data.error||'Could not delete photo.');
+      setNotice(data.notice||'Featured photo deleted.');await load();
+    }catch(e){setError(e instanceof Error?e.message:'Could not delete photo.');}
+    finally{setBusy(false);}
   }
   async function create(event:React.FormEvent<HTMLFormElement>){
     event.preventDefault();const form=event.currentTarget;const data=new FormData(form);
@@ -74,10 +142,23 @@ export function PublicContentWorkspace({csrfToken}:{csrfToken:string}){
       <h3 className="font-extrabold">Website content library</h3>
       {posts.length===0?<p className="mt-3 text-sm text-slate-600">No public website posts recorded.</p>:
       <div className="mt-3 space-y-3">{posts.map(post=><article key={post.id} className="rounded-xl border border-slate-200 p-4">
-        <div className="flex flex-wrap justify-between gap-3"><div><h4 className="font-bold">{post.title}</h4><p className="mt-1 text-xs text-slate-500">{post.kind} · {post.status}</p><p className="mt-2 text-sm text-slate-600">{post.summary}</p></div>
+        <div className="flex flex-wrap justify-between gap-3"><div className="min-w-0 flex-1">{post.has_featured_image&&<img src={`/api/school-content/manage/${encodeURIComponent(post.id)}/image`} alt={post.image_alt||post.title} className="mb-3 aspect-video w-full max-w-md rounded-xl object-cover" onError={event=>{event.currentTarget.style.display='none';}}/>}<h4 className="font-bold">{post.title}</h4><p className="mt-1 text-xs text-slate-500">{post.kind} · {post.status}</p><p className="mt-2 text-sm text-slate-600">{post.summary}</p></div>
           {post.status==='PUBLISHED'?<button disabled={busy} onClick={()=>void change(post,'UNPUBLISH')} className="h-fit rounded-lg border border-red-200 px-3 py-2 text-xs font-bold text-red-800">Unpublish</button>:
           <button disabled={busy} onClick={()=>void change(post,'PUBLISH')} className="h-fit rounded-lg bg-blue-700 px-3 py-2 text-xs font-bold text-white">Publish publicly</button>}
         </div>
+        {post.status!=='PUBLISHED'&&<div className="mt-4 rounded-xl border border-blue-100 bg-slate-50 p-4">
+          <h5 className="font-bold text-[#071d3e]">Featured news or event photo</h5>
+          <p className="mt-1 text-xs text-slate-600">Use an original 1600 × 900 pixels or larger. The browser makes a 16:9 WebP preview without stretching the photo. Small photos are rejected.</p>
+          {post.has_featured_image&&<div className="mt-3 flex flex-wrap items-center gap-2"><span className="text-sm text-green-800">A featured photo is saved.</span><button type="button" disabled={busy} onClick={()=>void deleteFeaturedImage(post)} className="rounded-lg border border-red-300 bg-white px-3 py-2 text-sm font-bold text-red-800">Delete featured photo</button></div>}
+          {selectedPost===post.id?<div className="mt-3 grid gap-3">
+            <label className="text-sm font-semibold">Choose photo<input type="file" accept="image/jpeg,image/png,image/webp" onChange={event=>selectImage(event.currentTarget.files?.[0])} className="mt-1 block w-full rounded-lg border bg-white p-2" /></label>
+            {imageWarning&&<p role="alert" className="text-sm font-bold text-red-800">{imageWarning}</p>}
+            {imagePreview&&<div><img src={imagePreview} alt="Local photo preview, not yet uploaded" className="aspect-video max-w-md rounded-lg object-cover"/><button type="button" onClick={removePendingImage} className="mt-2 rounded-lg border border-red-300 bg-white px-3 py-2 text-sm font-bold text-red-800">Remove selected photo</button></div>}
+            <label className="text-sm font-semibold">Alt text<input maxLength={240} value={imageAlt} onChange={event=>setImageAlt(event.target.value)} placeholder="Describe what the photo shows" className="mt-1 block w-full rounded-lg border p-3"/></label>
+            <label className="text-sm font-semibold">Caption (optional)<input maxLength={240} value={imageCaption} onChange={event=>setImageCaption(event.target.value)} className="mt-1 block w-full rounded-lg border p-3"/></label>
+            <button type="button" disabled={busy||!imageFile} onClick={()=>void saveFeaturedImage(post.id)} className="w-fit rounded-lg bg-[#071d3e] px-4 py-2 text-sm font-bold text-white disabled:opacity-40">Save featured photo to this draft</button>
+          </div>:<button type="button" onClick={()=>{removePendingImage();setSelectedPost(post.id);}} className="mt-3 rounded-lg border border-blue-300 px-3 py-2 text-sm font-bold text-blue-900">{post.has_featured_image?'Replace featured photo':'Add featured photo'}</button>}
+        </div>}
       </article>)}</div>}
     </section>
   </div>;
