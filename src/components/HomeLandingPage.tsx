@@ -22,7 +22,7 @@ const guide = [
 
 export const HomeLandingPage: React.FC<HomeLandingPageProps> = ({ onPortalSignIn, onApply }) => (
   <div className="bg-white text-slate-900">
-    <section className="relative isolate overflow-hidden bg-[#081b3c] text-white">
+    <section className="relative isolate overflow-hidden bg-[#081b3c] bg-cover bg-center text-white" style={{backgroundImage:"linear-gradient(90deg,rgba(8,27,60,.94),rgba(8,27,60,.75)),url(/school-photos/campus-courtyard.webp)"}}>
       <div className="pointer-events-none absolute inset-0 -z-10 bg-[radial-gradient(circle_at_75%_30%,rgba(65,117,234,.32),transparent_42%),radial-gradient(circle_at_15%_90%,rgba(11,140,171,.20),transparent_48%)]"/>
       <div className="mx-auto grid max-w-7xl items-center gap-10 px-5 py-16 sm:px-8 md:py-24 lg:grid-cols-[1.15fr_.85fr] lg:px-10">
         <div>
