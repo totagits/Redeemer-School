@@ -10,7 +10,7 @@ const userId = '721ddf68-1c98-4faa-9dc7-9161daa79870';
 const classId = 'd210b463-c02c-4be9-9003-8a9005e8dbe5';
 const announcementId = 'a210b463-c02c-4be9-9003-8a9005e8dbe5';
 
-test('school admin announcement queues SMS with bound school and announcement IDs', async t => {
+test('school admin announcement saves a draft without prematurely queuing SMS', async t => {
   const statements = [];
   const client = {
     async query(sql, params = []) {
@@ -20,7 +20,7 @@ test('school admin announcement queues SMS with bound school and announcement ID
       if (normalized.startsWith('INSERT INTO announcements(')) {
         assert.equal(params[0],schoolId);
         assert.equal(params[1],classId);
-        return {rows:[{id:announcementId,title:'STAGING TEST',body:'No action needed',audience:'CLASS',status:'PUBLISHED'}],rowCount:1};
+        return {rows:[{id:announcementId,title:'STAGING TEST',body:'No action needed',audience:'CLASS',status:'DRAFT'}],rowCount:1};
       }
       if (normalized.startsWith('INSERT INTO notification_deliveries(')) {
         assert.deepEqual(params,[schoolId,announcementId], 'SMS queue SQL must bind both placeholders');
@@ -46,6 +46,9 @@ test('school admin announcement queues SMS with bound school and announcement ID
     body:JSON.stringify({title:'STAGING TEST',body:'No action needed',audience:'CLASS',classGroupId:classId})
   });
   assert.equal(response.status,201);
-  assert.ok(statements.some(x=>x.normalized.startsWith('INSERT INTO notification_deliveries(')));
+  assert.equal(statements.some(x=>x.normalized.startsWith('INSERT INTO notification_deliveries(')),false);
+  assert.equal(statements.some(x=>x.normalized.startsWith('WITH a AS (SELECT * FROM announcements')),false);
+  const result=await response.json(); assert.equal(result.announcement.status,'DRAFT');
   assert.equal(statements.at(-1).normalized,'COMMIT');
+  assert.equal(statements.find(x=>x.normalized.startsWith('INSERT INTO announcements(')).params[5],'DRAFT');
 });
