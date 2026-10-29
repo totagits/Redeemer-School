@@ -1,4 +1,5 @@
 import React from 'react';
+import { PublicSchoolUpdates } from './PublicSchoolUpdates.tsx';
 import { LiveAdmissionsGuide, SchoolFAQ, PublicSchoolSupport } from './SchoolPublicUtilities.tsx';
 import { ArrowRight, BookOpen, CalendarDays, Camera, GraduationCap, HeartHandshake, MapPin, Phone, Users } from 'lucide-react';
 import { SCHOOL_CONTACT } from '../data/schoolContact.ts';
@@ -105,6 +106,9 @@ export function PublicSchoolPages({slug,onApply,onPortalSignIn}:{slug:string;onA
    {['enrollment-process','admission-requirements','admissions-fees'].includes(slug)&&<LiveAdmissionsGuide onApply={onApply}/>}
    {slug==='parent-faq'&&<SchoolFAQ/>}
    {['contact-us','school-visits','request-information','records-requests'].includes(slug)&&<PublicSchoolSupport/>}
+   {slug==='school-calendar'&&<PublicSchoolUpdates kind="EVENT" limit={30}/>}
+   {slug==='news-events'&&<PublicSchoolUpdates kind="ALL" limit={30}/>}
+   {slug==='school-events'&&<PublicSchoolUpdates kind="EVENT" limit={30}/>}
    {slug==='photo-albums'&&<PhotoAlbumPreview/>}
    </main>
    <aside className="self-start rounded-2xl border border-slate-200 bg-white p-5 shadow-sm"><h2 className="font-bold">{group?.label||'Explore Redeemer'}</h2>
