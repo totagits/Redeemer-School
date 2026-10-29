@@ -142,22 +142,22 @@ export const Header: React.FC<HeaderProps> = ({
               onMouseLeave={()=>setOpenMenu(current=>current===group.label?null:current)}>
               <button type="button" aria-controls={`school-menu-${index}`} aria-expanded={openMenu===group.label}
                 onClick={()=>setOpenMenu(group.label)}
-                className={`flex items-center gap-1 rounded-md border-b-[3px] px-2 py-3 text-sm font-bold transition-all duration-200 ${openMenu===group.label?'border-blue-900 bg-blue-800 text-white':'border-transparent text-blue-950 hover:border-blue-800 hover:bg-blue-800 hover:text-white'}`}>
+                className={`flex items-center gap-1 rounded-md border-b-[3px] px-2 py-3 text-sm font-bold transition-all duration-200 ${openMenu===group.label?'border-[#071d3e] bg-[#071d3e] text-white':'border-transparent text-[#071d3e] hover:border-[#071d3e] hover:bg-[#071d3e] hover:text-white'}`}>
                 {group.label}<ChevronDown aria-hidden="true" className={`h-4 w-4 transition-transform duration-200 ${openMenu===group.label?'rotate-180':''}`}/>
               </button>
               <div id={`school-menu-${index}`} aria-label={`${group.label} submenu`} aria-hidden={openMenu!==group.label}
-                className={`absolute top-full z-[100] w-[min(34rem,90vw)] origin-top rounded-b-xl border-t-4 border-blue-950 bg-blue-800 p-5 shadow-[0_25px_60px_rgba(4,20,52,.25)] ring-1 ring-blue-900 transition-all duration-200 ease-out ${index>3?'right-0':'left-0'} ${openMenu===group.label?'visible translate-y-0 scale-100 opacity-100':'invisible pointer-events-none -translate-y-2 scale-[.98] opacity-0'}`}>
-                <div className="mb-3 flex items-center justify-between border-b border-blue-500 pb-3"><span className="text-xs font-extrabold uppercase tracking-[.16em] text-white">{group.label}</span><span className="text-xs text-blue-100">Explore Redeemer</span></div>
+                className={`absolute top-full z-[100] w-[min(34rem,90vw)] origin-top rounded-b-xl border-t-4 border-[#071d3e] bg-[#071d3e] p-5 shadow-[0_25px_60px_rgba(4,20,52,.25)] ring-1 ring-[#071d3e] transition-all duration-200 ease-out ${index>3?'right-0':'left-0'} ${openMenu===group.label?'visible translate-y-0 scale-100 opacity-100':'invisible pointer-events-none -translate-y-2 scale-[.98] opacity-0'}`}>
+                <div className="mb-3 flex items-center justify-between border-b border-white/20 pb-3"><span className="text-xs font-extrabold uppercase tracking-[.16em] text-white">{group.label}</span><span className="text-xs text-white/70">Explore Redeemer</span></div>
                 <div className="grid grid-cols-2 gap-x-4 gap-y-1">
                   {group.items.map(item=><a key={item.slug} tabIndex={openMenu===group.label?0:-1} onClick={()=>setOpenMenu(null)}
                     href={item.slug==='apply-online'?'/apply':item.slug==='student-portal'||item.slug==='guardian-portal'?'/portal':`/school/${item.slug}`}
-                    className="group flex items-center justify-between gap-2 rounded-lg px-3 py-2.5 text-sm font-semibold text-white transition-all duration-150 hover:bg-white hover:text-blue-900 focus-visible:bg-white focus-visible:text-blue-900 focus-visible:outline-white">
+                    className="group flex items-center justify-between gap-2 rounded-lg px-3 py-2.5 text-sm font-semibold text-white transition-all duration-150 hover:bg-white hover:text-[#071d3e] focus-visible:bg-white focus-visible:text-[#071d3e] focus-visible:outline-white">
                     <span>{item.label}</span><ArrowUpRight aria-hidden="true" className="h-3.5 w-3.5 shrink-0 opacity-0 transition-opacity group-hover:opacity-100 group-focus-visible:opacity-100"/>
                   </a>)}
                 </div>
               </div>
             </div>)}
-            <a href="/portal" className="ml-1 shrink-0 rounded-md bg-blue-800 px-3 py-2.5 text-xs font-bold text-white transition hover:bg-blue-950">Student & guardian portal</a>
+            <a href="/portal" className="ml-1 shrink-0 rounded-md bg-[#071d3e] px-3 py-2.5 text-xs font-bold text-white transition hover:bg-[#123866]">Student & guardian portal</a>
           </nav>
 </div></div>}
       
@@ -173,12 +173,12 @@ export const Header: React.FC<HeaderProps> = ({
             <a href="/" className="block border-b border-slate-100 px-3 py-3 text-sm font-bold">Home</a>
             {publicSchoolNavigation.map(group=><details key={group.label} className="group border-b border-slate-100">
               <summary className="flex cursor-pointer list-none items-center justify-between px-3 py-3 text-sm font-extrabold text-slate-800">{group.label}<ChevronDown className="h-4 w-4 transition-transform group-open:rotate-180"/></summary>
-              <div className="grid grid-cols-1 gap-1 rounded-lg bg-blue-800 p-2 sm:grid-cols-2">
-                {group.items.map(item=><a key={item.slug} className="rounded-md px-3 py-2.5 text-sm font-semibold text-white hover:bg-white hover:text-blue-900 focus-visible:bg-white focus-visible:text-blue-900"
+              <div className="grid grid-cols-1 gap-1 rounded-lg bg-[#071d3e] p-2 sm:grid-cols-2">
+                {group.items.map(item=><a key={item.slug} className="rounded-md px-3 py-2.5 text-sm font-semibold text-white hover:bg-white hover:text-[#071d3e] focus-visible:bg-white focus-visible:text-blue-900"
                   href={item.slug==='apply-online'?'/apply':item.slug==='student-portal'||item.slug==='guardian-portal'?'/portal':`/school/${item.slug}`}>{item.label}</a>)}
               </div>
             </details>)}
-            <a href="/portal" className="mt-3 block rounded-lg bg-blue-800 px-4 py-3 text-center text-sm font-extrabold text-white">Student & Guardian Portal</a>
+            <a href="/portal" className="mt-3 block rounded-lg bg-[#071d3e] px-4 py-3 text-center text-sm font-extrabold text-white">Student & Guardian Portal</a>
           </nav>}
         </div>
       ) : <div className="lg:hidden flex items-center gap-1 px-4 py-2 border-t border-slate-100 overflow-x-auto bg-slate-50">
@@ -206,7 +206,7 @@ export const Header: React.FC<HeaderProps> = ({
               <p className="mt-2 leading-relaxed">{SCHOOL_CONTACT.address}</p>
               <div className="mt-3 flex flex-col gap-1.5">
                 {SCHOOL_CONTACT.phones.map((phone) => (
-                  <a key={phone} href={`tel:${phone}`} className="font-semibold text-blue-700 hover:text-blue-900">{phone}</a>
+                  <a key={phone} href={`tel:${phone}`} className="font-semibold text-blue-700 hover:text-[#071d3e]">{phone}</a>
                 ))}
               </div>
             </div>
