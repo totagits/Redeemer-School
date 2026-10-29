@@ -8,7 +8,7 @@ test('campus carousel has no full-image navy screen or filter',()=>{
  assert.doesNotMatch(carousel,/from-\[#071d3e\]\/95/);
  assert.doesNotMatch(carousel,/filter:contrast/);
  assert.match(carousel,/object-cover object-center/);
- assert.match(carousel,/rounded-xl bg-\[#071d3e\]\/85/);
+ assert.match(carousel,/border-t border-white\/15 bg-\[#071d3e\]/);
 });
 test('news and event featured photos remain unfiltered',()=>{
  assert.match(updates,/post.has_featured_image/);
