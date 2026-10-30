@@ -123,6 +123,13 @@ guardian email." This proves provider acceptance, not inbox receipt or mailbox p
 Actual guardian code entry/verification is pending. No candidate access code or
 private result code has been issued.
 
+The user reported that no verification email arrived. A read-only delivery-status
+lookup using the existing staging Resend key returned HTTP 401 restricted_api_key;
+the key is restricted to sending, not delivery-log access. This is not evidence
+that the original send failed. No key permissions were expanded and no duplicate
+message was sent. Delivery diagnosis awaits sign-in to the existing Resend dashboard;
+the connected Gmail account is not the authorized recipient mailbox.
+
 A separate ONLINE draft, TEST — Grade 4 Online Guardian Access 20261030, has that
 fictional applicant assigned and two harmless test questions (maximum four points).
 The existing School Administrator reviewed and froze its question set. Scheduling
