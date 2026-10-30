@@ -1,3 +1,5 @@
+import { readCandidateAttempt,startCandidateAttempt,saveCandidateAnswer,submitCandidateAttempt } from './candidateExamSitting.js';
+import { createOperationsRouter } from './operations.js';
 import express from 'express';
 import { once } from 'node:events';
 import { createCandidateExamRouter } from './candidateExamAuth.js';
@@ -137,6 +139,25 @@ test('candidate migrations and access rules execute in embedded PostgreSQL', asy
       for(let i=0;i<3;i++)assert.equal((await tenant(f.school,()=>createGuardianEmailChallenge(client,args))).ok,true);
       assert.equal((await tenant(f.school,()=>createGuardianEmailChallenge(client,args))).ok,false);
     });
+    await t.test('approved snapshots are immutable and answer saves are scoped, typed and closed at the deadline', async () => {
+      const f=await fixture('TEST-SITTING'),scope={schoolId:f.school,examId:f.exam,applicationId:f.app};
+      await assert.rejects(tenant(f.school,()=>startCandidateAttempt(client,scope)),/not approved/);
+      const q=randomUUID();
+      await query("INSERT INTO admission_exam_questions(id,school_id,exam_id,prompt,question_type,answer_key,points,sort_order,created_by) VALUES($1,$2,$3,'Explain your answer','SHORT_ANSWER','\"PRIVATE_ANSWER\"',1,1,$4)",[q,f.school,f.exam,f.user]);
+      const snapshot=[{id:q,prompt:'Explain your answer',question_type:'SHORT_ANSWER',options:null,points:'1.00',sort_order:1,answer_key:'PRIVATE_ANSWER'}];
+      await query('INSERT INTO admission_exam_question_sets(school_id,exam_id,questions,answer_keys,published_by) VALUES($1,$2,$3::jsonb,$4::jsonb,$5)',[f.school,f.exam,JSON.stringify(snapshot),JSON.stringify({[q]:'PRIVATE_ANSWER'}),f.user]);
+      await assert.rejects(tenant(f.school,()=>query("UPDATE admission_exam_question_sets SET questions='[]' WHERE school_id=$1",[f.school])),e=>e.code==='42501');
+      const started=await tenant(f.school,()=>startCandidateAttempt(client,scope));assert.equal(started.attempt.status,'IN_PROGRESS');
+      assert.equal(JSON.stringify(started).includes('PRIVATE_ANSWER'),false);
+      for(const answer of [4,{},'x'.repeat(4001)])await assert.rejects(tenant(f.school,()=>saveCandidateAnswer(client,scope,{questionId:q,answer})),/valid answer/);
+      await tenant(f.school,()=>saveCandidateAnswer(client,scope,{questionId:q,answer:'My explanation'}));
+      const read=await tenant(f.school,()=>readCandidateAttempt(client,scope));assert.equal(read.answers[0].answer,'My explanation');
+      await assert.rejects(tenant(b.school,()=>saveCandidateAnswer(client,{schoolId:b.school,examId:f.exam,applicationId:f.app},{questionId:q,answer:'Other school'})));
+      await query("UPDATE admission_entrance_exams SET starts_at=now()-interval '2 minutes',ends_at=now()-interval '1 minute' WHERE id=$1",[f.exam]);
+      await assert.rejects(tenant(f.school,()=>saveCandidateAnswer(client,scope,{questionId:q,answer:'After deadline'})),/scheduled window/);
+      await assert.rejects(tenant(f.school,()=>submitCandidateAttempt(client,scope,{submissionId:randomUUID()})),/scheduled window/);
+      assert.equal((await query('SELECT answer FROM admission_exam_answers WHERE school_id=$1',[f.school])).rows[0].answer,'My explanation');
+    });
     await t.test('candidate HTTP sign-in uses verified email, secure cookies, origin checks, CSRF and revocation', async () => {
       const f=await fixture('TEST-HTTP');
       await query("INSERT INTO admission_guardians(school_id,application_id,first_name,last_name,relationship,email) VALUES($1,$2,'Http','Guardian','Parent','http@example.invalid')",[f.school,f.app]);
@@ -146,6 +167,10 @@ test('candidate migrations and access rules execute in embedded PostgreSQL', asy
         return query(sql,params);
       },release(){}})};
       const app=express();app.use(express.json());
+      let staffRole='REGISTRAR';
+      const authenticate=async(req,res,next)=>{await db.exec('BEGIN; SET LOCAL ROLE redeemer_runtime');await query("SELECT set_config('app.current_school_id',$1,true)",[f.school]);req.auth={client:{query,release(){}},claims:{schoolId:f.school,userId:f.user,csrfToken:'ops-csrf'},account:{roles:[staffRole],permissions:['admissions.read','admissions.write']}};next();};
+      app.use('/api/operations',createOperationsRouter({authenticate}));
+      const oldPreview=process.env.ENABLE_CANDIDATE_EXAM_PREVIEW;process.env.ENABLE_CANDIDATE_EXAM_PREVIEW='true';
       app.use('/api/candidate-exams',createCandidateExamRouter({pool,secret:'test-secret-only-'.repeat(4),publicUrl:'https://school.example',enabled:true}));
       app.use('/disabled',createCandidateExamRouter({pool,secret:'test-secret-only-'.repeat(4),publicUrl:'https://school.example'}));
       const server=app.listen(0,'127.0.0.1');await once(server,'listening');
@@ -158,12 +183,42 @@ test('candidate migrations and access rules execute in embedded PostgreSQL', asy
         assert.equal((await request('/api/candidate-exams/login',login)).status,401);
         assert.equal((await request('/api/candidate-exams/verify-email',{schoolCode:'TEST-HTTP',code:challenge.token})).status,200);
         await query('UPDATE admission_exam_candidate_credentials SET guardian_verification_id=$2 WHERE school_id=$1',[f.school,challenge.id]);
+        await query("UPDATE admission_entrance_exams SET status='DRAFT',starts_at=now()+interval '5 minutes' WHERE id=$1",[f.exam]);
+        const op='/api/operations/admissions/entrance-exams/'+f.exam;
+        assert.equal((await request(op+'/schedule',{},null,'ops-csrf')).status,409);
+        const questionBody={prompt:'Choose the second option',questionType:'SINGLE_CHOICE',options:['First','Second'],answerKey:1,points:2,sortOrder:1};
+        assert.equal((await request(op+'/questions',questionBody,null,'bad-csrf')).status,403);
+        const authored=await request(op+'/questions',questionBody,null,'ops-csrf');assert.equal(authored.status,201);
+        const q=(await authored.json()).question;
+        assert.equal(Object.hasOwn(q,'answer_key'),false);
+        assert.equal((await request(op+'/publish-questions',{},null,'ops-csrf')).status,403);
+        staffRole='PRINCIPAL';
+        assert.equal((await request(op+'/publish-questions',{},null,'ops-csrf')).status,201);
+        assert.equal((await request(op+'/questions',{...questionBody,sortOrder:2},null,'ops-csrf')).status,409);
+        assert.equal((await request(op+'/schedule',{},null,'ops-csrf')).status,200);
+        await query("UPDATE admission_entrance_exams SET starts_at=now()-interval '1 minute' WHERE id=$1",[f.exam]);
         const signed=await request('/api/candidate-exams/login',login);assert.equal(signed.status,200);
         const header=signed.headers.get('set-cookie');assert.match(header,/HttpOnly; Secure; SameSite=Strict/);
         assert.match(header,/Path=\/api\/candidate-exams/);
         const cookie=header.split(';')[0],body=await signed.json();
         assert.equal(body.signedIn,true);assert.equal(Object.hasOwn(body,'token'),false);
         assert.equal((await request('/api/candidate-exams/session',null,cookie)).status,200);
+        assert.equal((await request('/api/candidate-exams/start',{},cookie,'incorrect')).status,403);
+        const startResponse=await request('/api/candidate-exams/start',{applicationId:b.app,examId:b.exam},cookie,body.csrfToken);assert.equal(startResponse.status,200);
+        const started=await startResponse.json();assert.equal(started.questions.length,1);assert.equal(Object.hasOwn(started.questions[0],'answer_key'),false);
+        assert.equal((await (await request('/api/candidate-exams/start',{},cookie,body.csrfToken)).json()).attempt.id,started.attempt.id);
+        assert.equal((await request('/api/candidate-exams/answers',{questionId:randomUUID(),answer:0},cookie,body.csrfToken)).status,400);
+        assert.equal((await request('/api/candidate-exams/answers',{questionId:q.id,answer:2},cookie,body.csrfToken)).status,400);
+        assert.equal((await request('/api/candidate-exams/answers',{questionId:q.id,answer:0},cookie,body.csrfToken)).status,200);
+        const resumed=await (await request('/api/candidate-exams/attempt',null,cookie)).json();assert.equal(resumed.answers[0].answer,0);
+        const submission={submissionId:randomUUID()};
+        const submitted=await request('/api/candidate-exams/submit',submission,cookie,body.csrfToken);assert.equal(submitted.status,200);
+        const accepted=await submitted.json();assert.equal(accepted.submitted,true);
+        const duplicate=await request('/api/candidate-exams/submit',submission,cookie,body.csrfToken);assert.equal(duplicate.status,200);assert.equal((await duplicate.json()).submittedAt,accepted.submittedAt);
+        assert.equal((await request('/api/candidate-exams/submit',{submissionId:randomUUID()},cookie,body.csrfToken)).status,409);
+        assert.equal((await request('/api/candidate-exams/answers',{questionId:q.id,answer:1},cookie,body.csrfToken)).status,409);
+        const closed=await (await request('/api/candidate-exams/attempt',null,cookie)).json();assert.equal(closed.attempt.status,'SUBMITTED');assert.equal(closed.questions.length,0);
+
         assert.equal((await request('/api/candidate-exams/session',null,cookie+'corrupted')).status,401);
         assert.equal((await request('/api/candidate-exams/session',null,'redeemer_session=staff-token')).status,401);
         assert.equal((await request('/api/candidate-exams/logout',{},cookie)).status,403);
@@ -172,7 +227,7 @@ test('candidate migrations and access rules execute in embedded PostgreSQL', asy
         assert.equal((await request('/api/candidate-exams/login',login)).status,401);
         let limited=false;for(let i=0;i<12;i++)if((await request('/api/candidate-exams/login',{schoolCode:'TEST-HTTP',code:'invalid'})).status===429)limited=true;
         assert.equal(limited,true);
-      }finally{await new Promise((resolve,reject)=>server.close(e=>e?reject(e):resolve()));}
+      }finally{if(oldPreview===undefined)delete process.env.ENABLE_CANDIDATE_EXAM_PREVIEW;else process.env.ENABLE_CANDIDATE_EXAM_PREVIEW=oldPreview;await new Promise((resolve,reject)=>server.close(e=>e?reject(e):resolve()));}
     });
   } finally { await db.close(); }
 });

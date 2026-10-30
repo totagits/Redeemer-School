@@ -1778,6 +1778,13 @@ export function createOperationsRouter({ authenticate, sendInvitation = sendAcco
     try{
       if(!await requireEntranceExamSchema(req,res)) return;
       const schoolId=req.auth.claims.schoolId;
+      if(process.env.ENABLE_CANDIDATE_EXAM_PREVIEW==='true'){
+        const draft=await req.auth.client.query('SELECT mode FROM admission_entrance_exams WHERE school_id=$1 AND id=$2 FOR UPDATE',[schoolId,examId]);
+        if(draft.rows[0]?.mode==='ONLINE'){
+          const approved=await req.auth.client.query('SELECT id FROM admission_exam_question_sets WHERE school_id=$1 AND exam_id=$2',[schoolId,examId]);
+          if(!approved.rowCount){await close(req,false);return res.status(409).json({error:'Leadership must approve the online examination questions before scheduling.'});}
+        }
+      }
       const updated=await req.auth.client.query(`UPDATE admission_entrance_exams e
         SET status='SCHEDULED'
         WHERE e.school_id=$1 AND e.id=$2 AND e.status='DRAFT' AND e.starts_at>now()
@@ -1908,6 +1915,36 @@ export function createOperationsRouter({ authenticate, sendInvitation = sendAcco
     }catch(error){return fail(req,res,error);}
   });
 
+  router.get('/admissions/entrance-exams/:examId/questions',needsPermission('admissions.read'),async(req,res)=>{
+    if(process.env.ENABLE_CANDIDATE_EXAM_PREVIEW!=='true'){await close(req,false);return res.status(503).json({error:'Candidate examination preview is not enabled.'});}
+    try{
+      const schoolId=req.auth.claims.schoolId,examId=text(req.params.examId,50);
+      const exam=await req.auth.client.query('SELECT id FROM admission_entrance_exams WHERE school_id=$1 AND id=$2',[schoolId,examId]);
+      if(!exam.rowCount){await close(req,false);return res.status(404).json({error:'Examination not found.'});}
+      const questions=await req.auth.client.query('SELECT id,prompt,question_type,options,points,sort_order,answer_key FROM admission_exam_questions WHERE school_id=$1 AND exam_id=$2 ORDER BY sort_order',[schoolId,examId]);
+      const published=await req.auth.client.query('SELECT id FROM admission_exam_question_sets WHERE school_id=$1 AND exam_id=$2',[schoolId,examId]);
+      return done(req,res,200,{questions:questions.rows,approved:published.rowCount>0});
+    }catch(error){return fail(req,res,error);}
+  });
+
+  router.post('/admissions/entrance-exams/:examId/publish-questions',needsPermission('admissions.write'),csrf,async(req,res)=>{
+    if(process.env.ENABLE_CANDIDATE_EXAM_PREVIEW!=='true'){await close(req,false);return res.status(503).json({error:'Candidate examination preview is not enabled.'});}
+    if(!req.auth.account.roles.some(role=>['SCHOOL_ADMIN','PRINCIPAL'].includes(role))){await close(req,false);return res.status(403).json({error:'Only the Principal or School Administrator may approve examination questions.'});}
+    try{
+      const schoolId=req.auth.claims.schoolId,examId=text(req.params.examId,50);
+      const exam=await req.auth.client.query("SELECT id FROM admission_entrance_exams WHERE school_id=$1 AND id=$2 AND mode='ONLINE' AND status='DRAFT' AND starts_at>clock_timestamp() FOR UPDATE",[schoolId,examId]);
+      if(!exam.rowCount){await close(req,false);return res.status(409).json({error:'Approve questions while the online examination is still a future draft.'});}
+      const questions=await req.auth.client.query('SELECT id,prompt,question_type,options,points,sort_order,answer_key FROM admission_exam_questions WHERE school_id=$1 AND exam_id=$2 ORDER BY sort_order',[schoolId,examId]);
+      if(questions.rowCount<1||questions.rowCount>100){await close(req,false);return res.status(409).json({error:'An examination needs between 1 and 100 reviewed questions.'});}
+      const keys=Object.fromEntries(questions.rows.map(q=>[q.id,q.answer_key]));
+      const snapshot=questions.rows.map(({id,prompt,question_type,options,points,sort_order})=>({id,prompt,question_type,options,points,sort_order}));
+      const published=await req.auth.client.query('INSERT INTO admission_exam_question_sets(school_id,exam_id,questions,answer_keys,published_by) VALUES($1,$2,$3::jsonb,$4::jsonb,$5) ON CONFLICT(school_id,exam_id) DO NOTHING RETURNING id',[schoolId,examId,JSON.stringify(snapshot),JSON.stringify(keys),req.auth.claims.userId]);
+      if(!published.rowCount){await close(req,false);return res.status(409).json({error:'Questions have already been approved and frozen.'});}
+      await audit(req,'ENTRANCE_EXAM_QUESTIONS_APPROVED','ADMISSION_ENTRANCE_EXAM',examId,{questionSetId:published.rows[0].id,questionCount:questions.rowCount});
+      return done(req,res,201,{approved:true,questionCount:questions.rowCount});
+    }catch(error){return fail(req,res,error);}
+  });
+
   // Staff-only question authoring. No applicant question delivery or answer-key exposure.
   // Migration 104 is required and must be independently reviewed before applying in staging.
   router.post('/admissions/entrance-exams/:examId/questions',needsPermission('admissions.write'),csrf,async(req,res)=>{
@@ -1933,10 +1970,12 @@ export function createOperationsRouter({ authenticate, sendInvitation = sendAcco
       const exists=await req.auth.client.query("SELECT to_regclass('public.admission_exam_questions') IS NOT NULL AS ready");
       if(!exists.rows[0]?.ready){await close(req,false);return res.status(503).json({error:'Question bank requires reviewed migration 104.'});}
       const schoolId=req.auth.claims.schoolId;
+      await req.auth.client.query('SELECT id FROM admission_entrance_exams WHERE school_id=$1 AND id=$2 FOR UPDATE',[schoolId,examId]);
       const created=await req.auth.client.query(`INSERT INTO admission_exam_questions
         (school_id,exam_id,prompt,question_type,options,answer_key,points,sort_order,created_by)
         SELECT $1,e.id,$3,$4,$5::jsonb,$6::jsonb,$7,$8,$9
         FROM admission_entrance_exams e WHERE e.school_id=$1 AND e.id=$2 AND e.status='DRAFT'
+          AND NOT EXISTS (SELECT 1 FROM admission_exam_question_sets p WHERE p.school_id=e.school_id AND p.exam_id=e.id)
           AND NOT EXISTS (SELECT 1 FROM admission_exam_attempts t WHERE t.school_id=e.school_id AND t.exam_id=e.id)
         RETURNING id,exam_id,prompt,question_type,options,points,sort_order`,
       [schoolId,examId,prompt,kind,validChoice?JSON.stringify(options):null,JSON.stringify(key),points,order,req.auth.claims.userId]);

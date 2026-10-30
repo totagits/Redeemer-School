@@ -54,11 +54,11 @@ app.use((_req, res, next) => {
   res.setHeader('X-Content-Type-Options', 'nosniff');
   next();
 });
+app.use('/api/candidate-exams',createCandidateExamRouter({pool:runtimePool,secret:sessionSecret,publicUrl:process.env.APP_PUBLIC_URL,enabled:process.env.ENABLE_CANDIDATE_EXAM_PREVIEW==='true'}));
+
 // Assignment submissions may contain one small school document (encoded in
 // JSON). The endpoint enforces a strict per-file limit before writing to DB.
 app.use(express.json({ limit: '9mb' }));
-
-app.use('/api/candidate-exams',createCandidateExamRouter({pool:runtimePool,secret:sessionSecret,publicUrl:process.env.APP_PUBLIC_URL,enabled:process.env.ENABLE_CANDIDATE_EXAM_PREVIEW==='true'}));
 
 app.get('/api/health/live', (_req, res) => {
   res.status(200).json({ status: 'ok', release: 'family-fee-invoice-v7' });

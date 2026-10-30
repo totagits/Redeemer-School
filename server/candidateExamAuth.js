@@ -1,3 +1,4 @@
+import { readCandidateAttempt,startCandidateAttempt,saveCandidateAnswer,submitCandidateAttempt,ExamSittingError } from './candidateExamSitting.js';
 import express from 'express';
 import { createHmac, randomBytes, timingSafeEqual } from 'node:crypto';
 import { isStrongSessionSecret } from './authCrypto.js';
@@ -19,6 +20,7 @@ const proofValid=`v.verified_at IS NOT NULL AND v.revoked_at IS NULL AND v.verif
 // not legal guardianship, exam results, or an admission decision.
 export function createCandidateExamRouter({pool,secret,publicUrl,enabled=false}) {
   const router=express.Router(),attempts=new Map();
+  router.use(express.json({limit:'16kb'}));
   let origin;
   try {const u=new URL(publicUrl);if(u.protocol==='https:'&&!u.username&&!u.password)origin=u.origin;}catch{}
   const mac=value=>createHmac('sha256',secret).update('candidate-exam:v1:'+value).digest('base64url');
@@ -44,12 +46,12 @@ export function createCandidateExamRouter({pool,secret,publicUrl,enabled=false})
     }catch(error){try{await client.query('ROLLBACK');}catch{}throw error;}finally{client.release();}
   }
   const tenant=(client,id)=>client.query("SELECT set_config('app.current_school_id',$1,true)",[id]);
-  router.get('/status',(_req,res)=>{res.setHeader('Cache-Control','no-store');return res.json({enabled:Boolean(enabled&&pool&&origin&&isStrongSessionSecret(secret)),sittingAvailable:false});});
+  router.get('/status',(_req,res)=>{res.setHeader('Cache-Control','no-store');return res.json({enabled:Boolean(enabled&&pool&&origin&&isStrongSessionSecret(secret)),sittingAvailable:Boolean(enabled&&pool&&origin&&isStrongSessionSecret(secret))});});
   router.use((req,res,next)=>{
     res.setHeader('Cache-Control','no-store');res.setHeader('Referrer-Policy','no-referrer');
     if(!enabled||!pool||!origin||!isStrongSessionSecret(secret))return res.status(503).json({error:'Candidate sign-in is not enabled.'});
     if(req.method!=='GET'&&(req.get('Origin')!==origin||!req.is('application/json')))return res.status(403).json({error:'Use the school examination page to continue.'});
-    if(req.method==='POST'){
+    if(req.method==='POST'&&['/login','/verify-email'].includes(req.path)){
       const now=Date.now();for(const [key,item] of attempts)if(item.until<=now)attempts.delete(key);
       const key=req.ip||'unknown';const item=attempts.get(key)||{count:0,until:now+900_000};
       if(item.count>=10||(!attempts.has(key)&&attempts.size>=10_000))return res.status(429).json({error:'Too many attempts. Try again in 15 minutes.'});
@@ -99,13 +101,34 @@ export function createCandidateExamRouter({pool,secret,publicUrl,enabled=false})
       return proof.rows[0]||null;
     });
       if(!result){cookie(res,'',0);return res.status(401).json({error:'Your examination session is no longer available.'});}
-      return res.json({exam:result,csrfToken:claims.csrf,sittingAvailable:false});
+      return res.json({exam:result,csrfToken:claims.csrf,sittingAvailable:true});
     }catch{return res.status(503).json({error:'The examination session could not be checked.'});}
   });
+  async function sittingScope(client,claims){
+    await tenant(client,claims.schoolId);
+    const session=await validateCandidateExamSession(client,{schoolId:claims.schoolId,examId:claims.examId,sessionToken:claims.token});
+    if(!session.ok)throw new ExamSittingError('Your examination session is no longer available.',401);
+    const proof=await client.query(`SELECT c.id FROM admission_exam_candidate_sessions s
+      JOIN admission_exam_candidate_credentials c ON c.school_id=s.school_id AND c.id=s.credential_id
+      ${proofJoins} WHERE s.school_id=$1 AND s.id=$2 AND ${proofValid} FOR SHARE OF c,v,g`,[claims.schoolId,session.sessionId]);
+    if(!proof.rowCount)throw new ExamSittingError('Your guardian email verification is no longer valid.',401);
+    return {schoolId:claims.schoolId,examId:claims.examId,applicationId:session.applicationId};
+  }
+  for(const [method,path,action] of [
+    ['get','/attempt',readCandidateAttempt],['post','/start',startCandidateAttempt],
+    ['post','/answers',saveCandidateAnswer],['post','/submit',submitCandidateAttempt]]){
+    router[method](path,async(req,res)=>{
+      const claims=claimsFrom(req);if(!claims)return res.status(401).json({error:'Sign in with your examination code.'});
+      if(method!=='get'&&req.get('X-CSRF-Token')!==claims.csrf)return res.status(403).json({error:'Refresh the examination page and try again.'});
+      try{const result=await transaction(async client=>action(client,await sittingScope(client,claims),req.body||{}));return res.json(result);}
+      catch(error){return res.status(error instanceof ExamSittingError?error.status:503).json({error:error instanceof ExamSittingError?error.message:'The examination action could not be completed. Try again.'});}
+    });
+  }
   router.post('/logout',async(req,res)=>{
     const c=claimsFrom(req);if(!c||req.get('X-CSRF-Token')!==c.csrf)return res.status(403).json({error:'Refresh your examination page and try again.'});
     try {await transaction(async client=>{await tenant(client,c.schoolId);await client.query('UPDATE admission_exam_candidate_sessions SET revoked_at=now() WHERE school_id=$1 AND exam_id=$2 AND session_hash=$3',[c.schoolId,c.examId,hashCandidateSecret(c.token)]);});cookie(res,'',0);return res.json({signedOut:true});}
     catch{return res.status(503).json({error:'Sign-out could not be completed. Try again.'});}
   });
+  router.use((error,_req,res,_next)=>res.status(error?.status===413?413:400).json({error:'Use a valid examination request within the allowed size.'}));
   return router;
 }

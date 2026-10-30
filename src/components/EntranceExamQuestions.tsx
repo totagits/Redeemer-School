@@ -1,0 +1,25 @@
+import React,{useEffect,useState} from 'react';
+type Question={id:string;prompt:string;question_type:string;options:string[]|null;answer_key:string|number;points:string;sort_order:number};
+type Post=(path:string,body:Record<string,unknown>)=>Promise<Record<string,unknown>>;
+export function EntranceExamQuestions({examId,post,canWrite,canApprove}:{examId:string;post:Post;canWrite:boolean;canApprove:boolean}){
+ const [enabled,setEnabled]=useState(false),[questions,setQuestions]=useState<Question[]>([]),[approved,setApproved]=useState(false);
+ const [kind,setKind]=useState('SINGLE_CHOICE'),[options,setOptions]=useState(''),[busy,setBusy]=useState(false),[error,setError]=useState('');
+ const endpoint='admissions/entrance-exams/'+encodeURIComponent(examId);
+ const refresh=async()=>{const response=await fetch('/api/operations/'+endpoint+'/questions',{credentials:'same-origin',cache:'no-store'});const data=await response.json();if(!response.ok)throw Error(data.error||'Could not load private questions.');setQuestions(data.questions);setApproved(data.approved);};
+ useEffect(()=>{let active=true;void(async()=>{try{const r=await fetch('/api/candidate-exams/status',{cache:'no-store'});const state=await r.json();if(active)setEnabled(state.enabled===true);if(active&&state.enabled)await refresh();}catch(e){if(active)setError(e instanceof Error?e.message:'Could not load questions.');}})();return()=>{active=false;};},[examId]);
+ if(!enabled)return null;
+ const add=async(event:React.FormEvent<HTMLFormElement>)=>{event.preventDefault();const form=event.currentTarget,data=new FormData(form);setBusy(true);setError('');try{
+   await post(endpoint+'/questions',{prompt:data.get('prompt'),questionType:kind,options:kind==='SINGLE_CHOICE'?options.split('\n').map(s=>s.trim()).filter(Boolean):null,answerKey:kind==='SINGLE_CHOICE'?Number(data.get('answerKey')):data.get('answerKey'),points:Number(data.get('points')),sortOrder:questions.length?Math.max(...questions.map(q=>q.sort_order))+1:1});form.reset();setOptions('');await refresh();
+  }catch(e){setError(e instanceof Error?e.message:'Could not save question.');}finally{setBusy(false);}};
+ const publish=async()=>{setBusy(true);setError('');try{await post(endpoint+'/publish-questions',{});await refresh();}catch(e){setError(e instanceof Error?e.message:'Could not approve questions.');}finally{setBusy(false);}};
+ return <section aria-label="Private examination questions" className="mt-4 rounded-lg border border-slate-300 p-4"><h4 className="font-bold">Private examination questions</h4><p className="mt-1 text-xs text-slate-600">Answer keys are visible only to authorized Admissions staff. Leadership approval freezes the question set for candidate attempts.</p>
+  {error&&<p role="alert" className="mt-3 text-sm text-red-800">{error}</p>}
+  <ol className="mt-4 space-y-3">{questions.map(q=><li key={q.id} className="rounded-lg bg-slate-50 p-3 text-sm"><b>{q.sort_order}. {q.prompt}</b><p>{q.points} points</p>{q.options&&<ol className="mt-2 list-inside list-decimal">{q.options.map((o,i)=><li key={i}>{o}</li>)}</ol>}<p className="mt-2 font-semibold text-blue-900">Answer key: {q.question_type==='SINGLE_CHOICE'?`Option ${Number(q.answer_key)+1}`:q.answer_key}</p></li>)}</ol>
+  {approved?<p className="mt-4 font-semibold text-emerald-800">Approved and frozen. These questions cannot be changed.</p>:<>
+   {canWrite&&<form onSubmit={event=>void add(event)} className="mt-4 grid gap-3 rounded-lg border p-3 text-sm"><label>Question<textarea name="prompt" required minLength={3} maxLength={5000} className="mt-1 block w-full rounded border p-2"/></label><label>Question type<select value={kind} onChange={e=>setKind(e.target.value)} className="ml-2 rounded border p-2"><option value="SINGLE_CHOICE">Multiple choice</option><option value="SHORT_ANSWER">Short answer</option></select></label>
+    {kind==='SINGLE_CHOICE'?<><label>Options — one per line<textarea required value={options} onChange={e=>setOptions(e.target.value)} className="mt-1 block w-full rounded border p-2"/></label><label>Correct option<select name="answerKey" required defaultValue="" className="ml-2 rounded border p-2"><option value="" disabled>Choose correct option</option>{options.split('\n').map(s=>s.trim()).filter(Boolean).map((o,i)=><option key={i} value={i}>{i+1}. {o}</option>)}</select></label></>:<label>Expected answer<input name="answerKey" required maxLength={1000} className="mt-1 block w-full rounded border p-2"/></label>}
+    <label>Points<input type="number" name="points" required min="0.01" max="100" step="0.01" defaultValue="1" className="ml-2 w-24 rounded border p-2"/></label><button disabled={busy} className="rounded-lg border bg-white px-3 py-2 font-bold">Save private question</button></form>}
+   {canApprove&&questions.length>0&&<div className="mt-4"><p className="mb-2 text-xs">Review every question and answer key before approval. Approval locks this set.</p><button disabled={busy} onClick={()=>void publish()} className="rounded-lg bg-blue-800 px-3 py-2 text-sm font-bold text-white">Approve and freeze questions</button></div>}
+  </>}
+ </section>;
+}

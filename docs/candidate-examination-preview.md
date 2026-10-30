@@ -5,7 +5,7 @@ eligibility preview. No staging or production changes have been deployed.
 
 ## Implemented
 
-- Migrations 104-107: private question/attempt storage, hashed single-use credentials,
+- Migrations 104-108: private question/attempt storage, hashed single-use credentials,
   expiring sessions and guardian email verification records with forced tenant RLS.
 - Eligibility rejects malformed fees, unverified waivers and unknown application states.
 - Current settlement, application, assignment and GMT time window are checked on login
@@ -20,17 +20,28 @@ eligibility preview. No staging or production changes have been deployed.
   same-origin JSON POST checks, CSRF on logout, per-process attempt limits and revocation.
 - New routes and staff email controls stay disabled unless
   ENABLE_CANDIDATE_EXAM_PREVIEW=true. Do not enable before staging release review.
-- The signed-in candidate page explicitly says question delivery is not yet available.
+- Principal/School Administrator approves and freezes an immutable question snapshot
+  while the online examination is a draft. Online scheduling requires this approval.
+- Candidates can start or resume one scoped attempt, save multiple-choice and short
+  answers, and explicitly submit. Candidate responses whitelist question fields and
+  never include answer keys. Answer keys stay in the private approval snapshot.
+- Attempts/answers are locked during writes; saves and submissions recheck the server
+  clock and eligibility. Same-reference submission retries return the original result;
+  other submissions and edits after submission are rejected. New writes after the
+  deadline are rejected, rather than silently accepted or auto-graded.
 
 ## Validation
 
-All 318 automated tests pass. The full existing migration chain executes in disposable embedded PostgreSQL (PGlite),
-including 104-107. Tests exercise real RLS, composite foreign keys, duplicate attempts,
+All 320 automated tests pass. The full existing migration chain executes in disposable embedded PostgreSQL (PGlite),
+including 104-108. Tests exercise real RLS, composite foreign keys, duplicate attempts,
 invalid question JSON, single-use redemption, rollback, expiry, guardian email changes,
 HTTP cookies, origin checks, CSRF, rate limits and sign-out. Email delivery tests use a
 mock transport; no real email or personal data is sent. TypeScript and Vite build pass.
-The candidate and verification pages have been checked in the local browser with the
-feature disabled. Real provider delivery and enabled UI end-to-end proof remain pending.
+The candidate and verification pages were checked locally with the feature disabled.
+A separate fictional UI preview exercised starting, both answer types, save/reload,
+saving the final edit at submission and the locked confirmation screen. That preview
+uses mocked responses; the separate HTTP/database tests exercise the real handlers.
+Real provider delivery and enabled staging end-to-end proof remain pending.
 
 ## Limits and rollout gates
 
@@ -41,9 +52,9 @@ feature disabled. Real provider delivery and enabled UI end-to-end proof remain 
   must verify the recorded guardian relationship through the school intake process.
 - The current staging test examination is PAPER: retain its schedule, fee, and receipt.
   Use a separate ONLINE fictional examination for candidate sign-in tests.
-- Back up staging, review migrations 104-107 and obtain migration/access approval before
+- Back up staging, review migrations 104-108 and obtain migration/access approval before
   enabling the preview. Test only with an explicitly chosen guardian test mailbox.
-- Question moderation, candidate question delivery, sitting/submission, scoring, result
-  approval and private result release are still unfinished. Do not present this as a
-  complete online examination system.
+- Scoring, result approval and private result release are still unfinished. There is
+  no automatic submission at timeout, automatic scoring or admission decision. Submitted
+  work remains private for later staff review. Do not present this as a complete exam system.
 - No production deployment, staging migration or real email was performed in this change.

@@ -26,7 +26,7 @@ export async function validateCandidateExamSession(client,{schoolId,examId,sessi
     LEFT JOIN admission_exam_fee_settlements settled ON settled.school_id=s.school_id
       AND settled.exam_id=s.exam_id AND settled.application_id=s.application_id
     WHERE s.school_id=$1 AND s.exam_id=$2 AND s.session_hash=$3
-    LIMIT 1`,[schoolId,examId,hash]);
+    LIMIT 1 FOR SHARE OF s,e,a,app,c`,[schoolId,examId,hash]);
   const row=result.rows[0];
   if(!row) return {ok:false,reason:'INVALID_SESSION'};
   const current=new Date(now).valueOf(),expiry=new Date(row.expires_at).valueOf();
