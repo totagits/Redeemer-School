@@ -34,7 +34,7 @@ test('independent PostgreSQL connections serialize examination writes', { timeou
   }
   // Hold the first writer's transaction open until PostgreSQL proves the second
   // connection is blocked on a lock. This tests real contention without timing guesses.
-  async function blockedRace(schoolId, first, second) {
+  async function blockedRace(schoolId, first, second, beforeCommit = async () => {}) {
     const a = await begin(schoolId), b = await begin(schoolId);
     let waiting;
     try {
@@ -48,6 +48,7 @@ test('independent PostgreSQL connections serialize examination writes', { timeou
         await delay(10);
       }
       assert.equal(blocked, true, 'second writer must contend on a database lock');
+      await beforeCommit();
       await a.query('COMMIT');
       const secondResult = await waiting;
       await b.query(secondResult.error ? 'ROLLBACK' : 'COMMIT');
@@ -93,6 +94,15 @@ test('independent PostgreSQL connections serialize examination writes', { timeou
       const results = await Promise.all(Array.from({ length: 8 }, () => tenant(f.school, client => createGuardianEmailChallenge(client, { schoolId: f.school, applicationId: f.application, firstName: 'Fictional', lastName: 'Guardian', relationship: 'Parent', requestedBy: f.user }))));
       assert.equal(results.filter(r => r.ok).length, 3);
       assert.equal((await query('SELECT count(*)::int AS n FROM admission_guardian_email_verifications WHERE school_id=$1', [f.school])).rows[0].n, 3);
+    });
+    await t.test('credential expiring during a lock wait cannot open a session', async () => {
+      const f = await fixture();
+      const { secondResult } = await blockedRace(f.school,
+        client => client.query("UPDATE admission_exam_candidate_credentials SET expires_at=clock_timestamp()+interval '1 second' WHERE school_id=$1", [f.school]),
+        client => redeemExamCredential(client, { ...f.scope, token: f.secret.token }),
+        () => query('SELECT pg_sleep(1.2)'));
+      assert.equal(secondResult.value.ok, false);
+      assert.equal((await query('SELECT count(*)::int AS n FROM admission_exam_candidate_sessions WHERE school_id=$1', [f.school])).rows[0].n, 0);
     });
     await t.test('submission locks out a simultaneous late answer save', async () => {
       const f = await fixture();

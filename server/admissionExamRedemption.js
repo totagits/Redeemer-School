@@ -4,7 +4,7 @@
 import { issueCandidateSecret, hashCandidateSecret, credentialUsable } from './admissionExamCredential.js';
 import { examEligibility, examSittingWindow } from './admissionExamAccess.js';
 
-export async function redeemExamCredential(client, { schoolId, examId, applicationId, token, now = new Date() }) {
+export async function redeemExamCredential(client, { schoolId, examId, applicationId, token, now }) {
   const tokenHash = hashCandidateSecret(token);
   if (!tokenHash || !schoolId || !examId || !applicationId) return { ok: false, reason: 'INVALID_CREDENTIAL' };
   // Lock the credential to serialize parallel redemption. Call within BEGIN/COMMIT.
@@ -24,6 +24,9 @@ export async function redeemExamCredential(client, { schoolId, examId, applicati
     WHERE c.school_id=$1 AND c.exam_id=$2 AND c.application_id=$3 AND c.token_hash=$4
     FOR UPDATE OF c`,[schoolId,examId,applicationId,tokenHash]);
   if (record.rowCount !== 1) return {ok:false,reason:'INVALID_CREDENTIAL'};
+  // A lock wait may cross the credential or examination deadline. Capture the
+  // current time after the database returns, not when the request first arrived.
+  now ??= new Date();
   const c=record.rows[0];
   if(!credentialUsable(c,now)) return {ok:false,reason:'CREDENTIAL_EXPIRED_OR_USED'};
   if(c.exam_mode!=='ONLINE')return {ok:false,reason:'EXAM_NOT_ONLINE'};

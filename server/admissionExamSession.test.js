@@ -14,6 +14,13 @@ test('valid session returns scoped candidate identity but no question answers',a
  assert.equal(result.ok,true);assert.equal(result.applicationId,'app-1');
  assert.equal(Object.hasOwn(result,'answer_key'),false);
 });
+
+test('session expiry uses the clock after its database lock wait',async t=>{
+ t.mock.timers.enable({apis:['Date'],now:Date.parse('2026-11-05T09:59:00Z')});
+ const client=db(row),query=client.query;
+ client.query=async(...input)=>{t.mock.timers.tick(60_000);return query(...input);};
+ assert.equal((await validateCandidateExamSession(client,{...args,now:undefined})).reason,'SESSION_EXPIRED');
+});
 test('invalid credential and unknown session fail closed',async()=>{
  assert.equal((await validateCandidateExamSession(db(row),{...args,sessionToken:'invalid'})).ok,false);
  assert.equal((await validateCandidateExamSession(db(null),args)).ok,false);

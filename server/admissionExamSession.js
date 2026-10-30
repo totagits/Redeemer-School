@@ -4,7 +4,7 @@ import { examEligibility, examSittingWindow } from './admissionExamAccess.js';
 // Read-only database validator, intended for use by future authenticated exam routes.
 // The caller must run this inside a tenant-scoped transaction, obtain the bearer token
 // only from a secure HttpOnly cookie, and enforce CSRF on all writes.
-export async function validateCandidateExamSession(client,{schoolId,examId,sessionToken,now=new Date()}) {
+export async function validateCandidateExamSession(client,{schoolId,examId,sessionToken,now}) {
   const hash=hashCandidateSecret(sessionToken);
   if(!schoolId||!examId||!hash) return {ok:false,reason:'INVALID_SESSION'};
   const result=await client.query(`SELECT s.id,s.application_id,s.expires_at,s.revoked_at,
@@ -29,6 +29,8 @@ export async function validateCandidateExamSession(client,{schoolId,examId,sessi
     LIMIT 1 FOR SHARE OF s,e,a,app,c`,[schoolId,examId,hash]);
   const row=result.rows[0];
   if(!row) return {ok:false,reason:'INVALID_SESSION'};
+  // Evaluate expiry after any row-lock wait, including a concurrent revocation.
+  now ??= new Date();
   const current=new Date(now).valueOf(),expiry=new Date(row.expires_at).valueOf();
   if(!Number.isFinite(current)||!Number.isFinite(expiry)||row.revoked_at||current>=expiry)
     return {ok:false,reason:'SESSION_EXPIRED'};

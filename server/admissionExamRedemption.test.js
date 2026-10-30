@@ -26,6 +26,15 @@ test('invalid token fails without database lookup',async()=>{
  assert.equal((await redeemExamCredential(client,{...args,token:'bad'})).ok,false);
  assert.equal(calls.length,0);
 });
+
+test('redemption rechecks the clock after waiting for a credential lock',async t=>{
+ t.mock.timers.enable({apis:['Date'],now:Date.parse('2026-11-05T09:02:00Z')});
+ const {client,calls}=mock();
+ const query=client.query;
+ client.query=async(...input)=>{t.mock.timers.tick(20*60*1000);return query(...input);};
+ assert.equal((await redeemExamCredential(client,{...args,now:undefined})).ok,false);
+ assert.equal(calls.length,1);
+});
 test('valid payment and time window permit atomic redemption',async()=>{
  const {client,calls}=mock();
  const result=await redeemExamCredential(client,args);
