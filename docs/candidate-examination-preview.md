@@ -2,7 +2,8 @@
 
 This draft combines the candidate foundations with the deployed staging receipts and
 eligibility preview. The code and migrations are deployed to staging with the
-candidate preview disabled. Production remains paused and unchanged.
+candidate preview initially disabled, then enabled for the authorized fictional
+guardian-email test. Production remains paused and unchanged.
 
 ## Implemented
 
@@ -110,24 +111,44 @@ Live readiness reports ready/database connected/authentication configured. The
 candidate status reports enabled=false and sittingAvailable=false; /examination
 shows the unavailable notice. The existing fictional PAPER examination remains
 SCHEDULED with an LRD 500 fee and LRD 500 settlement, reference RIA_EX0001_2026.
-The guardian-email test is pending an explicitly authorized test mailbox. No real
-exam email, candidate access credential or result has been issued. Production is
-unchanged.
+The user subsequently authorized a guardian test mailbox. EMAIL_MODE was explicitly
+set to staging, EMAIL_ALLOWED_RECIPIENTS restricted to that mailbox, and the preview
+enabled as a runtime-only setting. Coolify deployment 1yogmv5ntbgn5fspjdrwixr9
+succeeded at 20:50 UTC on the same pinned code. The guardian verification form loads.
+
+Through the existing Registrar account, fictional application TEST-ONLINE-20261030-01
+was created with clearly marked test names and notes, using the authorized mailbox.
+The staff verification action returned "Verification code sent to the recorded
+guardian email." This proves provider acceptance, not inbox receipt or mailbox proof.
+Actual guardian code entry/verification is pending. No candidate access code or
+private result code has been issued.
+
+A separate ONLINE draft, TEST — Grade 4 Online Guardian Access 20261030, has that
+fictional applicant assigned and two harmless test questions (maximum four points).
+The existing School Administrator reviewed and froze its question set. Scheduling
+confirmation was not verified as completed; last observed status was DRAFT. Fee
+configuration and the enabled candidate sitting/result workflow remain pending.
+The proposed draft window was 2026-10-30 21:15–22:15 GMT; recheck the current time
+and adjust the draft before scheduling if the window is no longer appropriate.
+
+The pre-test disabled status described above is historical; the staging preview is
+currently enabled for this controlled test. Public repository notes deliberately
+omit the guardian mailbox and all verification/access codes. Production is unchanged.
 
 ## Limits and rollout gates
 
 - Disposable PostgreSQL 18 contention tests and staging schema/runtime checks pass.
-  Enabled end-to-end behavior and actual email delivery remain to be verified.
+  Inbox receipt, guardian proof and enabled candidate sitting/results remain unverified.
 - The public sign-in limiter is per process; use a shared limiter before multiple replicas.
 - Mailbox proof is not legal guardianship verification or an admission decision. Registrar
   must verify the recorded guardian relationship through the school intake process.
 - The current staging test examination is PAPER: retain its schedule, fee, and receipt.
   Use a separate ONLINE fictional examination for candidate sign-in tests.
-- A pre-migration staging backup and migrations 104-109 are complete. Before enabling
-  the preview, confirm the chosen test mailbox, its allowed-recipient entry and the
-  fictional applicant's recorded guardian address. Never use a real student record.
+- A pre-migration staging backup, migrations 104-109 and the authorized mailbox setup
+  are complete. Complete mailbox proof before issuing an examination code. Never use
+  a real student record for this test.
 - There is no automatic submission at timeout, automatic scoring, pass/fail rule or
   admission decision. Approved-mark correction/re-review is not implemented; do not
   approve live marks until the school has agreed its review and correction process.
-- No production deployment or real exam email was performed. Staging migrations and
-  disabled-preview deployment are complete.
+- No production deployment, candidate examination-access email or result email was
+  performed. One authorized staging guardian-verification email was accepted for sending.
