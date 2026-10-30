@@ -8,7 +8,7 @@ test('receipt action is accessible on verified ledger rows',()=>{
  assert.match(source,/aria-label=\{'View printable '/);
 });
 test('waivers cannot be mistaken for cash receipts',()=>{
- assert.match(source,/AUTHORIZED WAIVER — NO CASH RECEIVED/);
+ assert.match(source,/AUTHORIZED FEE WAIVER — NO CASH RECEIVED/);
  assert.match(source,/FINANCE-VERIFIED PAYMENT/);
 });
 test('receipt disclaims independent payment provider confirmation',()=>{
