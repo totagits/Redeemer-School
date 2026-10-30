@@ -3,6 +3,7 @@ import express from 'express';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import pg from 'pg';
+import { createCandidateExamRouter } from './candidateExamAuth.js';
 import { createAuthRouter } from './auth.js';
 import { createOperationsRouter } from './operations.js';
 import { createPublicAdmissionsRouter } from './publicAdmissions.js';
@@ -53,6 +54,8 @@ app.use((_req, res, next) => {
   res.setHeader('X-Content-Type-Options', 'nosniff');
   next();
 });
+app.use('/api/candidate-exams',createCandidateExamRouter({pool:runtimePool,secret:sessionSecret,publicUrl:process.env.APP_PUBLIC_URL,enabled:process.env.ENABLE_CANDIDATE_EXAM_PREVIEW==='true'}));
+
 // Assignment submissions may contain one small school document (encoded in
 // JSON). The endpoint enforces a strict per-file limit before writing to DB.
 app.use(express.json({ limit: '9mb' }));

@@ -1,8 +1,12 @@
-import React, {useState} from 'react';
+import React, {useEffect,useState} from 'react';
 
 type Candidate = {application_id:string;application_number:string;first_name:string;last_name:string;application_status:string;assignment_status:string;fee_amount:string|null;currency:string|null;settlement_kind:string|null;settlement_reference:string|null;eligibility_status:string};
 type EligibilityResponse = {candidates:Candidate[];note?:string;error?:string};
-export const EntranceExamEligibility:React.FC<{examId:string}>=({examId})=>{
+export const EntranceExamEligibility:React.FC<{examId:string;canWrite:boolean;post:(path:string,body:Record<string,unknown>)=>Promise<Record<string,unknown>>}>=({examId,canWrite,post})=>{
+ const [preview,setPreview]=useState(false);
+ const [notice,setNotice]=useState('');
+ useEffect(()=>{let active=true;fetch('/api/candidate-exams/status',{cache:'no-store'}).then(r=>r.json()).then(r=>{if(active)setPreview(r.enabled===true);}).catch(()=>{});return()=>{active=false;};},[]);
+ const send=async(event:React.FormEvent<HTMLFormElement>,applicationId:string)=>{event.preventDefault();const data=new FormData(event.currentTarget);setBusy(true);setError('');setNotice('');try{const result=await post('admissions/entrance-exams/'+encodeURIComponent(examId)+'/applicants/'+encodeURIComponent(applicationId)+'/credential',{guardianEmail:data.get('email')});setNotice(String(result.notice||'Code sent.'));}catch(e){setError(e instanceof Error?e.message:'Could not send code.');}finally{setBusy(false);}};
  const [rows,setRows]=useState<Candidate[]|null>(null);
  const [busy,setBusy]=useState(false);
  const [error,setError]=useState('');
@@ -21,6 +25,7 @@ export const EntranceExamEligibility:React.FC<{examId:string}>=({examId})=>{
    <div><h4 className="text-sm font-extrabold text-[#071d3e]">Examination eligibility</h4><p className="text-xs text-slate-600">Staff-only preview of assignment and Finance settlement. This does not grant examination access.</p></div>
    <button type="button" disabled={busy} onClick={()=>void check()} className="rounded-lg border border-[#273a99] bg-white px-3 py-2 text-xs font-bold text-[#273a99] disabled:opacity-60">{busy?'Checking…':'Check eligibility'}</button>
   </div>
+  {notice&&<p role="status" className="mt-3 text-sm text-emerald-800">{notice}</p>}
   {error&&<p role="alert" className="mt-3 text-sm text-red-700">{error}</p>}
   {rows&&<div className="mt-3 overflow-x-auto"><table className="w-full min-w-[650px] text-left text-xs">
    <thead><tr className="border-b text-slate-700"><th className="p-2">Applicant</th><th className="p-2">Verified settlement</th><th className="p-2">Assignment</th><th className="p-2">Eligibility</th></tr></thead>
@@ -28,7 +33,7 @@ export const EntranceExamEligibility:React.FC<{examId:string}>=({examId})=>{
     <td className="p-2"><strong>{candidate.application_number}</strong><span className="block">{candidate.first_name} {candidate.last_name}</span></td>
     <td className="p-2">{candidate.settlement_kind==='PAYMENT'?('Payment — '+candidate.currency+' '+candidate.fee_amount):candidate.settlement_kind==='WAIVER'?'Authorized waiver':candidate.fee_amount==='0'?'No examination fee':'No verified settlement'}</td>
     <td className="p-2">{candidate.assignment_status.replaceAll('_',' ')}</td>
-    <td className="p-2"><span className={'font-bold '+(candidate.eligibility_status==='ELIGIBLE'?'text-emerald-700':'text-amber-800')}>{candidate.eligibility_status.replaceAll('_',' ')}</span></td>
+    <td className="p-2"><span className={'font-bold '+(candidate.eligibility_status==='ELIGIBLE'?'text-emerald-700':'text-amber-800')}>{candidate.eligibility_status.replaceAll('_',' ')}</span>{preview&&canWrite&&candidate.eligibility_status==='ELIGIBLE'&&<form className="mt-2 space-y-2" onSubmit={event=>void send(event,candidate.application_id)}><label className="block">Verified guardian email<input type="email" name="email" required className="block rounded border p-2"/></label><button disabled={busy} className="rounded border bg-white px-2 py-1">Send examination code</button></form>}</td>
    </tr>)}</tbody></table>{rows.length===0&&<p className="p-2 text-sm text-slate-600">No assigned applicants for this examination.</p>}</div>}
  </section>;
 };

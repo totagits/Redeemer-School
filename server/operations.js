@@ -1,6 +1,10 @@
+import { registerExamMarkingRoutes } from './admissionExamMarking.js';
+import { createGuardianEmailChallenge, findVerifiedGuardianEmail } from './admissionGuardianEmail.js';
+import { sendExamEmail } from './admissionExamEmail.js';
 import { createCipheriv, createDecipheriv, createHash, randomBytes, randomUUID, timingSafeEqual } from 'node:crypto';
 import express from 'express';
 import { hashPassword } from './authCrypto.js';
+import { issueCandidateSecret } from './admissionExamCredential.js';
 import { createInvitationSecret, InvitationDeliveryError, sendAccountInvitation } from './invitations.js';
 import { createMomoClient, MomoProviderError } from './mtnMomo.js';
 import { sendWebPush } from './webPush.js';
@@ -194,7 +198,7 @@ async function createAndSendInvitation(client, { schoolId, userId, email, fullNa
   await sendInvitation({ email, fullName, role, token });
 }
 
-export function createOperationsRouter({ authenticate, sendInvitation = sendAccountInvitation, pool = null, momoClient = createMomoClient() }) {
+export function createOperationsRouter({ authenticate, sendExaminationEmail=sendExamEmail, sendInvitation = sendAccountInvitation, pool = null, momoClient = createMomoClient() }) {
   const router = express.Router();
   router.use(authenticate);
   router.use((_req, res, next) => { res.setHeader('Cache-Control', 'no-store'); next(); });
@@ -1775,6 +1779,13 @@ export function createOperationsRouter({ authenticate, sendInvitation = sendAcco
     try{
       if(!await requireEntranceExamSchema(req,res)) return;
       const schoolId=req.auth.claims.schoolId;
+      if(process.env.ENABLE_CANDIDATE_EXAM_PREVIEW==='true'){
+        const draft=await req.auth.client.query('SELECT mode FROM admission_entrance_exams WHERE school_id=$1 AND id=$2 FOR UPDATE',[schoolId,examId]);
+        if(draft.rows[0]?.mode==='ONLINE'){
+          const approved=await req.auth.client.query('SELECT id FROM admission_exam_question_sets WHERE school_id=$1 AND exam_id=$2',[schoolId,examId]);
+          if(!approved.rowCount){await close(req,false);return res.status(409).json({error:'Leadership must approve the online examination questions before scheduling.'});}
+        }
+      }
       const updated=await req.auth.client.query(`UPDATE admission_entrance_exams e
         SET status='SCHEDULED'
         WHERE e.school_id=$1 AND e.id=$2 AND e.status='DRAFT' AND e.starts_at>now()
@@ -1835,6 +1846,145 @@ export function createOperationsRouter({ authenticate, sendInvitation = sendAcco
         ORDER BY app.application_number LIMIT 500`,[schoolId,examId]);
       return done(req,res,200,{exam:exam.rows[0],candidates:candidates.rows,
         note:'Staff-only eligibility preview; examination sitting is not yet enabled.'});
+    }catch(error){return fail(req,res,error);}
+  });
+
+  router.post('/admissions/applications/:applicationId/guardian-email-verification',needsPermission('admissions.write'),csrf,async(req,res)=>{
+    if(process.env.ENABLE_CANDIDATE_EXAM_PREVIEW!=='true'){await close(req,false);return res.status(503).json({error:'Candidate examination preview is not enabled.'});}
+    try{
+      const schoolId=req.auth.claims.schoolId,applicationId=text(req.params.applicationId,50);
+      const challenge=await createGuardianEmailChallenge(req.auth.client,{schoolId,applicationId,
+        firstName:text(req.body?.firstName,200),lastName:text(req.body?.lastName,200),relationship:text(req.body?.relationship,100),requestedBy:req.auth.claims.userId});
+      if(!challenge.ok){await close(req,false);return res.status(409).json({error:'No matching guardian email is recorded, or the verification request limit was reached.'});}
+      await sendExaminationEmail({email:challenge.email,token:challenge.token,kind:'verify',reference:applicationId,
+        publicUrl:process.env.APP_PUBLIC_URL,apiKey:process.env.RESEND_API_KEY,from:process.env.RESEND_FROM_EMAIL,
+        staging:process.env.EMAIL_MODE!=='production',idempotencyKey:'guardian-verify-'+challenge.id});
+      await audit(req,'GUARDIAN_EMAIL_VERIFICATION_REQUESTED','ADMISSION_APPLICATION',applicationId,{verificationId:challenge.id});
+      return done(req,res,202,{notice:'Verification code sent to the recorded guardian email.'});
+    }catch(error){return fail(req,res,error);}
+  });
+
+  // Registrar/Admin issues a single-use credential only after server-verified eligibility.
+  // Deliver only to the verified guardian; never return or log the plaintext code.
+  router.post('/admissions/entrance-exams/:examId/applicants/:applicationId/credential',
+    needsPermission('admissions.write'),csrf,async(req,res)=>{
+    if(process.env.ENABLE_CANDIDATE_EXAM_PREVIEW!=='true'){await close(req,false);return res.status(503).json({error:'Candidate examination preview is not enabled.'});}
+    const examId=text(req.params.examId,50),applicationId=text(req.params.applicationId,50);
+    const uuid=/^[0-9a-f]{8}(-[0-9a-f]{4}){3}-[0-9a-f]{12}$/i;
+    if(!uuid.test(examId)||!uuid.test(applicationId)){
+      await close(req,false);return res.status(400).json({error:'Select a valid examination and applicant.'});
+    }
+    try{
+      const schema=await req.auth.client.query("SELECT to_regclass('public.admission_exam_candidate_credentials') IS NOT NULL AND to_regclass('public.admission_exam_fee_settlements') IS NOT NULL AND to_regclass('public.admission_guardian_email_verifications') IS NOT NULL AS ready");
+      if(schema.rows[0]?.ready!==true){await close(req,false);return res.status(503).json({error:'Candidate credential storage requires reviewed migrations 103–107.'});}
+      const schoolId=req.auth.claims.schoolId;
+      const recipient=await findVerifiedGuardianEmail(req.auth.client,{schoolId,applicationId,email:req.body?.guardianEmail});
+      if(!recipient){await close(req,false);return res.status(409).json({error:'Verify the applicant guardian email before sending an examination code.'});}
+      const {token,tokenHash}=issueCandidateSecret();
+      // Atomic eligibility check and insert; no credential can bypass an unpaid or invalid assignment.
+      // Issuance is only permitted ahead of exam start; the token expires 15 minutes after the exam begins
+      // or after 24 hours (whichever comes first). Candidate login independently checks
+      // guardian proof, identity scope, Finance eligibility and the sitting window.
+      const issued=await req.auth.client.query(`INSERT INTO admission_exam_candidate_credentials
+        (school_id,exam_id,application_id,token_hash,issued_by,guardian_verification_id,expires_at)
+        SELECT $1,e.id,a.application_id,$4,$5,$6,LEAST(e.starts_at+interval '15 minutes',now()+interval '24 hours')
+        FROM admission_entrance_exams e
+        JOIN admission_exam_assignments a ON a.school_id=e.school_id AND a.exam_id=e.id AND a.application_id=$3
+        JOIN admission_applications app ON app.school_id=a.school_id AND app.id=a.application_id
+        JOIN admission_exam_fee_schedules f ON f.school_id=e.school_id AND f.exam_id=e.id
+        LEFT JOIN admission_exam_fee_settlements settled ON settled.school_id=a.school_id AND settled.exam_id=a.exam_id AND settled.application_id=a.application_id
+        WHERE e.school_id=$1 AND e.id=$2 AND e.status='SCHEDULED' AND e.mode='ONLINE' AND e.starts_at>now()+interval '5 minutes'
+          AND a.status='INVITED' AND app.status NOT IN ('REJECTED','WITHDRAWN','ENROLLED')
+          AND NOT EXISTS(SELECT 1 FROM admission_exam_attempts t WHERE t.school_id=a.school_id AND t.exam_id=a.exam_id AND t.application_id=a.application_id)
+          AND (f.amount=0 OR
+            (settled.kind='WAIVER' AND settled.channel='WAIVER' AND settled.amount=0
+              AND settled.currency=f.currency AND settled.verified_at IS NOT NULL AND char_length(trim(settled.reason))>=10)
+            OR (settled.kind='PAYMENT' AND settled.amount=f.amount AND settled.currency=f.currency
+                AND settled.verified_at IS NOT NULL AND settled.channel IN ('CASH','BANK_TRANSFER','MTN_MOMO_VERIFIED')))
+          AND NOT EXISTS(SELECT 1 FROM admission_exam_candidate_credentials existing
+            WHERE existing.school_id=a.school_id AND existing.exam_id=a.exam_id AND existing.application_id=a.application_id
+            AND existing.revoked_at IS NULL AND existing.redeemed_at IS NULL)
+        RETURNING id,expires_at`,
+        [schoolId,examId,applicationId,tokenHash,req.auth.claims.userId,recipient.id]);
+      if(!issued.rowCount){await close(req,false);return res.status(409).json({error:'Applicant not eligible, examination too close, or an active credential already exists.'});}
+      await audit(req,'ENTRANCE_EXAM_CREDENTIAL_ISSUED','ADMISSION_APPLICATION',applicationId,{examId,credentialId:issued.rows[0].id});
+      await sendExaminationEmail({email:recipient.email,token,kind:'access',reference:examId,
+        publicUrl:process.env.APP_PUBLIC_URL,apiKey:process.env.RESEND_API_KEY,from:process.env.RESEND_FROM_EMAIL,
+        staging:process.env.EMAIL_MODE!=='production',idempotencyKey:'exam-access-'+issued.rows[0].id});
+      return done(req,res,201,{credential:{id:issued.rows[0].id,expiresAt:issued.rows[0].expires_at},
+        notice:'Examination code sent to the verified guardian email.'});
+    }catch(error){return fail(req,res,error);}
+  });
+
+  registerExamMarkingRoutes(router,{needsPermission,csrf,close,done,fail,audit,sendExamMessage:sendExaminationEmail});
+
+  router.get('/admissions/entrance-exams/:examId/questions',needsPermission('admissions.read'),async(req,res)=>{
+    if(process.env.ENABLE_CANDIDATE_EXAM_PREVIEW!=='true'){await close(req,false);return res.status(503).json({error:'Candidate examination preview is not enabled.'});}
+    try{
+      const schoolId=req.auth.claims.schoolId,examId=text(req.params.examId,50);
+      const exam=await req.auth.client.query('SELECT id FROM admission_entrance_exams WHERE school_id=$1 AND id=$2',[schoolId,examId]);
+      if(!exam.rowCount){await close(req,false);return res.status(404).json({error:'Examination not found.'});}
+      const questions=await req.auth.client.query('SELECT id,prompt,question_type,options,points,sort_order,answer_key FROM admission_exam_questions WHERE school_id=$1 AND exam_id=$2 ORDER BY sort_order',[schoolId,examId]);
+      const published=await req.auth.client.query('SELECT id FROM admission_exam_question_sets WHERE school_id=$1 AND exam_id=$2',[schoolId,examId]);
+      return done(req,res,200,{questions:questions.rows,approved:published.rowCount>0});
+    }catch(error){return fail(req,res,error);}
+  });
+
+  router.post('/admissions/entrance-exams/:examId/publish-questions',needsPermission('admissions.write'),csrf,async(req,res)=>{
+    if(process.env.ENABLE_CANDIDATE_EXAM_PREVIEW!=='true'){await close(req,false);return res.status(503).json({error:'Candidate examination preview is not enabled.'});}
+    if(!req.auth.account.roles.some(role=>['SCHOOL_ADMIN','PRINCIPAL'].includes(role))){await close(req,false);return res.status(403).json({error:'Only the Principal or School Administrator may approve examination questions.'});}
+    try{
+      const schoolId=req.auth.claims.schoolId,examId=text(req.params.examId,50);
+      const exam=await req.auth.client.query("SELECT id FROM admission_entrance_exams WHERE school_id=$1 AND id=$2 AND mode='ONLINE' AND status='DRAFT' AND starts_at>clock_timestamp() FOR UPDATE",[schoolId,examId]);
+      if(!exam.rowCount){await close(req,false);return res.status(409).json({error:'Approve questions while the online examination is still a future draft.'});}
+      const questions=await req.auth.client.query('SELECT id,prompt,question_type,options,points,sort_order,answer_key FROM admission_exam_questions WHERE school_id=$1 AND exam_id=$2 ORDER BY sort_order',[schoolId,examId]);
+      if(questions.rowCount<1||questions.rowCount>100){await close(req,false);return res.status(409).json({error:'An examination needs between 1 and 100 reviewed questions.'});}
+      const keys=Object.fromEntries(questions.rows.map(q=>[q.id,q.answer_key]));
+      const snapshot=questions.rows.map(({id,prompt,question_type,options,points,sort_order})=>({id,prompt,question_type,options,points,sort_order}));
+      const published=await req.auth.client.query('INSERT INTO admission_exam_question_sets(school_id,exam_id,questions,answer_keys,published_by) VALUES($1,$2,$3::jsonb,$4::jsonb,$5) ON CONFLICT(school_id,exam_id) DO NOTHING RETURNING id',[schoolId,examId,JSON.stringify(snapshot),JSON.stringify(keys),req.auth.claims.userId]);
+      if(!published.rowCount){await close(req,false);return res.status(409).json({error:'Questions have already been approved and frozen.'});}
+      await audit(req,'ENTRANCE_EXAM_QUESTIONS_APPROVED','ADMISSION_ENTRANCE_EXAM',examId,{questionSetId:published.rows[0].id,questionCount:questions.rowCount});
+      return done(req,res,201,{approved:true,questionCount:questions.rowCount});
+    }catch(error){return fail(req,res,error);}
+  });
+
+  // Staff-only question authoring. No applicant question delivery or answer-key exposure.
+  // Migration 104 is required and must be independently reviewed before applying in staging.
+  router.post('/admissions/entrance-exams/:examId/questions',needsPermission('admissions.write'),csrf,async(req,res)=>{
+    if(process.env.ENABLE_CANDIDATE_EXAM_PREVIEW!=='true'){await close(req,false);return res.status(503).json({error:'Candidate examination preview is not enabled.'});}
+    const examId=text(req.params.examId,50);
+    const prompt=text(req.body?.prompt,5000);
+    const kind=text(req.body?.questionType,20).toUpperCase();
+    const points=req.body?.points;
+    const order=req.body?.sortOrder;
+    const options=req.body?.options;
+    const key=req.body?.answerKey;
+    const validUUID=/^[0-9a-f]{8}(-[0-9a-f]{4}){3}-[0-9a-f]{12}$/i.test(examId);
+    const validChoice=kind==='SINGLE_CHOICE' && Array.isArray(options) && options.length>=2 && options.length<=8
+      && options.every(x=>typeof x==='string' && x.trim().length>=1 && x.length<=500)
+      && Number.isInteger(key) && key>=0 && key<options.length;
+    const validShort=kind==='SHORT_ANSWER' && (options===null || options===undefined)
+      && typeof key==='string' && key.trim().length>0 && key.length<=1000;
+    if(!validUUID || prompt.length<3 || !Number.isFinite(points) || points<=0 || points>100 ||
+       !Number.isInteger(order) || order<1 || order>10000 || !(validChoice||validShort)){
+      await close(req,false);return res.status(400).json({error:'Enter a valid question, answer key, points and sequence.'});
+    }
+    try{
+      const exists=await req.auth.client.query("SELECT to_regclass('public.admission_exam_questions') IS NOT NULL AS ready");
+      if(!exists.rows[0]?.ready){await close(req,false);return res.status(503).json({error:'Question bank requires reviewed migration 104.'});}
+      const schoolId=req.auth.claims.schoolId;
+      await req.auth.client.query('SELECT id FROM admission_entrance_exams WHERE school_id=$1 AND id=$2 FOR UPDATE',[schoolId,examId]);
+      const created=await req.auth.client.query(`INSERT INTO admission_exam_questions
+        (school_id,exam_id,prompt,question_type,options,answer_key,points,sort_order,created_by)
+        SELECT $1,e.id,$3,$4,$5::jsonb,$6::jsonb,$7,$8,$9
+        FROM admission_entrance_exams e WHERE e.school_id=$1 AND e.id=$2 AND e.status='DRAFT'
+          AND NOT EXISTS (SELECT 1 FROM admission_exam_question_sets p WHERE p.school_id=e.school_id AND p.exam_id=e.id)
+          AND NOT EXISTS (SELECT 1 FROM admission_exam_attempts t WHERE t.school_id=e.school_id AND t.exam_id=e.id)
+        RETURNING id,exam_id,prompt,question_type,options,points,sort_order`,
+      [schoolId,examId,prompt,kind,validChoice?JSON.stringify(options):null,JSON.stringify(key),points,order,req.auth.claims.userId]);
+      if(!created.rowCount){await close(req,false);return res.status(409).json({error:'Questions can only be added to draft exams before attempts exist.'});}
+      await audit(req,'ENTRANCE_EXAM_QUESTION_CREATED','ADMISSION_ENTRANCE_EXAM',examId,{questionId:created.rows[0].id,kind,points,order});
+      return done(req,res,201,{question:created.rows[0]});
     }catch(error){return fail(req,res,error);}
   });
 
