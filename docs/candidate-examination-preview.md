@@ -1,7 +1,8 @@
 # Candidate examination preview: sitting, marking and private results
 
 This draft combines the candidate foundations with the deployed staging receipts and
-eligibility preview. No staging or production changes have been deployed.
+eligibility preview. The code and migrations are deployed to staging with the
+candidate preview disabled. Production remains paused and unchanged.
 
 ## Implemented
 
@@ -16,6 +17,8 @@ eligibility preview. No staging or production changes have been deployed.
   days, school/application scoped, revocable, and only valid while the address matches.
 - Registrar sends a one-time examination code only to that verified address. No raw
   access code is returned to the staff browser. Resend requests use idempotency keys.
+- Staging verification, examination and result emails require an exact mailbox in
+  EMAIL_ALLOWED_RECIPIENTS. An empty list, wildcard or domain suffix permits no sends.
 - Candidate /examination uses a separate Secure/HttpOnly/SameSite=Strict cookie,
   same-origin JSON POST checks, CSRF on logout, per-process attempt limits and revocation.
 - New routes and staff email controls stay disabled unless
@@ -43,10 +46,10 @@ eligibility preview. No staging or production changes have been deployed.
 
 ## Validation
 
-All 323 local automated tests pass (one Linux CI-only PostgreSQL check is skipped).
-GitHub run [41121871538](https://github.com/totagits/Redeemer-School/actions/runs/41121871538)
-passed all 324 tests with no skips, TypeScript and the frontend build at code commit
-`6098f9231baa5bfd6d581c007a8016bb14b450b9`.
+All 326 local automated tests pass (one Linux CI-only PostgreSQL check is skipped).
+GitHub run [41124248847](https://github.com/totagits/Redeemer-School/actions/runs/41124248847)
+passed all 327 tests with no skips, TypeScript and the frontend build at code commit
+`b8d344cd2169f310bcc3defa1d230ed33de6ab53`.
 The full existing migration chain executes in disposable embedded PostgreSQL (PGlite),
 including 104-109. Tests exercise real RLS, composite foreign keys, duplicate attempts,
 invalid question JSON, single-use redemption, rollback, expiry, guardian email changes,
@@ -81,30 +84,50 @@ running. Its source remained `fix/vite-esbuild-peer-conflict` with commit select
 completed successfully at **20:22:22 UTC**, size **2.57 MB**, in the existing local
 backup schedule. This confirms backup creation, not a restore rehearsal.
 
-The next release candidate is the tested code commit above on
-`work/staging-candidate-access`. Keep the candidate preview disabled during the
-initial staging deployment and migration verification. Staging has a configured
-restricted runtime connection; an application migration/admin connection was not
-listed among its variables. Confirm migration access and applied versions before
-execution rather than assuming the runtime account can create the schema.
+The user approved discarding the unsaved source settings. A read-only database
+preflight confirmed migrations 104-109 were absent. The earlier 102/103 examination
+and fee tables already existed but their versions were absent from schema_migrations;
+do not blindly rerun the full migration chain against staging or mark those older
+versions applied without first reconciling their actual schema.
 
-No new staging release or migrations have been executed. The deployment preflight
-was paused because Coolify displayed unsaved source settings and automatic review
-blocked navigating away to avoid losing them. Preserve those settings until the
-user chooses whether to discard them. Production remains paused.
+Using the existing database-container postgres account, the six SQL files 104-109
+were downloaded from tested commit 6098f9231baa5bfd6d581c007a8016bb14b450b9,
+checked against their Git-blob SHA-256 hashes, then applied and recorded in one
+transaction. The transaction guarded the exact staging database name, existing fee
+schema and absence of the new tables/versions, with advisory locking and timeouts.
+It committed successfully. All six versions are recorded, and all nine new tables
+have forced RLS. The runtime role is neither superuser nor BYPASSRLS, has the needed
+marking permissions and cannot update approved question snapshots. No administrative
+database credentials were added to the application.
+
+Staging deployed 6098f92 successfully, followed by the email recipient restriction
+at b8d344c (Coolify deployment bekib8nafrwjxpf2qsxbu6nm). The saved source is
+work/staging-candidate-access pinned to b8d344cd2169f310bcc3defa1d230ed33de6ab53.
+Staging was changed to manual deployments after its existing webhook automatically
+deployed the pushed email fix. Future draft pushes must not trigger releases.
+
+Live readiness reports ready/database connected/authentication configured. The
+candidate status reports enabled=false and sittingAvailable=false; /examination
+shows the unavailable notice. The existing fictional PAPER examination remains
+SCHEDULED with an LRD 500 fee and LRD 500 settlement, reference RIA_EX0001_2026.
+The guardian-email test is pending an explicitly authorized test mailbox. No real
+exam email, candidate access credential or result has been issued. Production is
+unchanged.
 
 ## Limits and rollout gates
 
-- Disposable PostgreSQL 18 contention tests pass. Staging migration state, runtime
-  permissions and end-to-end behavior on the Hostinger instance still need verification.
+- Disposable PostgreSQL 18 contention tests and staging schema/runtime checks pass.
+  Enabled end-to-end behavior and actual email delivery remain to be verified.
 - The public sign-in limiter is per process; use a shared limiter before multiple replicas.
 - Mailbox proof is not legal guardianship verification or an admission decision. Registrar
   must verify the recorded guardian relationship through the school intake process.
 - The current staging test examination is PAPER: retain its schedule, fee, and receipt.
   Use a separate ONLINE fictional examination for candidate sign-in tests.
-- Back up staging, review migrations 104-109 and obtain migration/access approval before
-  enabling the preview. Test only with an explicitly chosen guardian test mailbox.
+- A pre-migration staging backup and migrations 104-109 are complete. Before enabling
+  the preview, confirm the chosen test mailbox, its allowed-recipient entry and the
+  fictional applicant's recorded guardian address. Never use a real student record.
 - There is no automatic submission at timeout, automatic scoring, pass/fail rule or
   admission decision. Approved-mark correction/re-review is not implemented; do not
   approve live marks until the school has agreed its review and correction process.
-- No production deployment, staging migration or real email was performed in this change.
+- No production deployment or real exam email was performed. Staging migrations and
+  disabled-preview deployment are complete.
