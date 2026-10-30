@@ -44,6 +44,9 @@ eligibility preview. No staging or production changes have been deployed.
 ## Validation
 
 All 323 local automated tests pass (one Linux CI-only PostgreSQL check is skipped).
+GitHub run [41121871538](https://github.com/totagits/Redeemer-School/actions/runs/41121871538)
+passed all 324 tests with no skips, TypeScript and the frontend build at code commit
+`6098f9231baa5bfd6d581c007a8016bb14b450b9`.
 The full existing migration chain executes in disposable embedded PostgreSQL (PGlite),
 including 104-109. Tests exercise real RLS, composite foreign keys, duplicate attempts,
 invalid question JSON, single-use redemption, rollback, expiry, guardian email changes,
@@ -67,13 +70,33 @@ the full migration chain to a fresh database and verifies actual lock waits betw
 independent connections: one-use redemption, expiry during a lock wait, guardian
 request throttling, submission versus answer saves, submission retry idempotency and
 approval versus mark edits. No live database credentials, applicant records or email
-provider are used. Local Docker startup failed on this workstation; the server test
-must pass in CI before this rollout gate is considered complete.
+provider are used. Local Docker startup failed on this workstation; all six server
+contention scenarios subsequently passed in the GitHub run linked above.
+
+## Staging preparation record
+
+On 2026-10-30, Coolify confirmed the existing staging application and database were
+running. Its source remained `fix/vite-esbuild-peer-conflict` with commit selection
+`HEAD`; no source settings were edited. A fresh backup of `redeemer_school_staging`
+completed successfully at **20:22:22 UTC**, size **2.57 MB**, in the existing local
+backup schedule. This confirms backup creation, not a restore rehearsal.
+
+The next release candidate is the tested code commit above on
+`work/staging-candidate-access`. Keep the candidate preview disabled during the
+initial staging deployment and migration verification. Staging has a configured
+restricted runtime connection; an application migration/admin connection was not
+listed among its variables. Confirm migration access and applied versions before
+execution rather than assuming the runtime account can create the schema.
+
+No new staging release or migrations have been executed. The deployment preflight
+was paused because Coolify displayed unsaved source settings and automatic review
+blocked navigating away to avoid losing them. Preserve those settings until the
+user chooses whether to discard them. Production remains paused.
 
 ## Limits and rollout gates
 
-- PGlite tests do not prove multi-connection contention on the Hostinger PostgreSQL
-  version. Exercise concurrent redemption and issuance on disposable server PostgreSQL.
+- Disposable PostgreSQL 18 contention tests pass. Staging migration state, runtime
+  permissions and end-to-end behavior on the Hostinger instance still need verification.
 - The public sign-in limiter is per process; use a shared limiter before multiple replicas.
 - Mailbox proof is not legal guardianship verification or an admission decision. Registrar
   must verify the recorded guardian relationship through the school intake process.
