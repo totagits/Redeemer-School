@@ -18,6 +18,9 @@ export async function markingDetail(client,{schoolId,examId,attemptId}){
 export async function saveExamMarking(client,scope,{marks,feedback='',revision},userId){
  // Serialize initial marking and edits on the immutable submitted attempt.
  await client.query('SELECT id FROM admission_exam_attempts WHERE school_id=$1 AND exam_id=$2 AND id=$3 FOR UPDATE',[scope.schoolId,scope.examId,scope.attemptId]);
+ // Approval locks the marking row independently. Re-read it only after acquiring
+ // the same lock, so a competing save reports a conflict instead of a SQL error.
+ await client.query('SELECT id FROM admission_exam_marking WHERE school_id=$1 AND exam_id=$2 AND attempt_id=$3 FOR UPDATE',[scope.schoolId,scope.examId,scope.attemptId]);
  const data=await markingDetail(client,scope),previous=data.marking;
  if(previous?.approved_at||previous?.released_at)throw new ExamMarkingError('Approved marks are locked.');
  if(!Number.isInteger(revision)||revision!==(previous?.revision||0))throw new ExamMarkingError('Marks have changed. Reload before saving.');

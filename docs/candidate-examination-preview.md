@@ -43,7 +43,8 @@ eligibility preview. No staging or production changes have been deployed.
 
 ## Validation
 
-All 321 automated tests pass. The full existing migration chain executes in disposable embedded PostgreSQL (PGlite),
+All 323 local automated tests pass (one Linux CI-only PostgreSQL check is skipped).
+The full existing migration chain executes in disposable embedded PostgreSQL (PGlite),
 including 104-109. Tests exercise real RLS, composite foreign keys, duplicate attempts,
 invalid question JSON, single-use redemption, rollback, expiry, guardian email changes,
 HTTP cookies, origin checks, CSRF, rate limits and sign-out. Email delivery tests use a
@@ -57,6 +58,17 @@ that closing it clears the private result. Database-backed HTTP tests cover inva
 stale marks, separate approval, forbidden self-approval, SQL immutability, unverified
 email refusal, release, replacement, expiry and revoked guardian proof.
 Real provider delivery and enabled staging end-to-end proof remain pending.
+
+Run `npm run test:exam-postgres` with Docker running to execute contention checks
+against a disposable official PostgreSQL 18 container. The existing Linux CI test step
+also runs this check. The runner never reads DATABASE_URL, binds only to 127.0.0.1,
+uses a random temporary password and removes its own container afterward. It applies
+the full migration chain to a fresh database and verifies actual lock waits between
+independent connections: one-use redemption, expiry during a lock wait, guardian
+request throttling, submission versus answer saves, submission retry idempotency and
+approval versus mark edits. No live database credentials, applicant records or email
+provider are used. Local Docker startup failed on this workstation; the server test
+must pass in CI before this rollout gate is considered complete.
 
 ## Limits and rollout gates
 

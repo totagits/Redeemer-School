@@ -133,7 +133,7 @@ test('independent PostgreSQL connections serialize examination writes', { timeou
       const { secondResult } = await blockedRace(f.school,
         client => approveExamMarking(client, scope, 1, f.leader),
         client => saveExamMarking(client, scope, { ...marks, marks: [{ questionId: f.question, points: 2 }], revision: 1 }, f.user));
-      assert.ok(secondResult.error);
+      assert.equal(secondResult.error?.status, 409);
       const marking = (await query('SELECT total_points,revision,approved_by FROM admission_exam_marking WHERE school_id=$1', [f.school])).rows[0];
       assert.equal(marking.total_points, '1.00'); assert.equal(marking.revision, 1); assert.equal(marking.approved_by, f.leader);
     });
