@@ -13,6 +13,7 @@ export const EntranceExamFinance:React.FC<Props> = ({canWrite,post})=>{
  const [error,setError]=useState('');
  const [notice,setNotice]=useState('');
  const [loading,setLoading]=useState(true);
+ const [receipt,setReceipt]=useState<Settlement|null>(null);
  const load=useCallback(async()=>{
    try{
      const response=await fetch('/api/operations/finance/entrance-exam-fees',{credentials:'same-origin'});
@@ -87,7 +88,36 @@ export const EntranceExamFinance:React.FC<Props> = ({canWrite,post})=>{
    <h3 className="mt-6 text-sm font-bold text-[#071d3e]">Finance-verified payment and waiver history</h3>
    <p className="mt-1 text-xs text-slate-600">Payments must be independently verified before creating a settlement record. Mobile Money is not yet connected to this applicant-fee ledger.</p>
    {settlements.length===0?<p className="mt-3 text-sm text-slate-500">No verified entrance exam payments or waivers.</p>:
-    <div className="mt-3 overflow-x-auto"><table className="w-full min-w-[640px] text-left text-sm"><thead><tr className="border-b text-xs text-slate-600"><th className="p-2">Applicant</th><th className="p-2">Type</th><th className="p-2">Amount</th><th className="p-2">Reference</th><th className="p-2">Verified</th></tr></thead><tbody>{settlements.map(s=><tr key={s.id} className="border-b"><td className="p-2">{s.application_number} · {s.first_name} {s.last_name}</td><td className="p-2">{s.kind} / {s.channel}</td><td className="p-2">{s.currency} {s.amount}</td><td className="p-2 font-mono text-xs">{s.reference}</td><td className="p-2">{new Date(s.verified_at).toLocaleDateString('en-LR',{timeZone:'Africa/Monrovia'})}</td></tr>)}</tbody></table></div>}
+    <div className="mt-3 overflow-x-auto"><table className="w-full min-w-[640px] text-left text-sm"><thead><tr className="border-b text-xs text-slate-600"><th className="p-2">Applicant</th><th className="p-2">Type</th><th className="p-2">Amount</th><th className="p-2">Reference</th><th className="p-2">Verified</th><th className="p-2">Receipt</th></tr></thead><tbody>{settlements.map(s=><tr key={s.id} className="border-b"><td className="p-2">{s.application_number} · {s.first_name} {s.last_name}</td><td className="p-2">{s.kind} / {s.channel}</td><td className="p-2">{s.currency} {s.amount}</td><td className="p-2 font-mono text-xs">{s.reference}</td><td className="p-2">{new Date(s.verified_at).toLocaleDateString('en-LR',{timeZone:'Africa/Monrovia'})}</td><td className="p-2"><button type="button" onClick={()=>setReceipt(s)} className="rounded border border-slate-300 px-2 py-1 font-semibold text-[#071d3e] hover:bg-slate-50" aria-label={'View printable '+(s.kind==='WAIVER'?'waiver confirmation':'payment receipt')+' for '+s.application_number}>View / print</button></td></tr>)}</tbody></table></div>}
+  </>}
+  {receipt&&<>
+   <style>{`@media print {
+     body * { visibility: hidden !important; }
+     #entrance-exam-print-receipt, #entrance-exam-print-receipt * { visibility: visible !important; }
+     #entrance-exam-print-receipt { position: absolute !important; left: 0; top: 0; width: 100%; border: none !important; box-shadow: none !important; background: white !important; }
+     .exam-receipt-actions { display: none !important; }
+   }`}</style>
+   <div role="dialog" aria-modal="true" aria-label="Examination fee receipt" className="fixed inset-0 z-50 overflow-y-auto bg-slate-900/70 p-4 sm:p-8">
+    <div id="entrance-exam-print-receipt" className="mx-auto max-w-xl rounded-xl bg-white p-6 text-slate-900 shadow-xl sm:p-10">
+     <h2 className="text-xl font-extrabold">Redeemer’s International Academy</h2>
+     <p className="mt-1 text-sm">Entrance examination {receipt.kind==='WAIVER'?'fee waiver confirmation':'payment receipt'}</p>
+     <p className="mt-4 border-y py-3 text-sm font-bold">{receipt.kind==='WAIVER'?'AUTHORIZED WAIVER — NO CASH RECEIVED':'FINANCE-VERIFIED PAYMENT'}</p>
+     <dl className="mt-4 grid grid-cols-[auto_1fr] gap-x-5 gap-y-3 text-sm">
+      <dt className="font-semibold">Applicant</dt><dd>{receipt.first_name} {receipt.last_name}</dd>
+      <dt className="font-semibold">Application</dt><dd>{receipt.application_number}</dd>
+      <dt className="font-semibold">Examination</dt><dd>{fees.find(f=>f.exam_id===receipt.exam_id)?.title||'Entrance examination'}</dd>
+      <dt className="font-semibold">Amount</dt><dd>{receipt.currency} {receipt.amount}</dd>
+      <dt className="font-semibold">Method</dt><dd>{receipt.kind==='WAIVER'?'Authorized fee waiver':receipt.channel==='CASH'?'Cash':receipt.channel==='BANK_TRANSFER'?'Bank transfer':receipt.channel}</dd>
+      <dt className="font-semibold">Reference</dt><dd className="break-all font-mono">{receipt.reference}</dd>
+      <dt className="font-semibold">Verified on</dt><dd>{new Date(receipt.verified_at).toLocaleString('en-LR',{timeZone:'Africa/Monrovia',dateStyle:'medium',timeStyle:'short'})} GMT</dd>
+     </dl>
+     <p className="mt-5 border-t pt-3 text-xs text-slate-600">Generated from the school's Finance-verified entrance examination ledger. This document is not confirmation from MTN Mobile Money or another payment provider. Retain the receipt reference for reconciliation.</p>
+     <div className="exam-receipt-actions mt-6 flex gap-3">
+      <button type="button" onClick={()=>window.print()} className="rounded-lg bg-[#071d3e] px-4 py-2 text-sm font-bold text-white">Print / Save PDF</button>
+      <button type="button" onClick={()=>setReceipt(null)} className="rounded-lg border border-slate-300 px-4 py-2 text-sm font-bold">Close</button>
+     </div>
+    </div>
+   </div>
   </>}
  </section>;
 };
