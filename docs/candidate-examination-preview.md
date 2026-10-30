@@ -126,9 +126,14 @@ private result code has been issued.
 The user reported that no verification email arrived. A read-only delivery-status
 lookup using the existing staging Resend key returned HTTP 401 restricted_api_key;
 the key is restricted to sending, not delivery-log access. This is not evidence
-that the original send failed. No key permissions were expanded and no duplicate
-message was sent. Delivery diagnosis awaits sign-in to the existing Resend dashboard;
-the connected Gmail account is not the authorized recipient mailbox.
+that the original send failed. No key permissions were expanded. After the user
+signed in to the existing Resend dashboard, the original email was marked Delivered
+but was 38 minutes old, beyond its 30-minute verification window. One fresh challenge
+was then requested through the Registrar workflow; the new email was also marked
+Delivered. Provider delivery means Gmail accepted it, not confirmed inbox placement
+or user receipt. The user was given an all-folders Gmail search and asked to use the
+newest code. Mailbox proof is still pending. The connected Gmail tool account is not
+the authorized recipient mailbox, so it was not used to read recipient messages.
 
 A separate ONLINE draft, TEST — Grade 4 Online Guardian Access 20261030, has that
 fictional applicant assigned and two harmless test questions (maximum four points).
