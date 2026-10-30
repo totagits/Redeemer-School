@@ -1,3 +1,4 @@
+import { registerExamMarkingRoutes } from './admissionExamMarking.js';
 import { createGuardianEmailChallenge, findVerifiedGuardianEmail } from './admissionGuardianEmail.js';
 import { sendExamEmail } from './admissionExamEmail.js';
 import { createCipheriv, createDecipheriv, createHash, randomBytes, randomUUID, timingSafeEqual } from 'node:crypto';
@@ -197,7 +198,7 @@ async function createAndSendInvitation(client, { schoolId, userId, email, fullNa
   await sendInvitation({ email, fullName, role, token });
 }
 
-export function createOperationsRouter({ authenticate, sendInvitation = sendAccountInvitation, pool = null, momoClient = createMomoClient() }) {
+export function createOperationsRouter({ authenticate, sendExaminationEmail=sendExamEmail, sendInvitation = sendAccountInvitation, pool = null, momoClient = createMomoClient() }) {
   const router = express.Router();
   router.use(authenticate);
   router.use((_req, res, next) => { res.setHeader('Cache-Control', 'no-store'); next(); });
@@ -1855,7 +1856,7 @@ export function createOperationsRouter({ authenticate, sendInvitation = sendAcco
       const challenge=await createGuardianEmailChallenge(req.auth.client,{schoolId,applicationId,
         firstName:text(req.body?.firstName,200),lastName:text(req.body?.lastName,200),relationship:text(req.body?.relationship,100),requestedBy:req.auth.claims.userId});
       if(!challenge.ok){await close(req,false);return res.status(409).json({error:'No matching guardian email is recorded, or the verification request limit was reached.'});}
-      await sendExamEmail({email:challenge.email,token:challenge.token,kind:'verify',reference:applicationId,
+      await sendExaminationEmail({email:challenge.email,token:challenge.token,kind:'verify',reference:applicationId,
         publicUrl:process.env.APP_PUBLIC_URL,apiKey:process.env.RESEND_API_KEY,from:process.env.RESEND_FROM_EMAIL,
         staging:process.env.EMAIL_MODE!=='production',idempotencyKey:'guardian-verify-'+challenge.id});
       await audit(req,'GUARDIAN_EMAIL_VERIFICATION_REQUESTED','ADMISSION_APPLICATION',applicationId,{verificationId:challenge.id});
@@ -1907,13 +1908,15 @@ export function createOperationsRouter({ authenticate, sendInvitation = sendAcco
         [schoolId,examId,applicationId,tokenHash,req.auth.claims.userId,recipient.id]);
       if(!issued.rowCount){await close(req,false);return res.status(409).json({error:'Applicant not eligible, examination too close, or an active credential already exists.'});}
       await audit(req,'ENTRANCE_EXAM_CREDENTIAL_ISSUED','ADMISSION_APPLICATION',applicationId,{examId,credentialId:issued.rows[0].id});
-      await sendExamEmail({email:recipient.email,token,kind:'access',reference:examId,
+      await sendExaminationEmail({email:recipient.email,token,kind:'access',reference:examId,
         publicUrl:process.env.APP_PUBLIC_URL,apiKey:process.env.RESEND_API_KEY,from:process.env.RESEND_FROM_EMAIL,
         staging:process.env.EMAIL_MODE!=='production',idempotencyKey:'exam-access-'+issued.rows[0].id});
       return done(req,res,201,{credential:{id:issued.rows[0].id,expiresAt:issued.rows[0].expires_at},
         notice:'Examination code sent to the verified guardian email.'});
     }catch(error){return fail(req,res,error);}
   });
+
+  registerExamMarkingRoutes(router,{needsPermission,csrf,close,done,fail,audit,sendExamMessage:sendExaminationEmail});
 
   router.get('/admissions/entrance-exams/:examId/questions',needsPermission('admissions.read'),async(req,res)=>{
     if(process.env.ENABLE_CANDIDATE_EXAM_PREVIEW!=='true'){await close(req,false);return res.status(503).json({error:'Candidate examination preview is not enabled.'});}

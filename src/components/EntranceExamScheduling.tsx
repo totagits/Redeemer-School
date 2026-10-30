@@ -1,3 +1,4 @@
+import { EntranceExamMarking } from './EntranceExamMarking.tsx';
 import { EntranceExamQuestions } from './EntranceExamQuestions.tsx';
 import React, { useCallback, useEffect, useState } from 'react';
 import { EntranceExamEligibility } from './EntranceExamEligibility.tsx';
@@ -5,9 +6,9 @@ import { examTimeOptions, liberiaExamInstant, liberiaExamDate, liberiaExamTime }
 
 type Exam = { id: string; title: string; grade_label: string; mode: 'PAPER'|'ONLINE'|'INTERVIEW'; venue: string; starts_at: string; ends_at: string; status: string; applicant_count: number };
 type Applicant = { id: string; application_number: string; first_name?: string; last_name?: string; status: string };
-type Props = { applications: Applicant[]; canWrite: boolean; canApproveQuestions: boolean; post: (path: string, body: Record<string, unknown>) => Promise<Record<string, unknown>> };
+type Props = { applications: Applicant[]; canWrite: boolean; canApproveQuestions: boolean; currentUserId:string; post: (path: string, body: Record<string, unknown>) => Promise<Record<string, unknown>> };
 
-export const EntranceExamScheduling: React.FC<Props> = ({ applications, canWrite, canApproveQuestions, post }) => {
+export const EntranceExamScheduling: React.FC<Props> = ({ applications, canWrite, canApproveQuestions, currentUserId, post }) => {
   const [exams,setExams] = useState<Exam[]>([]);
   const [loading,setLoading] = useState(true);
   const [ready,setReady] = useState(false);
@@ -97,6 +98,7 @@ export const EntranceExamScheduling: React.FC<Props> = ({ applications, canWrite
             <button type="submit" disabled={busy||!eligible.length} className="rounded-lg border border-[#071d3e] px-3 py-2.5 text-sm font-bold text-[#071d3e] disabled:opacity-50">Assign applicant</button>
           </form>}
           {exam.mode==='ONLINE'&&exam.status==='DRAFT'&&<EntranceExamQuestions examId={exam.id} post={post} canWrite={canWrite} canApprove={canApproveQuestions}/>}
+          {exam.mode==='ONLINE'&&['SCHEDULED','COMPLETED'].includes(exam.status)&&<EntranceExamMarking examId={exam.id} post={post} canWrite={canWrite} canApprove={canApproveQuestions} currentUserId={currentUserId}/>}
           <EntranceExamEligibility examId={exam.id} canWrite={canWrite&&exam.mode==='ONLINE'} post={post} />
           {canWrite&&exam.status==='DRAFT'&&<button type="button" disabled={busy||Number(exam.applicant_count)<1} onClick={()=>{if(window.confirm('Schedule this entrance examination for its assigned applicants? This does not send invitations.')) void perform('admissions/entrance-exams/'+encodeURIComponent(exam.id)+'/schedule',{},'Examination scheduled. Invitation delivery is not yet enabled.');}} className="mt-3 rounded-lg bg-amber-400 px-4 py-2 text-sm font-bold text-[#071d3e] disabled:cursor-not-allowed disabled:opacity-50">Confirm examination schedule</button>}
         </article>)}

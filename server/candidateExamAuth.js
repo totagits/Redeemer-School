@@ -1,3 +1,4 @@
+import { readReleasedResult } from './admissionExamMarking.js';
 import { readCandidateAttempt,startCandidateAttempt,saveCandidateAnswer,submitCandidateAttempt,ExamSittingError } from './candidateExamSitting.js';
 import express from 'express';
 import { createHmac, randomBytes, timingSafeEqual } from 'node:crypto';
@@ -51,13 +52,22 @@ export function createCandidateExamRouter({pool,secret,publicUrl,enabled=false})
     res.setHeader('Cache-Control','no-store');res.setHeader('Referrer-Policy','no-referrer');
     if(!enabled||!pool||!origin||!isStrongSessionSecret(secret))return res.status(503).json({error:'Candidate sign-in is not enabled.'});
     if(req.method!=='GET'&&(req.get('Origin')!==origin||!req.is('application/json')))return res.status(403).json({error:'Use the school examination page to continue.'});
-    if(req.method==='POST'&&['/login','/verify-email'].includes(req.path)){
+    if(req.method==='POST'&&['/login','/verify-email','/results'].includes(req.path)){
       const now=Date.now();for(const [key,item] of attempts)if(item.until<=now)attempts.delete(key);
       const key=req.ip||'unknown';const item=attempts.get(key)||{count:0,until:now+900_000};
       if(item.count>=10||(!attempts.has(key)&&attempts.size>=10_000))return res.status(429).json({error:'Too many attempts. Try again in 15 minutes.'});
       item.count++;attempts.set(key,item);
     }
     next();
+  });
+  router.post('/results',async(req,res)=>{
+    try{const result=await transaction(async client=>{
+      const schoolCode=typeof req.body?.schoolCode==='string'?req.body.schoolCode.trim().toUpperCase():'';
+      if(!/^[A-Z0-9][A-Z0-9_-]{1,49}$/.test(schoolCode)||!hashCandidateSecret(req.body?.code))return null;
+      const school=(await client.query('SELECT app.resolve_school_id_by_code($1) AS id',[schoolCode])).rows[0]?.id;
+      if(!school)return null;await tenant(client,school);return readReleasedResult(client,{schoolId:school,token:req.body.code});
+    });return res.status(result?200:401).json(result?{result}:{error:'The result code is invalid, expired, or unavailable.'});}
+    catch{return res.status(503).json({error:'Private results are temporarily unavailable.'});}
   });
   router.post('/verify-email',async(req,res)=>{
     try {const ok=await transaction(async client=>{

@@ -1,11 +1,11 @@
-# Candidate examination preview: guardian email and sign-in
+# Candidate examination preview: sitting, marking and private results
 
 This draft combines the candidate foundations with the deployed staging receipts and
 eligibility preview. No staging or production changes have been deployed.
 
 ## Implemented
 
-- Migrations 104-108: private question/attempt storage, hashed single-use credentials,
+- Migrations 104-109: private question/attempt storage, hashed single-use credentials,
   expiring sessions and guardian email verification records with forced tenant RLS.
 - Eligibility rejects malformed fees, unverified waivers and unknown application states.
 - Current settlement, application, assignment and GMT time window are checked on login
@@ -30,10 +30,21 @@ eligibility preview. No staging or production changes have been deployed.
   other submissions and edits after submission are rejected. New writes after the
   deadline are rejected, rather than silently accepted or auto-graded.
 
+- Staff manually mark each submitted answer against its approved question snapshot;
+  totals and percentages are calculated from validated per-question marks. Revision
+  checks reject stale edits. Candidates never receive answer keys.
+- A different Principal/School Administrator must approve the marks. Approved marks
+  and the original release record are immutable in PostgreSQL as well as the API.
+- Leaders explicitly release approved results to the current verified guardian email.
+  The email contains a separate hashed-access-code credential valid for seven days,
+  not marks. Replacement codes revoke previous codes. Guardian proof must remain valid.
+- /examination/results shows only released totals, percentage and school feedback.
+  Codes stay out of URLs and browser storage; closing the result clears it from view.
+
 ## Validation
 
-All 320 automated tests pass. The full existing migration chain executes in disposable embedded PostgreSQL (PGlite),
-including 104-108. Tests exercise real RLS, composite foreign keys, duplicate attempts,
+All 321 automated tests pass. The full existing migration chain executes in disposable embedded PostgreSQL (PGlite),
+including 104-109. Tests exercise real RLS, composite foreign keys, duplicate attempts,
 invalid question JSON, single-use redemption, rollback, expiry, guardian email changes,
 HTTP cookies, origin checks, CSRF, rate limits and sign-out. Email delivery tests use a
 mock transport; no real email or personal data is sent. TypeScript and Vite build pass.
@@ -41,6 +52,10 @@ The candidate and verification pages were checked locally with the feature disab
 A separate fictional UI preview exercised starting, both answer types, save/reload,
 saving the final edit at submission and the locked confirmation screen. That preview
 uses mocked responses; the separate HTTP/database tests exercise the real handlers.
+A fictional local result preview also verified the approved mark/feedback display and
+that closing it clears the private result. Database-backed HTTP tests cover invalid and
+stale marks, separate approval, forbidden self-approval, SQL immutability, unverified
+email refusal, release, replacement, expiry and revoked guardian proof.
 Real provider delivery and enabled staging end-to-end proof remain pending.
 
 ## Limits and rollout gates
@@ -52,9 +67,9 @@ Real provider delivery and enabled staging end-to-end proof remain pending.
   must verify the recorded guardian relationship through the school intake process.
 - The current staging test examination is PAPER: retain its schedule, fee, and receipt.
   Use a separate ONLINE fictional examination for candidate sign-in tests.
-- Back up staging, review migrations 104-108 and obtain migration/access approval before
+- Back up staging, review migrations 104-109 and obtain migration/access approval before
   enabling the preview. Test only with an explicitly chosen guardian test mailbox.
-- Scoring, result approval and private result release are still unfinished. There is
-  no automatic submission at timeout, automatic scoring or admission decision. Submitted
-  work remains private for later staff review. Do not present this as a complete exam system.
+- There is no automatic submission at timeout, automatic scoring, pass/fail rule or
+  admission decision. Approved-mark correction/re-review is not implemented; do not
+  approve live marks until the school has agreed its review and correction process.
 - No production deployment, staging migration or real email was performed in this change.

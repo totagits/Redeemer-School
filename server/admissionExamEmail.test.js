@@ -23,3 +23,13 @@ test('invalid configuration is rejected before contacting the email service',asy
 test('provider failures do not disclose provider response contents',async()=>{
  await assert.rejects(sendExamEmail({...config,fetchImpl:async()=>({ok:false,text:async()=> 'sensitive-provider-response'})}),error=>error.message==='Examination email could not be delivered.');
 });
+
+test('result notifications contain a private code rather than marks or public result links',async()=>{
+ let body;
+ await sendExamEmail({...config,kind:'result',fetchImpl:async(_url,options)=>{body=JSON.parse(options.body);return {ok:true};}});
+ assert.match(body.subject,/private examination result is ready/);
+ assert.ok(body.text.includes('https://school.example/examination/results'));
+ assert.ok(body.text.includes(config.token));
+ assert.ok(!body.text.includes('?token='));
+ assert.ok(!body.text.includes('75.00'));
+});

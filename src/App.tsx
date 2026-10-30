@@ -1,3 +1,4 @@
+import { CandidateExamResult } from './components/CandidateExamResult.tsx';
 /**
  * @license
  * SPDX-License-Identifier: Apache-2.0
@@ -518,11 +519,12 @@ export default function App() {
 
   const isPortalAccount = Boolean(authAccount?.roles.some(role => ['STUDENT', 'PARENT'].includes(role)));
   useEffect(() => {
-    if (!authAccount || pathname === '/examination' || pathname === '/examination/verify-email') return;
+    if (!authAccount || pathname === '/examination' || pathname === '/examination/verify-email' || pathname === '/examination/results') return;
     const destination = isPortalAccount ? '/portal' : '/staff';
     if (pathname !== destination && pathname !== '/set-password' && pathname !== '/reset-password') navigate(destination, true);
   }, [authAccount, isPortalAccount]);
 
+  if (pathname === '/examination/results') return <CandidateExamResult/>;
   if (pathname === '/examination' || pathname === '/examination/verify-email') return <CandidateExamSignIn verifyEmail={pathname.endsWith('/verify-email')} />;
 
   if (pathname === '/set-password' || pathname === '/reset-password') {
