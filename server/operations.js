@@ -1,3 +1,5 @@
+import { createGuardianEmailChallenge, findVerifiedGuardianEmail } from './admissionGuardianEmail.js';
+import { sendExamEmail } from './admissionExamEmail.js';
 import { createCipheriv, createDecipheriv, createHash, randomBytes, randomUUID, timingSafeEqual } from 'node:crypto';
 import express from 'express';
 import { hashPassword } from './authCrypto.js';
@@ -1839,8 +1841,23 @@ export function createOperationsRouter({ authenticate, sendInvitation = sendAcco
     }catch(error){return fail(req,res,error);}
   });
 
+  router.post('/admissions/applications/:applicationId/guardian-email-verification',needsPermission('admissions.write'),csrf,async(req,res)=>{
+    if(process.env.ENABLE_CANDIDATE_EXAM_PREVIEW!=='true'){await close(req,false);return res.status(503).json({error:'Candidate examination preview is not enabled.'});}
+    try{
+      const schoolId=req.auth.claims.schoolId,applicationId=text(req.params.applicationId,50);
+      const challenge=await createGuardianEmailChallenge(req.auth.client,{schoolId,applicationId,
+        firstName:text(req.body?.firstName,200),lastName:text(req.body?.lastName,200),relationship:text(req.body?.relationship,100),requestedBy:req.auth.claims.userId});
+      if(!challenge.ok){await close(req,false);return res.status(409).json({error:'No matching guardian email is recorded, or the verification request limit was reached.'});}
+      await sendExamEmail({email:challenge.email,token:challenge.token,kind:'verify',reference:applicationId,
+        publicUrl:process.env.APP_PUBLIC_URL,apiKey:process.env.RESEND_API_KEY,from:process.env.RESEND_FROM_EMAIL,
+        staging:process.env.EMAIL_MODE!=='production',idempotencyKey:'guardian-verify-'+challenge.id});
+      await audit(req,'GUARDIAN_EMAIL_VERIFICATION_REQUESTED','ADMISSION_APPLICATION',applicationId,{verificationId:challenge.id});
+      return done(req,res,202,{notice:'Verification code sent to the recorded guardian email.'});
+    }catch(error){return fail(req,res,error);}
+  });
+
   // Registrar/Admin issues a single-use credential only after server-verified eligibility.
-  // Return plaintext once to issuing staff; do not email, log, or persist plaintext.
+  // Deliver only to the verified guardian; never return or log the plaintext code.
   router.post('/admissions/entrance-exams/:examId/applicants/:applicationId/credential',
     needsPermission('admissions.write'),csrf,async(req,res)=>{
     if(process.env.ENABLE_CANDIDATE_EXAM_PREVIEW!=='true'){await close(req,false);return res.status(503).json({error:'Candidate examination preview is not enabled.'});}
@@ -1850,23 +1867,25 @@ export function createOperationsRouter({ authenticate, sendInvitation = sendAcco
       await close(req,false);return res.status(400).json({error:'Select a valid examination and applicant.'});
     }
     try{
-      const schema=await req.auth.client.query("SELECT to_regclass('public.admission_exam_candidate_credentials') IS NOT NULL AND to_regclass('public.admission_exam_fee_settlements') IS NOT NULL AS ready");
-      if(schema.rows[0]?.ready!==true){await close(req,false);return res.status(503).json({error:'Candidate credential storage requires reviewed migrations 103–105.'});}
+      const schema=await req.auth.client.query("SELECT to_regclass('public.admission_exam_candidate_credentials') IS NOT NULL AND to_regclass('public.admission_exam_fee_settlements') IS NOT NULL AND to_regclass('public.admission_guardian_email_verifications') IS NOT NULL AS ready");
+      if(schema.rows[0]?.ready!==true){await close(req,false);return res.status(503).json({error:'Candidate credential storage requires reviewed migrations 103–107.'});}
       const schoolId=req.auth.claims.schoolId;
+      const recipient=await findVerifiedGuardianEmail(req.auth.client,{schoolId,applicationId,email:req.body?.guardianEmail});
+      if(!recipient){await close(req,false);return res.status(409).json({error:'Verify the applicant guardian email before sending an examination code.'});}
       const {token,tokenHash}=issueCandidateSecret();
       // Atomic eligibility check and insert; no credential can bypass an unpaid or invalid assignment.
       // Issuance is only permitted ahead of exam start; the token expires 15 minutes after the exam begins
-      // or after 24 hours (whichever comes first). A future candidate login flow will
-      // need a separate authenticated, rate-limited redemption transaction.
+      // or after 24 hours (whichever comes first). Candidate login independently checks
+      // guardian proof, identity scope, Finance eligibility and the sitting window.
       const issued=await req.auth.client.query(`INSERT INTO admission_exam_candidate_credentials
-        (school_id,exam_id,application_id,token_hash,issued_by,expires_at)
-        SELECT $1,e.id,a.application_id,$4,$5,LEAST(e.starts_at+interval '15 minutes',now()+interval '24 hours')
+        (school_id,exam_id,application_id,token_hash,issued_by,guardian_verification_id,expires_at)
+        SELECT $1,e.id,a.application_id,$4,$5,$6,LEAST(e.starts_at+interval '15 minutes',now()+interval '24 hours')
         FROM admission_entrance_exams e
         JOIN admission_exam_assignments a ON a.school_id=e.school_id AND a.exam_id=e.id AND a.application_id=$3
         JOIN admission_applications app ON app.school_id=a.school_id AND app.id=a.application_id
         JOIN admission_exam_fee_schedules f ON f.school_id=e.school_id AND f.exam_id=e.id
         LEFT JOIN admission_exam_fee_settlements settled ON settled.school_id=a.school_id AND settled.exam_id=a.exam_id AND settled.application_id=a.application_id
-        WHERE e.school_id=$1 AND e.id=$2 AND e.status='SCHEDULED' AND e.starts_at>now()+interval '5 minutes'
+        WHERE e.school_id=$1 AND e.id=$2 AND e.status='SCHEDULED' AND e.mode='ONLINE' AND e.starts_at>now()+interval '5 minutes'
           AND a.status='INVITED' AND app.status NOT IN ('REJECTED','WITHDRAWN','ENROLLED')
           AND NOT EXISTS(SELECT 1 FROM admission_exam_attempts t WHERE t.school_id=a.school_id AND t.exam_id=a.exam_id AND t.application_id=a.application_id)
           AND (f.amount=0 OR
@@ -1878,11 +1897,14 @@ export function createOperationsRouter({ authenticate, sendInvitation = sendAcco
             WHERE existing.school_id=a.school_id AND existing.exam_id=a.exam_id AND existing.application_id=a.application_id
             AND existing.revoked_at IS NULL AND existing.redeemed_at IS NULL)
         RETURNING id,expires_at`,
-        [schoolId,examId,applicationId,tokenHash,req.auth.claims.userId]);
+        [schoolId,examId,applicationId,tokenHash,req.auth.claims.userId,recipient.id]);
       if(!issued.rowCount){await close(req,false);return res.status(409).json({error:'Applicant not eligible, examination too close, or an active credential already exists.'});}
       await audit(req,'ENTRANCE_EXAM_CREDENTIAL_ISSUED','ADMISSION_APPLICATION',applicationId,{examId,credentialId:issued.rows[0].id});
-      return done(req,res,201,{credential:{id:issued.rows[0].id,token,expiresAt:issued.rows[0].expires_at},
-        notice:'Display this credential only to the authorized recipient. It cannot yet be redeemed until candidate login is implemented.'});
+      await sendExamEmail({email:recipient.email,token,kind:'access',reference:examId,
+        publicUrl:process.env.APP_PUBLIC_URL,apiKey:process.env.RESEND_API_KEY,from:process.env.RESEND_FROM_EMAIL,
+        staging:process.env.EMAIL_MODE!=='production',idempotencyKey:'exam-access-'+issued.rows[0].id});
+      return done(req,res,201,{credential:{id:issued.rows[0].id,expiresAt:issued.rows[0].expires_at},
+        notice:'Examination code sent to the verified guardian email.'});
     }catch(error){return fail(req,res,error);}
   });
 

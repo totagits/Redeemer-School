@@ -8,7 +8,7 @@ export async function validateCandidateExamSession(client,{schoolId,examId,sessi
   const hash=hashCandidateSecret(sessionToken);
   if(!schoolId||!examId||!hash) return {ok:false,reason:'INVALID_SESSION'};
   const result=await client.query(`SELECT s.id,s.application_id,s.expires_at,s.revoked_at,
-      e.status AS exam_status,e.starts_at,e.ends_at,
+      e.status AS exam_status,e.mode AS exam_mode,e.starts_at,e.ends_at,
       a.status AS assignment_status,app.status AS application_status,
       c.redeemed_at AS credential_redeemed_at,c.revoked_at AS credential_revoked_at,
       f.amount AS fee_amount,f.currency AS fee_currency,
@@ -34,6 +34,7 @@ export async function validateCandidateExamSession(client,{schoolId,examId,sessi
     return {ok:false,reason:'SESSION_EXPIRED'};
   if(!row.credential_redeemed_at||row.credential_revoked_at)
     return {ok:false,reason:'CREDENTIAL_NOT_ACTIVE'};
+  if(row.exam_mode!=='ONLINE')return {ok:false,reason:'EXAM_NOT_ONLINE'};
   const eligibility=examEligibility({exam:{status:row.exam_status},application:{status:row.application_status},
     assignment:{status:row.assignment_status},
     fee:row.fee_amount==null?null:{amount:row.fee_amount,currency:row.fee_currency},

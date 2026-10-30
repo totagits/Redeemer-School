@@ -1,15 +1,15 @@
 // Transaction-oriented redemption helper. Caller must supply a tenant-scoped DB
 // transaction, an independently verified applicant identity, and a rate limit.
 // Never return a token or question answer key from this module.
-import { issueCandidateSecret, hashCandidateSecret } from './admissionExamCredential.js';
+import { issueCandidateSecret, hashCandidateSecret, credentialUsable } from './admissionExamCredential.js';
 import { examEligibility, examSittingWindow } from './admissionExamAccess.js';
 
 export async function redeemExamCredential(client, { schoolId, examId, applicationId, token, now = new Date() }) {
   const tokenHash = hashCandidateSecret(token);
   if (!tokenHash || !schoolId || !examId || !applicationId) return { ok: false, reason: 'INVALID_CREDENTIAL' };
   // Lock the credential to serialize parallel redemption. Call within BEGIN/COMMIT.
-  const record = await client.query(`SELECT c.id,c.expires_at,c.revoked_at,c.redeemed_at,
-      e.status AS exam_status,e.starts_at,e.ends_at,
+  const record = await client.query(`SELECT c.id,c.issued_at,c.expires_at,c.revoked_at,c.redeemed_at,
+      e.status AS exam_status,e.mode AS exam_mode,e.starts_at,e.ends_at,
       a.status AS assignment_status,app.status AS application_status,
       f.amount AS fee_amount,f.currency AS fee_currency,
       s.kind AS settlement_kind,s.channel AS settlement_channel,
@@ -24,9 +24,9 @@ export async function redeemExamCredential(client, { schoolId, examId, applicati
     WHERE c.school_id=$1 AND c.exam_id=$2 AND c.application_id=$3 AND c.token_hash=$4
     FOR UPDATE OF c`,[schoolId,examId,applicationId,tokenHash]);
   if (record.rowCount !== 1) return {ok:false,reason:'INVALID_CREDENTIAL'};
-  const c=record.rows[0],current=new Date(now).valueOf(),expiry=new Date(c.expires_at).valueOf();
-  if(c.revoked_at || c.redeemed_at || !Number.isFinite(current) || !Number.isFinite(expiry) || current>=expiry)
-    return {ok:false,reason:'CREDENTIAL_EXPIRED_OR_USED'};
+  const c=record.rows[0];
+  if(!credentialUsable(c,now)) return {ok:false,reason:'CREDENTIAL_EXPIRED_OR_USED'};
+  if(c.exam_mode!=='ONLINE')return {ok:false,reason:'EXAM_NOT_ONLINE'};
   const eligibility=examEligibility({
     exam:{status:c.exam_status},
     application:{status:c.application_status},

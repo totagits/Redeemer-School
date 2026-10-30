@@ -4,6 +4,7 @@
  */
 
 import React, { useEffect, useState } from 'react';
+import { CandidateExamSignIn } from './components/CandidateExamSignIn.tsx';
 import { Header, ERPView } from './components/Header.tsx';
 import { DashboardView } from './components/DashboardView.tsx';
 import { FinanceModule } from './components/FinanceModule.tsx';
@@ -517,10 +518,12 @@ export default function App() {
 
   const isPortalAccount = Boolean(authAccount?.roles.some(role => ['STUDENT', 'PARENT'].includes(role)));
   useEffect(() => {
-    if (!authAccount) return;
+    if (!authAccount || pathname === '/examination' || pathname === '/examination/verify-email') return;
     const destination = isPortalAccount ? '/portal' : '/staff';
     if (pathname !== destination && pathname !== '/set-password' && pathname !== '/reset-password') navigate(destination, true);
   }, [authAccount, isPortalAccount]);
+
+  if (pathname === '/examination' || pathname === '/examination/verify-email') return <CandidateExamSignIn verifyEmail={pathname.endsWith('/verify-email')} />;
 
   if (pathname === '/set-password' || pathname === '/reset-password') {
     return <InvitationPasswordSetupPage onContinue={() => {

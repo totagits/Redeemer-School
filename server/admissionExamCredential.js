@@ -16,7 +16,7 @@ export function matchCandidateSecret(token,storedHash) {
   return timingSafeEqual(Buffer.from(candidate,'hex'),Buffer.from(storedHash,'hex'));
 }
 export function credentialUsable(row, now=new Date()) {
-  if(!row || row.revoked_at || row.redeemed_at) return false;
+  if(!row || !row.issued_at || !row.expires_at || row.revoked_at || row.redeemed_at) return false;
   const issued=new Date(row.issued_at).valueOf(),expires=new Date(row.expires_at).valueOf(),current=new Date(now).valueOf();
   return [issued,expires,current].every(Number.isFinite) && expires>issued && current>=issued && current<expires;
 }

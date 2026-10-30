@@ -16,7 +16,7 @@ CREATE TABLE admission_exam_questions (
  UNIQUE (school_id,exam_id,id),
  FOREIGN KEY (school_id,exam_id) REFERENCES admission_entrance_exams(school_id,id) ON DELETE CASCADE,
  FOREIGN KEY (school_id,created_by) REFERENCES user_accounts(school_id,id),
- CHECK (
+ CHECK ((
    (question_type='SINGLE_CHOICE'
      AND jsonb_typeof(options)='array'
      AND jsonb_array_length(options) BETWEEN 2 AND 8
@@ -26,7 +26,7 @@ CREATE TABLE admission_exam_questions (
    OR
    (question_type='SHORT_ANSWER' AND options IS NULL
      AND jsonb_typeof(answer_key)='string')
- )
+ ) IS TRUE)
 );
 CREATE TABLE admission_exam_attempts (
  id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
