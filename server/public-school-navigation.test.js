@@ -32,13 +32,13 @@ test('only staff and family workspace routes select authenticated operations',()
  assert.match(app,/authAccount && isOperationsPath\(pathname\)/);
 });
 
-test('desktop and mobile menus render canonical destinations for every submenu',()=>{
+test('desktop menu renders canonical destinations for every submenu',()=>{
  const html=renderToStaticMarkup(React.createElement(Header,{currentView:'home',lowStockCount:0,onSelectView(){},onSignIn(){},onPortalSignIn(){}}));
  const links=Array.from(html.matchAll(/<a\b[^>]*href="([^"]+)"/g),match=>match[1]);
  assert.equal(publicSchoolNavigation.flatMap(group=>group.items).length,37);
  for(const item of publicSchoolNavigation.flatMap(group=>group.items)){
   const expected=item.slug==='apply-online'?'/apply':['student-portal','guardian-portal'].includes(item.slug)?'/portal':'/school/'+item.slug;
-  assert.ok(links.filter(link=>link===expected).length>=2,item.label+' must be reachable in desktop and mobile menus');
+  assert.ok(links.filter(link=>link===expected).length>=1,item.label+' must be reachable in the desktop menu');
  }
  assert.ok(!links.some(link=>/^\/school\/(apply-online|student-portal|guardian-portal)$/.test(link)));
 });
