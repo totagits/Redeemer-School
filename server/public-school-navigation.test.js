@@ -3,7 +3,8 @@ import assert from 'node:assert/strict';
 import {readFileSync} from 'node:fs';
 import React from 'react';
 import {renderToStaticMarkup} from 'react-dom/server';
-import {PublicSchoolPages} from '../src/components/PublicSchoolPages.tsx';
+import {PublicSchoolPages,publicSchoolNavigation} from '../src/components/PublicSchoolPages.tsx';
+import {Header} from '../src/components/Header.tsx';
 import {isOperationsPath} from '../src/logic/publicSchoolRoutes.ts';
 const pages=readFileSync(new URL('../src/components/PublicSchoolPages.tsx',import.meta.url),'utf8');
 const header=readFileSync(new URL('../src/components/Header.tsx',import.meta.url),'utf8');
@@ -29,6 +30,17 @@ test('only staff and family workspace routes select authenticated operations',()
  for(const route of ['/staff','/portal'])assert.equal(isOperationsPath(route),true);
  for(const route of ['/','/apply','/school/news-events','/school/about-us','/examination','/examination/results','/set-password','/reset-password'])assert.equal(isOperationsPath(route),false,route);
  assert.match(app,/authAccount && isOperationsPath\(pathname\)/);
+});
+
+test('desktop and mobile menus render canonical destinations for every submenu',()=>{
+ const html=renderToStaticMarkup(React.createElement(Header,{currentView:'home',lowStockCount:0,onSelectView(){},onSignIn(){},onPortalSignIn(){}}));
+ const links=Array.from(html.matchAll(/<a\b[^>]*href="([^"]+)"/g),match=>match[1]);
+ assert.equal(publicSchoolNavigation.flatMap(group=>group.items).length,37);
+ for(const item of publicSchoolNavigation.flatMap(group=>group.items)){
+  const expected=item.slug==='apply-online'?'/apply':['student-portal','guardian-portal'].includes(item.slug)?'/portal':'/school/'+item.slug;
+  assert.ok(links.filter(link=>link===expected).length>=2,item.label+' must be reachable in desktop and mobile menus');
+ }
+ assert.ok(!links.some(link=>/^\/school\/(apply-online|student-portal|guardian-portal)$/.test(link)));
 });
 test('public menu pages remain distinct from protected staff operations',()=>{
  assert.match(app,/pathname\.startsWith\('\/school\/'\)/);
