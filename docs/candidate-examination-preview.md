@@ -273,6 +273,11 @@ of any real applicant's marks. The PR remains draft and production remains pause
   and mailbox proof are complete. Never use a real student record for this test.
 - Timeout submission and versioned corrections are implemented and validated as above.
   There is no automatic scoring, pass/fail rule or admission decision. School responsibilities are confirmed as above; nominate the actual invigilator,
-  marker and reviewer and finish the owner workspace review before live examination use.
+  marker and reviewer before live examination use. The owner accepted the staff
+  marking/correction layout as clear on 2026-10-31, with no layout changes requested.
 - No production deployment was performed. Authorized staging guardian-verification,
   examination-access and private-result emails were received during the fictional test.
+
+Staff layout acceptance on 2026-10-31 covers the reviewed marking/correction screen,
+including original-result history, corrected marks, feedback and locked approval status.
+This records staging acceptance, not production-deployment or merge authorization.

@@ -1,6 +1,6 @@
 # Entrance examination: staff review and school responsibilities
 
-Status: the school owner confirmed the responsibilities below on 2026-10-31. Workspace review remains in staging; this does not authorize production deployment or decide admission.
+Status: the school owner confirmed the responsibilities below on 2026-10-31. The school owner also accepted the staff marking/correction layout as clear on 2026-10-31. This does not authorize production deployment or decide admission.
 
 Staging staff workspace: https://redeemer-staging.totag.network/staff
 Candidate page: https://redeemer-staging.totag.network/examination
@@ -29,4 +29,4 @@ Use only the clearly labelled fictional records in staging. No new email send or
 - Correction history: can the original and corrected result be distinguished, and is withdrawal wording clear?
 - Private result page: are the mark, feedback and distinction from an admission decision clear?
 
-The school owner confirmed this division of responsibilities on 2026-10-31: Registrar for intake and guardian checks, Finance for fee verification, assigned staff for marking, and a different Principal or School Administrator for approval and release. Before real examinations, nominate the actual invigilator, marker and reviewer and complete the workspace review. Confirmation of responsibilities does not approve real applicant marks or authorize production deployment.
+The school owner confirmed this division of responsibilities on 2026-10-31: Registrar for intake and guardian checks, Finance for fee verification, assigned staff for marking, and a different Principal or School Administrator for approval and release. The owner reviewed the staff marking/correction screenshot and confirmed that the layout is clear for staff on 2026-10-31. No layout changes were requested. Before real examinations, nominate the actual invigilator, marker and reviewer. Confirmation of responsibilities does not approve real applicant marks or authorize production deployment.
