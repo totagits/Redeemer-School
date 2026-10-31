@@ -230,6 +230,35 @@ database, expected migration history, advisory lock and timeouts. Only migration
   decision. Separate test accounts were operated by the same testing agent, not an
   independent human review. No real applicant score or admission decision changed.
 
+## Live candidate countdown and owner handoff
+
+On 2026-10-31 a fresh, separate fictional test, **TEST — Browser Countdown 20261031 B**,
+ran from **18:52:34 to 18:54:34 GMT** (13:52:34–13:54:34 America/Chicago).
+Only the new fixture's schedule, free fee, assignment and toy question snapshot were
+seeded for the short test. Credential issuance, email delivery, candidate sign-in,
+start, autosave and timeout used the deployed staging workflows. Existing exams,
+released marks and production were not changed. Earlier unused expired test codes
+were not reused; the fresh code was issued more than five minutes before start.
+
+The new code arrived in the authorized guardian mailbox. Sign-in succeeded inside
+the permitted window. The candidate entered `school` without pressing Save: the UI
+changed from Unsaved changes to Saved and confirmed the school record had received
+the answer. Reload restored that answer with Saved status. Submit was never pressed.
+At **18:54:34 GMT** the live page automatically changed to Examination submitted,
+explicitly identifying timeout and warning that unsaved changes were not included.
+A post-deadline reload retained this receipt and exposed no question-edit controls.
+The database confirmed SUBMITTED/TIMEOUT, submitted_at equal to ends_at and the
+unchanged saved answer. This completes the previously outstanding live countdown test.
+
+The school owner confirmed responsibilities on 2026-10-31: Registrar for intake and
+guardian checks, Finance for fees, assigned staff for marking, and a different Principal
+or School Administrator for approval and release. The staff history workspace was left
+open with the original and corrected fictional result for visual review. Plain-language
+procedures and the remaining owner layout review are in
+[entrance-examination-staff-review.md](entrance-examination-staff-review.md).
+Confirmation of responsibilities is not production-deployment authorization or approval
+of any real applicant's marks. The PR remains draft and production remains paused.
+
 ## Limits and rollout gates
 
 - Disposable PostgreSQL 18 contention tests and staging schema/runtime checks pass.
@@ -243,7 +272,7 @@ database, expected migration history, advisory lock and timeouts. Only migration
 - A pre-migration staging backup, migrations 104-109 and the authorized mailbox setup
   and mailbox proof are complete. Never use a real student record for this test.
 - Timeout submission and versioned corrections are implemented and validated as above.
-  There is no automatic scoring, pass/fail rule or admission decision. The school must
-  agree its invigilation, review and correction process before live examination use.
+  There is no automatic scoring, pass/fail rule or admission decision. School responsibilities are confirmed as above; nominate the actual invigilator,
+  marker and reviewer and finish the owner workspace review before live examination use.
 - No production deployment was performed. Authorized staging guardian-verification,
   examination-access and private-result emails were received during the fictional test.
