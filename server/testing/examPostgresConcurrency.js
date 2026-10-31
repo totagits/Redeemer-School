@@ -1,3 +1,4 @@
+import {savePublicWebsiteRequest,updateWebsiteRequest} from '../websiteRequests.js';
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { randomUUID } from 'node:crypto';
@@ -81,6 +82,19 @@ test('independent PostgreSQL connections serialize examination writes', { timeou
     const directory = new URL('../migrations/', import.meta.url);
     for (const file of (await readdir(directory)).filter(f => f.endsWith('.sql')).sort()) await query(await readFile(new URL(file, directory), 'utf8'));
 
+    await t.test('public request retries create one receipt under simultaneous submission',async()=>{
+      const f=await fixture(),body={requestId:randomUUID(),category:'ENQUIRY',contactName:'Fictional Contact',email:'test@example.invalid',subject:'Fictional enquiry',message:'A fictional website request for contention checks.',consent:true};
+      const {firstResult,secondResult}=await blockedRace(f.school,client=>savePublicWebsiteRequest(client,f.school,body),client=>savePublicWebsiteRequest(client,f.school,body));
+      assert.equal(firstResult.created,true);assert.equal(secondResult.value.created,false);assert.equal(secondResult.value.reference,firstResult.reference);
+      assert.equal((await query('SELECT count(*)::int AS n FROM website_requests WHERE school_id=$1',[f.school])).rows[0].n,1);
+    });
+    await t.test('website follow-up rejects a stale competing update after a row lock wait',async()=>{
+      const f=await fixture();const created=await tenant(f.school,client=>savePublicWebsiteRequest(client,f.school,{requestId:randomUUID(),category:'RECORDS',contactName:'Fictional Contact',email:'test@example.invalid',subject:'Fictional record enquiry',message:'Please explain the school records authorization procedure.',consent:true}));
+      const row=(await query('SELECT id FROM website_requests WHERE school_id=$1 AND reference=$2',[f.school,created.reference])).rows[0];
+      const input={schoolId:f.school,userId:f.user,id:row.id,revision:1,status:'IN_PROGRESS',note:'Fictional registrar is reviewing this request.',claim:true};
+      const {secondResult}=await blockedRace(f.school,client=>updateWebsiteRequest(client,input),client=>updateWebsiteRequest(client,{...input,status:'CLOSED'}));
+      assert.equal(secondResult.error?.status,409);assert.equal((await query('SELECT status FROM website_requests WHERE id=$1',[row.id])).rows[0].status,'IN_PROGRESS');
+    });
     await t.test('one credential can create only one session under simultaneous redemption', async () => {
       const f = await fixture();
       const redeem = client => redeemExamCredential(client, { ...f.scope, token: f.secret.token });

@@ -543,9 +543,9 @@ export default function App() {
   </div>;
 
   return <div className="min-h-screen bg-white font-sans">
-    <Header currentView="home" onSelectView={() => { setRequestedWorkspace(undefined); setShowSignIn(false); navigate('/'); }} lowStockCount={0} onSignIn={() => openSignIn()} onPortalSignIn={openPortalSignIn} />
+    <Header currentView="home" onSelectView={() => { setRequestedWorkspace(undefined); setShowSignIn(false); navigate('/'); }} lowStockCount={0} onPortalSignIn={openPortalSignIn} />
     <main>
-      {pathname === '/staff' || (showSignIn && pathname !== '/portal') ? <SignInPage audience="STAFF" onCancel={() => { setRequestedWorkspace(undefined); setShowSignIn(false); navigate('/'); }} onSignedIn={(account, token) => { setAuthAccount(account); setCsrfToken(token); setAuthError(''); navigate(account.roles.some(role => ['STUDENT', 'PARENT'].includes(role)) ? '/portal' : '/staff', true); }} /> : pathname === '/portal' ? <SignInPage audience="PORTAL" onCancel={() => { setShowSignIn(false); navigate('/'); }} onSignedIn={(account, token) => { setAuthAccount(account); setCsrfToken(token); setAuthError(''); navigate('/portal', true); }} /> : pathname === '/apply' ? <PublicAdmissionsPage schoolCode={THE_REDEEMER_SCHOOL_INFO.schoolCode} onBack={() => navigate('/')} /> : pathname.startsWith('/school/') ? <PublicSchoolPages slug={pathname.slice('/school/'.length)} onApply={() => navigate('/apply')} onPortalSignIn={openPortalSignIn} /> : <HomeLandingPage onSignIn={openSignIn} onPortalSignIn={openPortalSignIn} onApply={() => navigate('/apply')} />}
+      {pathname === '/staff' || (showSignIn && pathname !== '/portal') ? <SignInPage audience="STAFF" onCancel={() => { setRequestedWorkspace(undefined); setShowSignIn(false); navigate('/'); }} onSignedIn={(account, token) => { setAuthAccount(account); setCsrfToken(token); setAuthError(''); navigate(account.roles.some(role => ['STUDENT', 'PARENT'].includes(role)) ? '/portal' : '/staff', true); }} /> : pathname === '/portal' ? <SignInPage audience="PORTAL" onCancel={() => { setShowSignIn(false); navigate('/'); }} onSignedIn={(account, token) => { setAuthAccount(account); setCsrfToken(token); setAuthError(''); navigate('/portal', true); }} /> : pathname === '/apply' ? <PublicAdmissionsPage schoolCode={THE_REDEEMER_SCHOOL_INFO.schoolCode} onBack={() => navigate('/')} /> : pathname.startsWith('/school/') ? <PublicSchoolPages slug={pathname.slice('/school/'.length)} onApply={() => navigate('/apply')} onPortalSignIn={openPortalSignIn} /> : <HomeLandingPage onPortalSignIn={openPortalSignIn} onApply={() => navigate('/apply')} />}
     </main>
   </div>;
 
@@ -556,7 +556,7 @@ export default function App() {
           currentView="home"
           onSelectView={() => { setRequestedWorkspace(undefined); setShowSignIn(false); }}
           lowStockCount={0}
-          onSignIn={() => openSignIn()}
+         
         />}
         <main className="flex-1">
           {authLoading ? (
@@ -594,12 +594,12 @@ export default function App() {
         currentView={currentView}
         onSelectView={setCurrentView}
         lowStockCount={lowStockCount}
-        onSignIn={() => openSignIn()}
+       
       />
 
       {/* Main Content Area */}
       <main className={`flex-1 ${currentView === 'home' ? 'w-full' : 'max-w-7xl w-full mx-auto px-4 sm:px-6 lg:px-8 py-6'}`}>
-        {currentView === 'home' && <HomeLandingPage onSignIn={openSignIn} onPortalSignIn={openPortalSignIn} onApply={() => navigate('/apply')} />}
+        {currentView === 'home' && <HomeLandingPage onPortalSignIn={openPortalSignIn} onApply={() => navigate('/apply')} />}
         {currentView === 'dashboard' && (
           <DashboardView
             onNavigate={setCurrentView}

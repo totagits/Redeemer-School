@@ -1,3 +1,4 @@
+import { registerWebsiteRequestStaffRoutes } from './websiteRequests.js';
 import { registerExamMarkingRoutes } from './admissionExamMarking.js';
 import { createGuardianEmailChallenge, findVerifiedGuardianEmail } from './admissionGuardianEmail.js';
 import { sendExamEmail } from './admissionExamEmail.js';
@@ -1916,6 +1917,7 @@ export function createOperationsRouter({ authenticate, sendExaminationEmail=send
     }catch(error){return fail(req,res,error);}
   });
 
+  registerWebsiteRequestStaffRoutes(router,{csrf,close,done,fail,audit});
   registerExamMarkingRoutes(router,{needsPermission,csrf,close,done,fail,audit,sendExamMessage:sendExaminationEmail});
 
   router.get('/admissions/entrance-exams/:examId/questions',needsPermission('admissions.read'),async(req,res)=>{

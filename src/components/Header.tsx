@@ -35,7 +35,6 @@ interface HeaderProps {
   currentView: ERPView;
   onSelectView: (view: ERPView) => void;
   lowStockCount: number;
-  onSignIn: () => void;
   onPortalSignIn?: () => void;
 }
 
@@ -43,7 +42,6 @@ export const Header: React.FC<HeaderProps> = ({
   currentView,
   onSelectView,
   lowStockCount,
-  onSignIn,
   onPortalSignIn,
 }) => {
   const [openMenu,setOpenMenu]=useState<string|null>(null);

@@ -6,7 +6,6 @@ import { ArrowRight, BookOpen, CalendarDays, CheckCircle2, ClipboardList, Gradua
 import { SCHOOL_CONTACT } from '../data/schoolContact.ts';
 
 interface HomeLandingPageProps {
-  onSignIn: (workspace?: string) => void;
   onPortalSignIn: () => void;
   onApply: () => void;
 }
