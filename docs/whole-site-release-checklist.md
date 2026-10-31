@@ -116,9 +116,18 @@ For each flow record: actor/role, fictional record reference, starting condition
 
 ## Audit findings opened in this pass
 
-- PUBLIC-001: signed-in staff/portal sessions force public routes into operations, preventing normal public website browsing. Fix in this audit branch; verify both public browsing and role-specific workspace redirects.
-- PUBLIC-002: News & Events related-page links point Apply Online, Student Portal and Guardian Portal at nonexistent /school/... routes. Use the same canonical destinations in desktop, mobile and related navigation.
+- PUBLIC-001: **fixed and staging-verified** in 9347f4f: signed-in public browsing works; operations remain selected only at /staff or /portal.
+- PUBLIC-002: **fixed and staging-verified** in 9347f4f: desktop/mobile/related links share /apply and /portal destinations.
 - CONTENT-001: several rendered pages are approved-content placeholders. Obtain/publish school content rather than calling those pages complete.
 - EVIDENCE-001: old review documents predate the built backend and portals. Use this checklist and current code/staging evidence; retain earlier reviews as history.
 
 Next audit order: public navigation/routes/content -> public submissions/editorial to staff workflows -> school setup/academics -> staff and family journeys -> Finance/Communications integration completion -> remaining operations/reports -> cross-system rehearsal and recovery -> owner release review.
+
+## First verification pass completed
+
+See [the dated evidence report](whole-site-audit-2026-10-31.md): 37 public destinations,
+seven mobile menu groups, desktop keyboard navigation, 15 administrator workspace
+load checks, separate MTN readiness states, and one fictional public admission through
+staff intake and review history. All 330 automated checks passed for the deployed code.
+This is scoped evidence, not complete acceptance of every listed workflow. Public
+content, all other process/role tests, MTN completion and release recovery gates remain.
