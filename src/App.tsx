@@ -1,4 +1,5 @@
 import { CandidateExamResult } from './components/CandidateExamResult.tsx';
+import { isOperationsPath } from './logic/publicSchoolRoutes.ts';
 /**
  * @license
  * SPDX-License-Identifier: Apache-2.0
@@ -519,10 +520,10 @@ export default function App() {
 
   const isPortalAccount = Boolean(authAccount?.roles.some(role => ['STUDENT', 'PARENT'].includes(role)));
   useEffect(() => {
-    if (!authAccount || pathname === '/examination' || pathname === '/examination/verify-email' || pathname === '/examination/results') return;
+    if (!authAccount || !isOperationsPath(pathname)) return;
     const destination = isPortalAccount ? '/portal' : '/staff';
     if (pathname !== destination && pathname !== '/set-password' && pathname !== '/reset-password') navigate(destination, true);
-  }, [authAccount, isPortalAccount]);
+  }, [authAccount, isPortalAccount, pathname]);
 
   if (pathname === '/examination/results') return <CandidateExamResult/>;
   if (pathname === '/examination' || pathname === '/examination/verify-email') return <CandidateExamSignIn verifyEmail={pathname.endsWith('/verify-email')} />;
@@ -536,7 +537,7 @@ export default function App() {
 
   if (authLoading) return <div className="grid min-h-screen place-items-center bg-slate-50 text-sm font-medium text-slate-600">Checking secure school access…</div>;
 
-  if (authAccount) return <div className="min-h-screen bg-slate-50 font-sans">
+  if (authAccount && isOperationsPath(pathname)) return <div className="min-h-screen bg-slate-50 font-sans">
     {isPortalAccount ? <div className="border-b border-blue-100 bg-blue-50 px-4 py-2 text-center text-xs font-semibold text-blue-900">Redeemer Student & Family Portal · Installable on your phone · Your view is limited to linked learners</div> : null}
     <OperationsWorkspace account={authAccount} csrfToken={csrfToken} busy={signOutBusy} error={authError} initialWorkspace={requestedWorkspace} onSignOut={handleSignOut} onPasswordChanged={() => setAuthAccount(current => current ? { ...current, mustResetPassword: false } : current)} />
   </div>;

@@ -1,4 +1,5 @@
 import React from 'react';
+import { schoolNavigationHref } from '../logic/publicSchoolRoutes.ts';
 import { PublicSchoolUpdates } from './PublicSchoolUpdates.tsx';
 import { LiveAdmissionsGuide, SchoolFAQ, PublicSchoolSupport } from './SchoolPublicUtilities.tsx';
 import { ArrowRight, BookOpen, CalendarDays, Camera, GraduationCap, HeartHandshake, MapPin, Phone, Users } from 'lucide-react';
@@ -112,7 +113,7 @@ export function PublicSchoolPages({slug,onApply,onPortalSignIn}:{slug:string;onA
    {slug==='photo-albums'&&<PhotoAlbumPreview/>}
    </main>
    <aside className="self-start rounded-2xl border border-slate-200 bg-white p-5 shadow-sm"><h2 className="font-bold">{group?.label||'Explore Redeemer'}</h2>
-    <nav aria-label="Related pages" className="mt-3 space-y-1">{group?.items.map(item=><a key={item.slug} href={`/school/${item.slug}`} aria-current={slug===item.slug?'page':undefined} className={`block rounded-lg px-3 py-2 text-sm ${slug===item.slug?'bg-blue-50 font-bold text-blue-800':'text-slate-600 hover:bg-slate-50'}`}>{item.label}</a>)}</nav>
+    <nav aria-label="Related pages" className="mt-3 space-y-1">{group?.items.map(item=><a key={item.slug} href={schoolNavigationHref(item.slug)} aria-current={slug===item.slug?'page':undefined} className={`block rounded-lg px-3 py-2 text-sm ${slug===item.slug?'bg-blue-50 font-bold text-blue-800':'text-slate-600 hover:bg-slate-50'}`}>{item.label}</a>)}</nav>
     <div className="mt-5 border-t pt-4"><p className="text-xs font-semibold text-slate-500">CONTACT THE SCHOOL</p>{SCHOOL_CONTACT.phones.map(phone=><a className="mt-2 flex items-center gap-2 text-sm text-blue-800" key={phone} href={`tel:${phone}`}><Phone className="h-4 w-4"/>{phone}</a>)}</div>
    </aside>
   </div>

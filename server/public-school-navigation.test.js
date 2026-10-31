@@ -1,6 +1,10 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import {readFileSync} from 'node:fs';
+import React from 'react';
+import {renderToStaticMarkup} from 'react-dom/server';
+import {PublicSchoolPages} from '../src/components/PublicSchoolPages.tsx';
+import {isOperationsPath} from '../src/logic/publicSchoolRoutes.ts';
 const pages=readFileSync(new URL('../src/components/PublicSchoolPages.tsx',import.meta.url),'utf8');
 const header=readFileSync(new URL('../src/components/Header.tsx',import.meta.url),'utf8');
 const app=readFileSync(new URL('../src/App.tsx',import.meta.url),'utf8');
@@ -13,7 +17,18 @@ test('public navigation preserves both student and guardian portals and school a
  for(const slug of ['student-portal','guardian-portal','apply-online','school-calendar','photo-albums','principal-message','school-uniform','parent-handbook']){
   assert.ok(pages.includes(`slug:'${slug}'`),slug);
  }
- assert.match(header,/\/apply/);assert.match(header,/\/portal/);
+ const html=renderToStaticMarkup(React.createElement(PublicSchoolPages,{slug:'news-events',onApply(){},onPortalSignIn(){}}));
+ assert.match(html,/href="\/apply"[^>]*>Apply Online/);
+ assert.match(html,/href="\/portal"[^>]*>Student Portal/);
+ assert.match(html,/href="\/portal"[^>]*>Guardian Portal/);
+ assert.doesNotMatch(html,/href="\/school\/(apply-online|student-portal|guardian-portal)"/);
+ assert.match(header,/schoolNavigationHref\(item.slug\)/);
+});
+
+test('only staff and family workspace routes select authenticated operations',()=>{
+ for(const route of ['/staff','/portal'])assert.equal(isOperationsPath(route),true);
+ for(const route of ['/','/apply','/school/news-events','/school/about-us','/examination','/examination/results','/set-password','/reset-password'])assert.equal(isOperationsPath(route),false,route);
+ assert.match(app,/authAccount && isOperationsPath\(pathname\)/);
 });
 test('public menu pages remain distinct from protected staff operations',()=>{
  assert.match(app,/pathname\.startsWith\('\/school\/'\)/);
