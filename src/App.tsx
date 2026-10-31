@@ -23,27 +23,27 @@ import { OperationsWorkspace } from './components/OperationsWorkspace.tsx';
 import { PublicAdmissionsPage } from './components/PublicAdmissionsPage.tsx';
 import { THE_REDEEMER_SCHOOL_INFO } from './data/schoolProfile.ts';
 
-import { 
-  Account, 
-  JournalEntry, 
-  CustomerInvoice, 
-  VendorBill 
+import {
+  Account,
+  JournalEntry,
+  CustomerInvoice,
+  VendorBill
 } from './logic/erpFinance.ts';
 import { Employee, LeaveRequest, PayrollRun } from './logic/erpHr.ts';
 import { InventoryItem, StockMovement, processStockMovement } from './logic/erpInventory.ts';
-import { 
-  StudentProfile, 
-  AdmissionApplicant, 
-  AdmissionStatus, 
+import {
+  StudentProfile,
+  AdmissionApplicant,
+  AdmissionStatus,
   StudentDocument,
-  convertApplicantToStudent 
+  convertApplicantToStudent
 } from './logic/students.ts';
 import { StudentAttendanceRecord } from './logic/attendance.ts';
-import { 
-  ErpUser, 
-  ErpSystemRole, 
-  SecurityAuditRecord, 
-  createAuditLog 
+import {
+  ErpUser,
+  ErpSystemRole,
+  SecurityAuditRecord,
+  createAuditLog
 } from './logic/erpAuth.ts';
 
 export default function App() {
@@ -212,7 +212,7 @@ export default function App() {
       const newPaid = inv.paidAmount + amount;
       const newBal = Math.max(0, inv.totalAmount - newPaid);
       const newStatus = newBal === 0 ? 'PAID' : 'PARTIALLY_PAID';
-      
+
       handleAddJournalEntry({
         date: new Date().toISOString().split('T')[0],
         description: `Customer payment received for ${inv.invoiceNumber} (${inv.customerName})`,
@@ -335,26 +335,26 @@ export default function App() {
       date: new Date().toISOString().split('T')[0],
       description: `Monthly Payroll Run Disbursed (${payrollRun.payPeriod}) for ${payrollRun.payslips.length} Employees`,
       lines: [
-        { 
-          accountId: '5020', 
-          accountName: 'Salaries and Employee Wages', 
-          debit: payrollRun.totalGross, 
-          credit: 0, 
-          memo: `Gross Wages (${payrollRun.payPeriod})` 
+        {
+          accountId: '5020',
+          accountName: 'Salaries and Employee Wages',
+          debit: payrollRun.totalGross,
+          credit: 0,
+          memo: `Gross Wages (${payrollRun.payPeriod})`
         },
-        { 
-          accountId: '2030', 
-          accountName: 'Statutory Taxes Payable', 
-          debit: 0, 
-          credit: payrollRun.totalDeductions, 
-          memo: 'Withheld Income Tax & Pension' 
+        {
+          accountId: '2030',
+          accountName: 'Statutory Taxes Payable',
+          debit: 0,
+          credit: payrollRun.totalDeductions,
+          memo: 'Withheld Income Tax & Pension'
         },
-        { 
-          accountId: '1010', 
-          accountName: 'Cash and Operating Bank', 
-          debit: 0, 
-          credit: payrollRun.totalNetPay, 
-          memo: 'Direct Deposit Net Payroll' 
+        {
+          accountId: '1010',
+          accountName: 'Cash and Operating Bank',
+          debit: 0,
+          credit: payrollRun.totalNetPay,
+          memo: 'Direct Deposit Net Payroll'
         }
       ],
       sourceModule: 'PAYROLL',
@@ -461,7 +461,7 @@ export default function App() {
   const handleIssueTuitionInvoice = (student: StudentProfile) => {
     const primaryGuardian = student.guardians.find(g => g.isPrimary) || student.guardians[0];
     const tuitionAmount = 450.00; // Standard term tuition & lab fee
-    
+
     handleAddInvoice({
       customerId: student.studentId,
       customerName: `${student.firstName} ${student.lastName} (Guardian: ${primaryGuardian?.name || 'Self'})`,
@@ -556,7 +556,7 @@ export default function App() {
           currentView="home"
           onSelectView={() => { setRequestedWorkspace(undefined); setShowSignIn(false); }}
           lowStockCount={0}
-         
+
         />}
         <main className="flex-1">
           {authLoading ? (
@@ -594,7 +594,7 @@ export default function App() {
         currentView={currentView}
         onSelectView={setCurrentView}
         lowStockCount={lowStockCount}
-       
+
       />
 
       {/* Main Content Area */}

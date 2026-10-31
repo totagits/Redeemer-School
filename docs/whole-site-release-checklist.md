@@ -8,6 +8,14 @@ Updated: 2026-10-31. Scope: the public website, its main menus and submenus, sta
 
 This is the current cross-product checklist. Earlier implementation reviews and rollout instructions are historical snapshots, not proof that today's completed workflows are missing. Reuse the existing implementation and reconcile evidence before building anything again.
 
+## Private administrative access rule
+
+The owner reaffirmed on 2026-10-31 that the public website must not advertise an ERP/staff login. Public menus, submenus, footers, forms and family login must not link to or render administrative sign-in. Student/guardian access is separate. Authorized administrative users use their separately distributed HTTPS staff entry and individual staff credentials; the server must enforce roles and permissions for all protected workspaces and requests.
+
+Regression tests render every public school page, the homepage, public header and family sign-in and reject administrative login links/controls. Unused staff sign-in callbacks were removed from public components. Public page titles/descriptions now identify the school rather than advertising ERP functions.
+
+An unpublished URL is not an access-control mechanism. The existing staff password form is still reachable if its path is known; current workspace access is protected by authentication and permissions. Do not describe it as a network-private entry. Before production, resolve the stronger private-entry/MFA/access-gateway requirement with the owner rather than assuming that hiding a link meets it. No staff role or network permission has been expanded by this change.
+
 ## Status rules
 
 - **Built; verify**: implementation exists, but its current full workflow evidence needs reconciliation or a fresh staging check. This does not mean rebuild it.
@@ -131,3 +139,5 @@ load checks, separate MTN readiness states, and one fictional public admission t
 staff intake and review history. All 330 automated checks passed for the deployed code.
 This is scoped evidence, not complete acceptance of every listed workflow. Public
 content, all other process/role tests, MTN completion and release recovery gates remain.
+
+The owner chose online forms plus staff follow-up for information enquiries, school visits and records requests. The implementation uses a private administrative Website requests queue; it adds no staff-login link to public pages. See [website-request workflow](website-request-workflow.md). Staging verification of migration 111 and this workflow is pending until recorded there.
