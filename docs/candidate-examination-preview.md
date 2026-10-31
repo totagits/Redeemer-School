@@ -48,9 +48,9 @@ guardian-email test. Production remains paused and unchanged.
 ## Validation
 
 All 326 local automated tests pass (one Linux CI-only PostgreSQL check is skipped).
-GitHub run [41124248847](https://github.com/totagits/Redeemer-School/actions/runs/41124248847)
+GitHub run [41203338298](https://github.com/totagits/Redeemer-School/actions/runs/41203338298)
 passed all 327 tests with no skips, TypeScript and the frontend build at code commit
-`b8d344cd2169f310bcc3defa1d230ed33de6ab53`.
+`09f74e2f4b2b5c43ec1444830483aa1ba1018e7b`.
 The full existing migration chain executes in disposable embedded PostgreSQL (PGlite),
 including 104-109. Tests exercise real RLS, composite foreign keys, duplicate attempts,
 invalid question JSON, single-use redemption, rollback, expiry, guardian email changes,
@@ -64,7 +64,8 @@ A fictional local result preview also verified the approved mark/feedback displa
 that closing it clears the private result. Database-backed HTTP tests cover invalid and
 stale marks, separate approval, forbidden self-approval, SQL immutability, unverified
 email refusal, release, replacement, expiry and revoked guardian proof.
-Real provider delivery and enabled staging end-to-end proof remain pending.
+Real guardian verification and access-email delivery are verified in staging.
+Candidate sitting, marking and private-result release remain pending.
 
 Run `npm run test:exam-postgres` with Docker running to execute contention checks
 against a disposable official PostgreSQL 18 container. The existing Linux CI test step
@@ -120,8 +121,8 @@ Through the existing Registrar account, fictional application TEST-ONLINE-202610
 was created with clearly marked test names and notes, using the authorized mailbox.
 The staff verification action returned "Verification code sent to the recorded
 guardian email." This proves provider acceptance, not inbox receipt or mailbox proof.
-Actual guardian code entry/verification is pending. No candidate access code or
-private result code has been issued.
+The user subsequently completed code entry successfully; the verification page
+confirmed that the Registrar could issue an examination-access code.
 
 The user reported that no verification email arrived. A read-only delivery-status
 lookup using the existing staging Resend key returned HTTP 401 restricted_api_key;
@@ -132,16 +133,29 @@ but was 38 minutes old, beyond its 30-minute verification window. One fresh chal
 was then requested through the Registrar workflow; the new email was also marked
 Delivered. Provider delivery means Gmail accepted it, not confirmed inbox placement
 or user receipt. The user was given an all-folders Gmail search and asked to use the
-newest code. Mailbox proof is still pending. The connected Gmail tool account is not
+newest code. Mailbox proof was subsequently confirmed in the verification UI.
+The connected Gmail tool account is not
 the authorized recipient mailbox, so it was not used to read recipient messages.
 
-A separate ONLINE draft, TEST — Grade 4 Online Guardian Access 20261030, has that
-fictional applicant assigned and two harmless test questions (maximum four points).
-The existing School Administrator reviewed and froze its question set. Scheduling
-confirmation was not verified as completed; last observed status was DRAFT. Fee
-configuration and the enabled candidate sitting/result workflow remain pending.
-The proposed draft window was 2026-10-30 21:15–22:15 GMT; recheck the current time
-and adjust the draft before scheduling if the window is no longer appropriate.
+A separate ONLINE examination, TEST — Grade 4 Online Guardian Access 20261030, has
+the fictional applicant assigned and two harmless questions (maximum four points).
+The School Administrator reviewed and froze the question set.
+
+On 2026-10-31, on-page schedule/time review replaced browser confirmation popups.
+An additional server fix permits a never-published draft with an old date to move to
+a future window, while started scheduled sessions and attended/scored assignments
+remain protected. The real HTTP/database test covers those allowed/blocked cases.
+Deployment ad2fsy4atnqxgjrm0064jg44 succeeded with tested code 09f74e2; this is now
+the saved staging pin on work/staging-candidate-access, with manual deployment.
+
+The existing online draft was corrected through the audited staff workflow and
+scheduled for **2026-10-31 13:15–14:15 GMT** (08:15–09:15 America/Chicago). Its fee
+was configured as LRD 0, with no settlement/payment collected. Eligibility returned
+ELIGIBLE. A one-use examination-access code was sent through the staff action and
+its new message was visible in the authorized Gmail inbox at 08:01 local time.
+The candidate sign-in page is prepared; login must occur from 13:15 until before
+13:30 GMT. No private-result code has been issued. If continuing after that window,
+inspect current credential/session state before attempting to reuse or reissue a code.
 
 The pre-test disabled status described above is historical; the staging preview is
 currently enabled for this controlled test. Public repository notes deliberately
@@ -150,17 +164,17 @@ omit the guardian mailbox and all verification/access codes. Production is uncha
 ## Limits and rollout gates
 
 - Disposable PostgreSQL 18 contention tests and staging schema/runtime checks pass.
-  Inbox receipt, guardian proof and enabled candidate sitting/results remain unverified.
+  Guardian proof and access-email inbox receipt pass. Candidate sitting/results remain
+  to be verified in the live controlled staging workflow.
 - The public sign-in limiter is per process; use a shared limiter before multiple replicas.
 - Mailbox proof is not legal guardianship verification or an admission decision. Registrar
   must verify the recorded guardian relationship through the school intake process.
-- The current staging test examination is PAPER: retain its schedule, fee, and receipt.
-  Use a separate ONLINE fictional examination for candidate sign-in tests.
+- The original PAPER examination retains its schedule, fee and receipt. Candidate
+  sign-in testing uses the separate ONLINE fictional examination described above.
 - A pre-migration staging backup, migrations 104-109 and the authorized mailbox setup
-  are complete. Complete mailbox proof before issuing an examination code. Never use
-  a real student record for this test.
+  and mailbox proof are complete. Never use a real student record for this test.
 - There is no automatic submission at timeout, automatic scoring, pass/fail rule or
   admission decision. Approved-mark correction/re-review is not implemented; do not
   approve live marks until the school has agreed its review and correction process.
-- No production deployment, candidate examination-access email or result email was
-  performed. One authorized staging guardian-verification email was accepted for sending.
+- No production deployment or private-result email was performed. Authorized staging
+  guardian-verification and examination-access emails have been delivered.
