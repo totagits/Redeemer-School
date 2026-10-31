@@ -88,11 +88,11 @@ export function registerExamMarkingRoutes(router,{needsPermission,csrf,close,don
   const marking=await saveExamMarking(req.auth.client,scope(req),req.body||{},req.auth.claims.userId);
   await audit(req,'ENTRANCE_EXAM_MARKED','ADMISSION_EXAM_ATTEMPT',req.params.attemptId,{revision:marking.revision});return done(req,res,200,{marking});
  }catch(e){return failure(req,res,e);}});
- router.post(base+'/attempts/:attemptId/approve-marks',needsPermission('admissions.write'),csrf,gate,leader,async(req,res)=>{try{
+ router.post(base+'/attempts/:attemptId/approve-marks',needsPermission('admissions.read'),csrf,gate,leader,async(req,res)=>{try{
   const result=await approveExamMarking(req.auth.client,scope(req),req.body?.revision,req.auth.claims.userId);
   await audit(req,'ENTRANCE_EXAM_MARKS_APPROVED','ADMISSION_EXAM_ATTEMPT',req.params.attemptId,{});return done(req,res,200,result);
  }catch(e){return failure(req,res,e);}});
- router.post(base+'/attempts/:attemptId/release-result',needsPermission('admissions.write'),csrf,gate,leader,async(req,res)=>{try{
+ router.post(base+'/attempts/:attemptId/release-result',needsPermission('admissions.read'),csrf,gate,leader,async(req,res)=>{try{
   const released=await createResultRelease(req.auth.client,scope(req),req.body?.guardianEmail,req.auth.claims.userId);
   await sendExamMessage({email:released.email,token:released.token,kind:'result',reference:req.params.examId,publicUrl:process.env.APP_PUBLIC_URL,
     apiKey:process.env.RESEND_API_KEY,from:process.env.RESEND_FROM_EMAIL,staging:process.env.EMAIL_MODE!=='production',idempotencyKey:'exam-result-'+released.accessId});
