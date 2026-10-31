@@ -15,6 +15,15 @@ test('valid session returns scoped candidate identity but no question answers',a
  assert.equal(Object.hasOwn(result,'answer_key'),false);
 });
 
+test('ended sessions allow only a short receipt window and still reject revocation',async()=>{
+ const receipt={...args,receiptOnly:true,now:new Date('2026-11-05T10:00:01Z')};
+ assert.equal((await validateCandidateExamSession(db(row),receipt)).ok,true);
+ assert.equal((await validateCandidateExamSession(db(row),{...receipt,receiptOnly:false})).ok,false);
+ assert.equal((await validateCandidateExamSession(db(row),{...receipt,now:new Date('2026-11-05T10:10:00Z')})).ok,false);
+ for(const change of [{revoked_at:'2026-11-05T10:00:00Z'},{credential_revoked_at:'2026-11-05T10:00:00Z'},{application_status:'WITHDRAWN'},{exam_status:'CANCELLED'}])
+  assert.equal((await validateCandidateExamSession(db({...row,...change}),receipt)).ok,false);
+});
+
 test('session expiry uses the clock after its database lock wait',async t=>{
  t.mock.timers.enable({apis:['Date'],now:Date.parse('2026-11-05T09:59:00Z')});
  const client=db(row),query=client.query;

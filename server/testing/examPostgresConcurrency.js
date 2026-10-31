@@ -7,8 +7,8 @@ import pg from 'pg';
 import { issueCandidateSecret } from '../admissionExamCredential.js';
 import { redeemExamCredential } from '../admissionExamRedemption.js';
 import { createGuardianEmailChallenge } from '../admissionGuardianEmail.js';
-import { startCandidateAttempt, saveCandidateAnswer, submitCandidateAttempt } from '../candidateExamSitting.js';
-import { saveExamMarking, approveExamMarking } from '../admissionExamMarking.js';
+import { startCandidateAttempt, saveCandidateAnswer, submitCandidateAttempt, finalizeExpiredAttempts } from '../candidateExamSitting.js';
+import { saveExamMarking, approveExamMarking, reopenExamMarking, createResultRelease } from '../admissionExamMarking.js';
 
 test('independent PostgreSQL connections serialize examination writes', { timeout: 60_000 }, async t => {
   const url = new URL(process.env.EXAM_TEST_DATABASE_URL || 'postgresql://invalid/');
@@ -122,6 +122,32 @@ test('independent PostgreSQL connections serialize examination writes', { timeou
       const { firstResult, secondResult } = await blockedRace(f.school, submit, submit);
       assert.equal(firstResult.submitted, true);
       assert.deepEqual(secondResult.value, firstResult);
+    });
+    await t.test('timeout submission preserves saved answers and blocks a waiting late edit', async () => {
+      const f=await fixture();
+      await tenant(f.school,client=>startCandidateAttempt(client,f.scope));
+      await tenant(f.school,client=>saveCandidateAnswer(client,f.scope,{questionId:f.question,answer:'Saved before time ended'}));
+      await query("UPDATE admission_entrance_exams SET ends_at=clock_timestamp()-interval '1 second' WHERE id=$1",[f.exam]);
+      const {secondResult}=await blockedRace(f.school,
+        client=>finalizeExpiredAttempts(client,f.scope),
+        client=>saveCandidateAnswer(client,f.scope,{questionId:f.question,answer:'Late change'}));
+      assert.equal(secondResult.error?.status,409);
+      assert.equal((await query('SELECT submission_reason FROM admission_exam_attempts WHERE school_id=$1',[f.school])).rows[0].submission_reason,'TIMEOUT');
+      assert.equal((await query('SELECT answer FROM admission_exam_answers WHERE school_id=$1',[f.school])).rows[0].answer,'Saved before time ended');
+      assert.equal(await tenant(f.school,client=>finalizeExpiredAttempts(client,f.scope)),0);
+    });
+    await t.test('a correction serializes with result release and preserves the approved version', async () => {
+      const f=await fixture();const started=await tenant(f.school,client=>startCandidateAttempt(client,f.scope));
+      await tenant(f.school,client=>submitCandidateAttempt(client,f.scope,{submissionId:randomUUID()}));
+      const scope={...f.scope,attemptId:started.attempt.id};
+      await tenant(f.school,client=>saveExamMarking(client,scope,{marks:[{questionId:f.question,points:1}],revision:0},f.user));
+      await tenant(f.school,client=>approveExamMarking(client,scope,1,f.leader));
+      const {secondResult}=await blockedRace(f.school,
+        client=>reopenExamMarking(client,scope,{revision:1,reason:'Fictional correction requested for a transcription error.'},f.leader),
+        client=>createResultRelease(client,scope,'guardian@example.invalid',f.leader));
+      assert.equal(secondResult.error?.status,409);
+      const versions=(await query('SELECT total_points,approved_at,superseded_at FROM admission_exam_marking WHERE school_id=$1 ORDER BY superseded_at NULLS LAST',[f.school])).rows;
+      assert.equal(versions.length,2);assert.equal(versions[0].total_points,'1.00');assert.ok(versions[0].approved_at);assert.ok(versions[0].superseded_at);assert.equal(versions[1].approved_at,null);
     });
     await t.test('approval cannot be overwritten by a mark save already in flight', async () => {
       const f = await fixture();

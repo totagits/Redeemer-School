@@ -4,7 +4,7 @@ import { examEligibility, examSittingWindow } from './admissionExamAccess.js';
 // Read-only database validator, intended for use by future authenticated exam routes.
 // The caller must run this inside a tenant-scoped transaction, obtain the bearer token
 // only from a secure HttpOnly cookie, and enforce CSRF on all writes.
-export async function validateCandidateExamSession(client,{schoolId,examId,sessionToken,now}) {
+export async function validateCandidateExamSession(client,{schoolId,examId,sessionToken,now,receiptOnly=false}) {
   const hash=hashCandidateSecret(sessionToken);
   if(!schoolId||!examId||!hash) return {ok:false,reason:'INVALID_SESSION'};
   const result=await client.query(`SELECT s.id,s.application_id,s.expires_at,s.revoked_at,
@@ -32,7 +32,9 @@ export async function validateCandidateExamSession(client,{schoolId,examId,sessi
   // Evaluate expiry after any row-lock wait, including a concurrent revocation.
   now ??= new Date();
   const current=new Date(now).valueOf(),expiry=new Date(row.expires_at).valueOf();
-  if(!Number.isFinite(current)||!Number.isFinite(expiry)||row.revoked_at||current>=expiry)
+  const end=new Date(row.ends_at).valueOf();
+  const receiptWindow=receiptOnly&&Number.isFinite(end)&&current>=end&&current<end+600_000;
+  if(!Number.isFinite(current)||!Number.isFinite(expiry)||row.revoked_at||(current>=expiry&&!receiptWindow))
     return {ok:false,reason:'SESSION_EXPIRED'};
   if(!row.credential_redeemed_at||row.credential_revoked_at)
     return {ok:false,reason:'CREDENTIAL_NOT_ACTIVE'};
@@ -45,6 +47,6 @@ export async function validateCandidateExamSession(client,{schoolId,examId,sessi
       verified_at:row.settlement_verified_at}:null});
   if(!eligibility.allowed)return {ok:false,reason:eligibility.reason};
   const time=examSittingWindow({status:row.exam_status,starts_at:row.starts_at,ends_at:row.ends_at},now);
-  if(!time.allowed)return {ok:false,reason:time.reason};
+  if(!time.allowed&&!receiptWindow)return {ok:false,reason:time.reason};
   return {ok:true,sessionId:row.id,applicationId:row.application_id,examId,endsAt:time.endsAt};
 }

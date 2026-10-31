@@ -7,15 +7,16 @@ async function examWindow(client,{schoolId,examId}) {
  if(!result.rowCount)throw new ExamSittingError('The examination is outside its scheduled window.');
 }
 async function attempt(client,scope,{lock=false}={}){
- const result=await client.query(`SELECT id,status,submitted_at,client_submission_id,question_set_id FROM admission_exam_attempts
+ const result=await client.query(`SELECT id,status,submitted_at,submission_reason,client_submission_id,question_set_id FROM admission_exam_attempts
    WHERE school_id=$1 AND exam_id=$2 AND application_id=$3 ${lock?'FOR UPDATE':''}`,[scope.schoolId,scope.examId,scope.applicationId]);
  return result.rows[0]||null;
 }
 export async function readCandidateAttempt(client,scope){
- await examWindow(client,scope);
+ await finalizeExpiredAttempts(client,scope);
  const row=await attempt(client,scope);if(!row)return {attempt:null};
  if(row.status==='VOID')throw new ExamSittingError('This examination attempt is unavailable.');
- if(row.status==='SUBMITTED')return {attempt:{id:row.id,status:row.status,submitted_at:row.submitted_at},questions:[],answers:[]};
+ if(row.status==='SUBMITTED')return {attempt:{id:row.id,status:row.status,submitted_at:row.submitted_at,submission_reason:row.submission_reason},questions:[],answers:[]};
+ await examWindow(client,scope);
  // Never select the snapshot answer_keys column or the source question answer_key.
  const set=await client.query('SELECT questions FROM admission_exam_question_sets WHERE school_id=$1 AND exam_id=$2 AND id=$3',[scope.schoolId,scope.examId,row.question_set_id]);
  if(!set.rowCount)throw new ExamSittingError('Approved examination questions are unavailable.');
@@ -54,9 +55,26 @@ export async function submitCandidateAttempt(client,scope,{submissionId}){
  if(row?.status==='SUBMITTED'&&row.client_submission_id===submissionId)return {submitted:true,submittedAt:row.submitted_at};
  if(!row||row.status!=='IN_PROGRESS')throw new ExamSittingError('This examination attempt is not open for submission.');
  await examWindow(client,scope);
- const result=await client.query(`UPDATE admission_exam_attempts a SET status='SUBMITTED',submitted_at=clock_timestamp(),client_submission_id=$4
+ const result=await client.query(`UPDATE admission_exam_attempts a SET status='SUBMITTED',submitted_at=clock_timestamp(),submission_reason='MANUAL',client_submission_id=$4
    FROM admission_entrance_exams e WHERE a.school_id=$1 AND a.exam_id=$2 AND a.application_id=$3
      AND e.school_id=a.school_id AND e.id=a.exam_id AND e.ends_at>clock_timestamp() RETURNING a.submitted_at`,[scope.schoolId,scope.examId,scope.applicationId,submissionId]);
  if(!result.rowCount)throw new ExamSittingError('The examination has ended.');
  return {submitted:true,submittedAt:result.rows[0].submitted_at};
+}
+
+// Called by the restricted, tenant-scoped worker and receipt routes. No browser
+// clock or client answer payload can change the deadline or add a late answer.
+export async function finalizeExpiredAttempts(client,{schoolId,examId=null,applicationId=null}){
+ const result=await client.query(`WITH expired AS (
+   SELECT a.id,e.ends_at FROM admission_exam_attempts a
+   JOIN admission_entrance_exams e ON e.school_id=a.school_id AND e.id=a.exam_id
+   WHERE a.school_id=$1 AND ($2::uuid IS NULL OR a.exam_id=$2)
+   AND ($3::uuid IS NULL OR a.application_id=$3) AND a.status='IN_PROGRESS'
+   AND e.mode='ONLINE' AND e.status IN ('SCHEDULED','COMPLETED') AND e.ends_at<=clock_timestamp()
+   ORDER BY e.ends_at,a.id LIMIT 100 FOR UPDATE OF a SKIP LOCKED
+ ) UPDATE admission_exam_attempts a SET status='SUBMITTED',
+   submitted_at=GREATEST(expired.ends_at,a.started_at),submission_reason='TIMEOUT'
+   FROM expired WHERE a.school_id=$1 AND a.id=expired.id AND a.status='IN_PROGRESS'
+   RETURNING a.id`,[schoolId,examId,applicationId]);
+ return result.rowCount;
 }

@@ -1,6 +1,6 @@
 import React,{useEffect,useRef,useState} from 'react';
 type Question={id:string;prompt:string;question_type:'SINGLE_CHOICE'|'SHORT_ANSWER';options:string[]|null;points:string;sort_order:number};
-type Attempt={id:string;status:'IN_PROGRESS'|'SUBMITTED';submitted_at?:string};
+type Attempt={id:string;status:'IN_PROGRESS'|'SUBMITTED';submitted_at?:string;submission_reason?:'MANUAL'|'TIMEOUT'};
 type Answer=string|number;
 type Bundle={attempt:Attempt|null;questions?:Question[];answers?:Array<{question_id:string;answer:Answer}>};
 export function CandidateExamSitting({csrfToken,endsAt}:{csrfToken:string;endsAt:string}){
@@ -21,18 +21,26 @@ export function CandidateExamSitting({csrfToken,endsAt}:{csrfToken:string;endsAt
   setDirty(previous=>{const next=new Set(previous);next.delete(id);return next;});
  };
  const saveOne=async(id:string)=>{setBusy(true);setError('');setNotice('');try{await save(id);setNotice('Answer saved to the school examination record.');}catch(e){setError(e instanceof Error?e.message:'Answer was not saved.');}finally{setBusy(false);}};
+ // Save received edits regularly; never send a late local draft as a timeout answer.
+ useEffect(()=>{if(busy||remaining===0||!dirty.size)return;const timer=window.setTimeout(()=>{const id=[...dirty][0];void saveOne(id);},1000);return()=>window.clearTimeout(timer);},[dirty,busy,remaining===0]);
+ useEffect(()=>{
+  if(remaining>0||!bundle?.attempt||bundle.attempt.status==='SUBMITTED')return;
+  let active=true,running=false;
+  const receipt=async()=>{if(running)return;running=true;try{const data:Bundle=await request('timeout',{});if(active&&data.attempt?.status==='SUBMITTED'){accept(data);setError('');setConfirm(false);}}catch{if(active)setError('Time has ended. Waiting for the school server to confirm submission of saved answers. Unsaved changes cannot be added after the deadline.');}finally{running=false;}};
+  void receipt();const timer=window.setInterval(()=>void receipt(),3000);return()=>{active=false;window.clearInterval(timer);};
+ },[remaining===0,bundle?.attempt?.id,bundle?.attempt?.status]);
  const submit=async()=>{setBusy(true);setError('');setNotice('');try{
   for(const id of dirty)await save(id);
   const result=await request('submit',{submissionId:submissionId.current});
   setBundle(previous=>({attempt:{id:previous!.attempt!.id,status:'SUBMITTED',submitted_at:result.submittedAt},questions:[],answers:[]}));
   setAnswers({});setDirty(new Set());setConfirm(false);
  }catch(e){setError(e instanceof Error?e.message:'Submission was not completed. Try again.');}finally{setBusy(false);}};
- if(bundle?.attempt?.status==='SUBMITTED')return <section className="mt-6 rounded-xl border border-emerald-300 bg-emerald-50 p-5"><h2 className="text-xl font-bold">Examination submitted</h2><p className="mt-2">Your answers have been received. Further changes are closed.</p><p className="mt-2 text-sm">Submitted: {new Date(bundle.attempt.submitted_at!).toLocaleString('en-GB',{timeZone:'Africa/Monrovia'})} GMT</p><p className="mt-3 text-sm">Results will be reviewed by the school. No result or admission decision has been published.</p></section>;
+ if(bundle?.attempt?.status==='SUBMITTED')return <section className="mt-6 rounded-xl border border-emerald-300 bg-emerald-50 p-5"><h2 className="text-xl font-bold">Examination submitted</h2><p className="mt-2">{bundle.attempt.submission_reason==='TIMEOUT'?'Time ended. The school server automatically submitted the answers received before the deadline. Unsaved changes were not included.':'Your answers have been received. Further changes are closed.'}</p><p className="mt-2 text-sm">Submitted: {new Date(bundle.attempt.submitted_at!).toLocaleString('en-GB',{timeZone:'Africa/Monrovia'})} GMT</p><p className="mt-3 text-sm">Results will be reviewed by the school. No result or admission decision has been published.</p></section>;
  return <section className="mt-6 space-y-5" aria-label="Examination questions">
-  <p className="rounded-lg bg-blue-50 p-3 text-sm" aria-live="off">Time remaining: {Math.ceil(remaining/60_000)} minutes. Save each answer as you work. The school server enforces the deadline.</p>
+  <p className="rounded-lg bg-blue-50 p-3 text-sm" aria-live="off">Time remaining: {Math.ceil(remaining/60_000)} minutes. Answers save automatically as you work; check that each shows Saved. You can also press Save answer. When time ends, the server submits the answers it has received, even if this page is closed.</p>
   {error&&<p role="alert" className="rounded-lg bg-red-50 p-3 text-red-800">{error}</p>}
   {notice&&<p role="status" className="text-sm text-emerald-800">{notice}</p>}
-  {remaining===0&&<p role="alert" className="font-semibold text-red-800">The examination time has ended. New saves and submissions are closed. Contact the invigilator if you need assistance.</p>}
+  {remaining===0&&<p role="alert" className="font-semibold text-red-800">The examination time has ended. New answers are closed. The school server is submitting saved answers; please wait for confirmation.</p>}
   {!bundle&&!error&&<p>Loading your examination…</p>}
   {bundle&&!bundle.attempt&&<div className="space-y-4"><p>Start when instructed by the invigilator. You may return to this page to resume the same attempt during the examination window.</p><button disabled={busy||remaining===0} onClick={()=>void start()} className="rounded-lg bg-blue-800 px-4 py-3 font-bold text-white disabled:opacity-50">Start examination</button></div>}
   {bundle?.questions?.map((q,index)=><article key={q.id} className="rounded-xl border p-4"><h3 className="font-semibold">{index+1}. {q.prompt}</h3><p className="mb-3 text-xs text-slate-500">{q.points} points</p>

@@ -26,7 +26,7 @@ export function createCandidateExamRouter({pool,secret,publicUrl,enabled=false})
   try {const u=new URL(publicUrl);if(u.protocol==='https:'&&!u.username&&!u.password)origin=u.origin;}catch{}
   const mac=value=>createHmac('sha256',secret).update('candidate-exam:v1:'+value).digest('base64url');
   function sign(claims){const payload=Buffer.from(JSON.stringify(claims)).toString('base64url');return payload+'.'+mac(payload);}
-  function claimsFrom(req){
+  function claimsFrom(req,receiptOnly=false){
     const value=(req.headers.cookie||'').split(';').map(s=>s.trim()).find(s=>s.startsWith(COOKIE+'='))?.slice(COOKIE.length+1);
     if(!value||value.length>2048)return null;
     const [payload,sig,...extra]=value.split('.');if(extra.length||!payload||!sig)return null;
@@ -34,7 +34,7 @@ export function createCandidateExamRouter({pool,secret,publicUrl,enabled=false})
     if(expected.length!==actual.length||!timingSafeEqual(expected,actual))return null;
     try {const c=JSON.parse(Buffer.from(payload,'base64url').toString());
       const uuid=/^[0-9a-f]{8}(-[0-9a-f]{4}){3}-[0-9a-f]{12}$/i;
-      return uuid.test(c.schoolId)&&uuid.test(c.examId)&&hashCandidateSecret(c.token)&&typeof c.csrf==='string'&&c.csrf.length===43&&Number.isSafeInteger(c.expiresAt)&&c.expiresAt>Date.now()?c:null;
+      return uuid.test(c.schoolId)&&uuid.test(c.examId)&&hashCandidateSecret(c.token)&&typeof c.csrf==='string'&&c.csrf.length===43&&Number.isSafeInteger(c.expiresAt)&&c.expiresAt+(receiptOnly?600_000:0)>Date.now()?c:null;
     }catch{return null;}
   }
   function cookie(res,value,maxAge){res.setHeader('Set-Cookie',`${COOKIE}=${value}; Path=${PATH}; HttpOnly; Secure; SameSite=Strict; Max-Age=${Math.max(0,Math.floor(maxAge))}`);}
@@ -94,15 +94,15 @@ export function createCandidateExamRouter({pool,secret,publicUrl,enabled=false})
       return {schoolId:school,examId:credential.exam_id,token:redeemed.sessionToken,expiresAt:new Date(redeemed.expiresAt).valueOf(),csrf:randomBytes(32).toString('base64url')};
     });
       if(!result)return res.status(401).json({error:'Cannot sign in. Check the code and scheduled examination time.'});
-      cookie(res,sign(result),(result.expiresAt-Date.now())/1000);
+      cookie(res,sign(result),(result.expiresAt-Date.now())/1000+600);
       return res.json({signedIn:true,csrfToken:result.csrf});
     }catch{return res.status(503).json({error:'Candidate sign-in is temporarily unavailable.'});}
   });
   router.get('/session',async(req,res)=>{
-    const claims=claimsFrom(req);if(!claims)return res.status(401).json({error:'Sign in with your examination code.'});
+    const claims=claimsFrom(req,true);if(!claims)return res.status(401).json({error:'Sign in with your examination code.'});
     try {const result=await transaction(async client=>{
       await tenant(client,claims.schoolId);
-      const session=await validateCandidateExamSession(client,{schoolId:claims.schoolId,examId:claims.examId,sessionToken:claims.token});
+      const session=await validateCandidateExamSession(client,{schoolId:claims.schoolId,examId:claims.examId,sessionToken:claims.token,receiptOnly:true});
       if(!session.ok)return null;
       const proof=await client.query(`SELECT e.title,e.ends_at FROM admission_exam_candidate_sessions s
         JOIN admission_exam_candidate_credentials c ON c.school_id=s.school_id AND c.id=s.credential_id
@@ -114,9 +114,9 @@ export function createCandidateExamRouter({pool,secret,publicUrl,enabled=false})
       return res.json({exam:result,csrfToken:claims.csrf,sittingAvailable:true});
     }catch{return res.status(503).json({error:'The examination session could not be checked.'});}
   });
-  async function sittingScope(client,claims){
+  async function sittingScope(client,claims,receiptOnly=false){
     await tenant(client,claims.schoolId);
-    const session=await validateCandidateExamSession(client,{schoolId:claims.schoolId,examId:claims.examId,sessionToken:claims.token});
+    const session=await validateCandidateExamSession(client,{schoolId:claims.schoolId,examId:claims.examId,sessionToken:claims.token,receiptOnly});
     if(!session.ok)throw new ExamSittingError('Your examination session is no longer available.',401);
     const proof=await client.query(`SELECT c.id FROM admission_exam_candidate_sessions s
       JOIN admission_exam_candidate_credentials c ON c.school_id=s.school_id AND c.id=s.credential_id
@@ -125,12 +125,13 @@ export function createCandidateExamRouter({pool,secret,publicUrl,enabled=false})
     return {schoolId:claims.schoolId,examId:claims.examId,applicationId:session.applicationId};
   }
   for(const [method,path,action] of [
-    ['get','/attempt',readCandidateAttempt],['post','/start',startCandidateAttempt],
+    ['get','/attempt',readCandidateAttempt],['post','/timeout',readCandidateAttempt],['post','/start',startCandidateAttempt],
     ['post','/answers',saveCandidateAnswer],['post','/submit',submitCandidateAttempt]]){
     router[method](path,async(req,res)=>{
-      const claims=claimsFrom(req);if(!claims)return res.status(401).json({error:'Sign in with your examination code.'});
+      const receiptOnly=path==='/attempt'||path==='/timeout';
+      const claims=claimsFrom(req,receiptOnly);if(!claims)return res.status(401).json({error:'Sign in with your examination code.'});
       if(method!=='get'&&req.get('X-CSRF-Token')!==claims.csrf)return res.status(403).json({error:'Refresh the examination page and try again.'});
-      try{const result=await transaction(async client=>action(client,await sittingScope(client,claims),req.body||{}));return res.json(result);}
+      try{const result=await transaction(async client=>action(client,await sittingScope(client,claims,receiptOnly),req.body||{}));return res.json(result);}
       catch(error){return res.status(error instanceof ExamSittingError?error.status:503).json({error:error instanceof ExamSittingError?error.message:'The examination action could not be completed. Try again.'});}
     });
   }
