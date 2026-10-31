@@ -31,8 +31,8 @@ guardian-email test. Production remains paused and unchanged.
   never include answer keys. Answer keys stay in the private approval snapshot.
 - Attempts/answers are locked during writes; saves and submissions recheck the server
   clock and eligibility. Same-reference submission retries return the original result;
-  other submissions and edits after submission are rejected. New writes after the
-  deadline are rejected, rather than silently accepted or auto-graded.
+  other submissions and edits after submission are rejected. New answers after the
+  deadline are rejected. The server submits received answers at timeout without auto-grading.
 
 - Staff manually mark each submitted answer against its approved question snapshot;
   totals and percentages are calculated from validated per-question marks. Revision
@@ -182,6 +182,54 @@ The pre-test disabled status described above is historical; the staging preview 
 currently enabled for this controlled test. Public repository notes deliberately
 omit the guardian mailbox and all verification/access codes. Production is unchanged.
 
+## Timeout and approved-mark corrections: staging follow-up
+
+Tested code **2f81397b44d6812fd89d859fa34f4e64fb8a0aa8** is deployed and pinned on
+staging (Coolify **bdqsd1yguw4ckbmlehkzpopz**, success **2026-10-31 13:42:09 UTC**).
+Manual deployment remains enabled. All **328 CI tests passed** in run 41206541443,
+including real PostgreSQL 18 lock-contention cases for timeout versus a late save
+and correction versus result release. Type checking and build passed locally;
+local tests passed 327, with only the Linux CI contention wrapper skipped.
+
+A fresh staging backup completed **13:40:02 UTC**, **2.63 MB**. Migration
+**110_exam_timeout_and_mark_versions.sql** was downloaded from that tested commit,
+SHA-256 checked (`2fa9becf2d23bc09fefe53c4d49e1778881c8e39ebc9a05495fcf68f3f1049c5`),
+and committed with its ledger entry in one transaction guarded to the exact staging
+database, expected migration history, advisory lock and timeouts. Only migration
+110 was applied; the older migration-history reconciliation remains outstanding.
+
+- Candidate edits save after a one-second pause, with manual Save still available.
+  The screen distinguishes unsaved changes and does not claim a save until confirmed.
+- A restricted-role, tenant-scoped server worker runs on startup and every 15 seconds.
+  It finalizes at most 100 ended attempts per school per pass, using row locks and
+  SKIP LOCKED so concurrent workers and answer saves remain safe. After downtime or
+  a backlog, later sweeps catch up. School codes come from EXAM_TIMEOUT_SCHOOL_CODES
+  (comma separated; this school's default is RIA); additional schools must be listed.
+- Timeout stores the deadline and TIMEOUT reason, preserving only answers already
+  received by the server. Closed browsers and disconnected candidates need not send
+  a final request. Unsaved local edits cannot be recovered after the deadline.
+- Existing signed candidate sessions have a ten-minute receipt-only window after
+  examination end. This permits confirmation/reload, not questions, new answers,
+  a new attempt or more examination time. Revocation and guardian proof still apply.
+- Live staging worker validation used a separate, clearly fictional expired attempt
+  named TEST — Automatic Timeout 20261031, seeded only against the existing fictional
+  application. No candidate browser/session was opened for it. The background worker
+  changed it to SUBMITTED/TIMEOUT, with submitted_at equal to ends_at and its saved
+  answer unchanged. This is a server-worker test, not a live candidate countdown test.
+- A leader opens a correction with a 10–1,000 character reason and on-page review.
+  The original approved version, original release, marks and feedback remain immutable.
+  Old result codes are revoked immediately; history stays visible to authorized staff.
+- The new version starts unapproved. Staff save revised marks, a different leader
+  from the marker approves them, and an explicit release emails a fresh private code.
+  Current-row locking and revision checks reject stale or simultaneous operations.
+- Live correction validation changed the fictional score from 4/4 to 3/4 solely to
+  test this workflow. Original history remained 4/4. The old emailed code was rejected.
+  The School Administrator saved the revision and could not self-approve; the separate
+  Principal test account approved it. Release at **13:47:20 GMT** emailed the authorized
+  test guardian; the new code displayed **3/4 (75%)** with test feedback and no admission
+  decision. Separate test accounts were operated by the same testing agent, not an
+  independent human review. No real applicant score or admission decision changed.
+
 ## Limits and rollout gates
 
 - Disposable PostgreSQL 18 contention tests and staging schema/runtime checks pass.
@@ -194,8 +242,8 @@ omit the guardian mailbox and all verification/access codes. Production is uncha
   sign-in testing uses the separate ONLINE fictional examination described above.
 - A pre-migration staging backup, migrations 104-109 and the authorized mailbox setup
   and mailbox proof are complete. Never use a real student record for this test.
-- There is no automatic submission at timeout, automatic scoring, pass/fail rule or
-  admission decision. Approved-mark correction/re-review is not implemented; do not
-  approve live marks until the school has agreed its review and correction process.
+- Timeout submission and versioned corrections are implemented and validated as above.
+  There is no automatic scoring, pass/fail rule or admission decision. The school must
+  agree its invigilation, review and correction process before live examination use.
 - No production deployment was performed. Authorized staging guardian-verification,
   examination-access and private-result emails were received during the fictional test.
