@@ -34,16 +34,37 @@ The tests explicitly distinguish functional API evidence from live browser journ
 
 ## Validation and deployment
 
-Local full suite after these changes: 348 total, 347 passed, zero failed, one Linux-only PostgreSQL wrapper skipped on Windows. Type checking and frontend build passed. The new real-SQL school-journey suite passed all 11 checks, including its parent test.
+Local full suite after the backend changes: 348 total, 347 passed, zero failed, one Linux-only PostgreSQL wrapper skipped on Windows. Type checking and frontend build passed. The new real-SQL school-journey suite passed all 11 checks, including its parent test.
 
-Staging deployment evidence for the corrections will be recorded after CI and deployment complete. No schema migration is required for these route corrections. Production remains unchanged; draft PR #57 remains unmerged.
+The backend corrections in `d33bad0f7f5ddf5cfd6e25241826af6151011c2c` passed CI run 41263308855: all 348 passed, zero failed/skipped, plus type checking/build. Staging deployment `wjukr9borr0lhvzmyrk6msjm` started 1 November 2026 at 02:00:32 UTC (31 October, 21:00:32 America/Chicago) and finished successfully. The administrator retained its office inbox; live teacher Communications no longer displayed the guardian inbox. MTN SMS stayed Not ready and dispatch disabled. No schema migration is required for these route corrections. Production remains unchanged; draft PR #57 remains unmerged.
 
 ## Explicitly still open
 
 - School approval of the proposed website text, official facts, policies and asset permissions. The owner confirmed these materials were not previously created; see `school-website-content-review.md` for prepared drafts and a factual checklist.
-- Live student/guardian/teacher browser journeys with designated fictional test accounts and school acceptance. Existing live learner names and published marks were inspected without modification.
+- Full write/review browser rehearsals in an isolated fictional staging cohort and school acceptance. Existing learner records and published marks were inspected without modification. Read-only live guardian/student role checks are recorded below.
 - Full admissions-to-enrollment, year-end reporting/correction/promotion, account invitation/recovery, encrypted document/photo/Digital ID, HR/leave/payroll, expenses, detailed reporting/export and inventory transfer rehearsals. Existing unit/mocked tests and workspace loads are not relabeled as end-to-end acceptance.
 - Provider acceptance: Finance remains Partial for MTN MoMo; Communications remains Partial for MTN SMS. No live provider send/charge was attempted.
 - Historical migration-ledger reconciliation, backup restore rehearsal, recovery/monitoring, cross-campus scope and whole-school rehearsal, followed by explicit owner release approval.
 
 The full checklist stays in `whole-site-release-checklist.md`. This pass adds measured evidence and fixes; it does not declare the entire ERP or website finished.
+
+
+## Live role-browser follow-up
+
+Used the existing saved sign-ins through normal school forms, without reading passwords, sending invitations or changing account permissions. Signed out between roles.
+
+- Guardian: separate /portal login succeeded; nine workspaces loaded: My children, Subjects & timetable, Grades & report cards, Attendance, Learning materials, Tuition & payments, Notices & notifications, Message the school, Family photographs. The linked learner remained selected. MTN MoMo checkout remained disabled. No records, message bodies, payments or photograph submissions were changed.
+- Student: separate /portal login succeeded; ten workspaces loaded: My classes, Grades, Attendance, Learning materials, School notices, Fees & balance, Assignments, My Digital ID, Messages, Alerts. The Messages view showed the assigned teacher and an empty conversation list. No work, grades, messages, payments, ID issuance or push subscriptions were submitted.
+- Teacher: normal /staff login succeeded; assigned class/subject, published resource, gradebook and attendance forms loaded. Communications showed announcements without a Guardian inbox. No existing marks or attendance were edited.
+- Live inspection caught two display gaps in the existing teacher shell: the submission-review/student-inbox component was rendered only in a dashboard branch the teacher does not use, and curriculum-read access had a menu entry without a rendered reader view. The component now renders for the teacher Teaching workspace in the shared shell. A read-only curriculum/timetable view filters to the teacher's assignments, and its rendering tests exclude unassigned rows and editing controls. Teacher-shell fixes `3745804` / `a91df31` passed CI; a91df31 ran all 350 tests without failures or skips. Its staging deployment `fbqt1ywtpshy3zwj0taql6ip` succeeded. Teacher Student messages and Student assignment submissions panels then appeared live. Curriculum rendering additionally exposed missing teacher/subject identifiers in the setup response; the identifiers were added within the existing scoped query and an actual setup-API contract assertion now covers them. The roll-call prompt now directs an assigned teacher to select a lesson instead of repeating school setup. Final data-contract correction and deployment are recorded below.
+
+Evidence JSON files: `outputs/guardian-browser-workspace-checks.json` and `outputs/student-browser-workspace-checks.json` in the task workspace. These record headings/state observations, not permission-bypass or complete submission/review browser acceptance. The functional write journeys remain proven separately by the isolated real-SQL suite above.
+
+
+## Final teacher correction verified
+
+Revision `a356308eeb3004ecee7e71037c2eb5f6b762b664` passed CI 41264202138: **350 passed, zero failed or skipped**, plus type check and build. Staging deployment `f7goep88e6t5i5bqq73royqo` started 1 November 2026 at 02:13:09 UTC (31 October, 21:13:09 America/Chicago) and finished successfully. No schema migration was needed.
+
+The signed-in teacher then opened Curriculum & timetable and saw the actual assigned Grade 4 / Mathematics / 2027–2028, the configured curriculum (300 minutes / five lessons weekly and its objectives), and the truthful empty state that no lessons have yet been scheduled. There were no editing forms in this view. Teaching & learning displayed Student messages, Student assignment submissions and the corrected choose-a-lesson roll-call prompt. No messages, grades, attendance entries or timetable slots were created in these live checks.
+
+Final proof: `outputs/teacher-curriculum-staging-verified.jpg` and `outputs/teacher-review-and-messages-restored.jpg`. The teacher view is left open for review. Production remains paused. Approved school content, complete live write/review rehearsals, remaining staff modules, provider integration and recovery checks remain open as listed above.
