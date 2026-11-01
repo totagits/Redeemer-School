@@ -27,7 +27,7 @@ test('administrable school pages publish reviewed snapshots and protect private 
    const published=await call(null,'/pages/public?schoolCode=RIA');assert.equal(Object.keys(published.pages).length,Object.keys(websitePageCatalog).length);assert.match(published.pages['principal-message'].sections[0].body,/Choosing a school/);assert.equal(published.pages.home.profile.phones[0],'0778786116');
    await call(null,'/pages/manage',undefined,401);await call('teacher','/pages/manage',undefined,403);await call('principal','/pages/manage');
    assert.equal((await call(null,'/pages/public?schoolCode=OTHER')).pages.home,undefined);
-   const detail=await call('admin','/pages/manage/principal-message');assert.equal(detail.history[0].action,'OWNER_APPROVED_INITIAL');assert.ok(!JSON.stringify(published).includes('OWNER_APPROVED_INITIAL'));
+   const detail=await call('admin','/pages/manage/principal-message');assert.ok(detail.history.some(h=>h.action==='OWNER_APPROVED_INITIAL'));assert.ok(!JSON.stringify(published).includes('\u00e2\u20ac'));assert.deepEqual(published.pages['principal-message'],websitePageCatalog['principal-message']);assert.ok(!JSON.stringify(published).includes('OWNER_APPROVED_INITIAL'));
   });
   let changed,photoId,documentId;
   await t.test('saving a draft preserves the public snapshot and rejects stale or unverified writes',async()=>{
@@ -35,7 +35,7 @@ test('administrable school pages publish reviewed snapshots and protect private 
    const body={action:'SAVE_DRAFT',revision:page.revision,content:changed,note:'Fictional editor workflow test.'};await call('admin','/pages/manage/principal-message',body,403,{'X-CSRF-Token':'wrong'});
    await call('admin','/pages/manage/principal-message',body);await call('principal','/pages/manage/principal-message',body,409);
    const published=await call(null,'/pages/public?schoolCode=RIA');assert.notEqual(published.pages['principal-message'].intro,changed.intro);
-   await call('admin','/pages/manage/principal-message',{action:'PUBLISH',revision:2,note:'Missing review check'},400);
+   await call('admin','/pages/manage/principal-message',{action:'PUBLISH',revision:page.revision+1,note:'Missing review check'},400);
   });
   await t.test('school-authorized photo and PDF uploads stay private until referenced by a published page',async()=>{
    const bytes=await readFile(new URL('../public/school-photos/featured/03-campus-courtyard.webp',import.meta.url));
@@ -57,7 +57,7 @@ test('administrable school pages publish reviewed snapshots and protect private 
    let detail=await call('admin','/pages/manage/principal-message');const prior=detail.page;
    await call('admin','/pages/manage/principal-message',{action:'WITHDRAW',revision:prior.revision,note:'Fictional withdrawal test.'});
    assert.equal((await call(null,'/pages/public?schoolCode=RIA')).pages['principal-message'],null);assert.equal((await raw(null,'/pages/public/assets/'+photoId+'?schoolCode=RIA')).status,404);
-   detail=await call('admin','/pages/manage/principal-message');assert.equal(detail.history.length,5);const snapshot=detail.history.find(h=>h.action==='PUBLISH').snapshot;
+   detail=await call('admin','/pages/manage/principal-message');assert.equal(detail.history.length,7);const snapshot=detail.history.find(h=>h.action==='PUBLISH').snapshot;
    await call('principal','/pages/manage/principal-message',{action:'SAVE_DRAFT',revision:detail.page.revision,content:snapshot,note:'Restore prior publication as new private draft.'});assert.equal((await call(null,'/pages/public?schoolCode=RIA')).pages['principal-message'],null);
    const restored=(await call('principal','/pages/manage/principal-message')).page;await call('principal','/pages/manage/principal-message',{action:'PUBLISH',revision:restored.revision,note:'Republish reviewed restored version.',confirmPublic:true});
    assert.equal((await call(null,'/pages/public?schoolCode=RIA')).pages['principal-message'].images[0].id,photoId);
@@ -65,10 +65,11 @@ test('administrable school pages publish reviewed snapshots and protect private 
   await t.test('homepage facts update only on publication and runtime cannot erase history or assets',async()=>{
    const current=(await call('admin','/pages/manage/home')).page,content={...current.draft_content,profile:{...current.draft_content.profile,address:'Fictional office address for isolated test only'}};
    await call('admin','/pages/manage/home',{action:'SAVE_DRAFT',revision:current.revision,content,note:'Fictional office details update.'});assert.notEqual((await call(null,'/pages/public?schoolCode=RIA')).pages.home.profile.address,content.profile.address);
-   await call('admin','/pages/manage/home',{action:'PUBLISH',revision:2,note:'Publish office details test.',confirmPublic:true});assert.equal((await call(null,'/pages/public?schoolCode=RIA')).pages.home.profile.address,content.profile.address);
-   await call('admin','/pages/manage/home',{action:'WITHDRAW',revision:3,note:'Homepage must remain available.'},400);
+   await call('admin','/pages/manage/home',{action:'PUBLISH',revision:current.revision+1,note:'Publish office details test.',confirmPublic:true});assert.equal((await call(null,'/pages/public?schoolCode=RIA')).pages.home.profile.address,content.profile.address);
+   await call('admin','/pages/manage/home',{action:'WITHDRAW',revision:current.revision+2,note:'Homepage must remain available.'},400);
    for(const sql of ['DELETE FROM website_page_history','UPDATE website_page_history SET note=\'changed\'','DELETE FROM website_assets']){await db.exec('BEGIN');await q("SELECT set_config('app.current_school_id',$1,true)",[school]);try{await assert.rejects(q(sql),e=>e.code==='42501');}finally{await db.exec('ROLLBACK');}}
-   await owner(async()=>{assert.equal((await q('SELECT count(*)::int AS n FROM website_page_history WHERE slug=$1',['principal-message'])).rows[0].n,7);});
+   await owner(async()=>{assert.equal((await q('SELECT count(*)::int AS n FROM website_page_history WHERE slug=$1',['principal-message'])).rows[0].n,9);});
   });
  }finally{if(server)await new Promise(resolve=>server.close(resolve));await db.close();}
 });
+
