@@ -74,6 +74,7 @@ test('authenticated school journeys preserve teacher review and family privacy',
   });
   let assessment,submission;
   await t.test('assigned teaching draft stays private until published to linked families',async()=>{
+   const setup=await call('teacher','/api/operations/setup');assert.equal(setup.assignments.length,1);assert.equal(setup.assignments[0].teacher_id,users.teacher);assert.equal(setup.assignments[0].subject_id,ids.subject);
    const body={assignmentId:ids.assignment,title:'Fictional handout',materialType:'HANDOUT',description:'Fictional classroom resource.'};
    await call('unassigned','/api/operations/teaching-materials',body,403);
    const material=(await call('teacher','/api/operations/teaching-materials',body,201)).material;

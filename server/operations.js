@@ -2875,7 +2875,7 @@ export function createOperationsRouter({ authenticate, sendExaminationEmail=send
           FROM students s LEFT JOIN class_enrollments ce ON ce.school_id = s.school_id AND ce.student_id = s.id AND ce.status = 'ACTIVE'
           LEFT JOIN class_groups c ON c.school_id = ce.school_id AND c.id = ce.class_group_id
           WHERE s.school_id = $1 AND s.status = 'ACTIVE' ${isTeacher ? 'AND EXISTS (SELECT 1 FROM class_enrollments scoped_ce JOIN teacher_subject_assignments scoped_a ON scoped_a.school_id = scoped_ce.school_id AND scoped_a.class_group_id = scoped_ce.class_group_id WHERE scoped_ce.school_id = s.school_id AND scoped_ce.student_id = s.id AND scoped_a.teacher_id = $2)' : ''} ORDER BY s.last_name, s.first_name`, isTeacher ? [schoolId, req.auth.claims.userId] : [schoolId]),
-        req.auth.client.query(`SELECT a.id, a.class_group_id, a.academic_year_id, u.full_name AS teacher_name, s.name AS subject_name, c.name AS class_name, y.name AS academic_year_name
+        req.auth.client.query(`SELECT a.id, a.teacher_id, a.subject_id, a.class_group_id, a.academic_year_id, u.full_name AS teacher_name, s.name AS subject_name, c.name AS class_name, y.name AS academic_year_name
           FROM teacher_subject_assignments a JOIN teacher_profiles tp ON tp.school_id = a.school_id AND tp.user_id = a.teacher_id
           JOIN user_accounts u ON u.school_id = tp.school_id AND u.id = tp.user_id
           JOIN subjects s ON s.school_id = a.school_id AND s.id = a.subject_id
