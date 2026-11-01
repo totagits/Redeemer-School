@@ -40,3 +40,5 @@ The owner delegated test-inbox selection and explicitly approved creation of the
 Evidence is saved locally in workspace outputs: admissions-intake-browser-receipt.jpg, admissions-registrar-review.jpg, admissions-enrolled-history.jpg, admissions-learner-guardian-records.jpg and admissions-student-invitation-prepared.jpg. Screenshots containing contact details are not committed.
 
 This is a completed isolated connected rehearsal plus a live public-to-enrollment and invitation handoff. Final live activation is pending; this is not complete school acceptance.
+
+Final live relationship check: after both approved invitation actions, the learner still has exactly the two intentional guardian contacts (original primary intake contact and distinct secondary portal guardian). No third/duplicate relationship appeared; the portal guardian still shows no additional permissions.
