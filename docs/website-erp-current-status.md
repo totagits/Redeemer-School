@@ -9,7 +9,7 @@ All seven public menu families and their submenu destinations exist. The homepag
 | Menu family | Working content/workspace | Workflow status |
 |---|---|---|
 | School Info | About, Mission, Faculty, Leadership, Principal, records, hours, calendar, careers, albums; page/photo/PDF editor | Editorial publication verified; records-request follow-up verified. Unspecified official names/hours/calendar details remain for school administration to supply. |
-| Enroll | Process, requirements, fees, visits; public application and admissions workspace | Visit requests verified. Full isolated admissions/exam/enrollment/account-activation chain passed; live follow-up evidence in admissions-enrollment-verification.md. |
+| Enroll | Process, requirements, fees, visits; public application and admissions workspace | Visit requests verified. Full isolated admissions/exam/enrollment/account-activation chain passed; live intake, review, enrollment, owner activation and correct student/guardian portal linkage verified. See admissions-enrollment-verification.md. |
 | Academics | Programs, curriculum, assessment, resources; teacher/academic workspaces | Built; isolated connected teaching/grade checks passed. Remaining live write/review, year-end and attachment rehearsals open. |
 | Student Life | Events, activities, sports, supplies, uniform, achievements; editorial publishing | Pages editable; news/event publication and withdrawal verified. No invented school schedules or service claims. |
 | Parents | Resources, handbook, FAQs, attendance, services, involvement; family portals | Public content and handbook outline verified; portal read checks and isolated writes passed. Remaining live family workflows open. |
