@@ -167,3 +167,8 @@ The owner's content approval is recorded, including the condition that school ad
 - Evidence: `outputs/website-about-us-photo-published.jpg`, `outputs/website-staff-photo-upload-controls.jpg`, `outputs/website-admin-editable-contacts.jpg`, `outputs/website-editor-fresh-backup.jpg`, `outputs/website-editor-staging-migration.jpg`, `outputs/website-editor-staging-isolation.jpg` (workspace outputs directory, outside repository).
 
 Production remains paused. PR 57 stays draft and unmerged. Finance/Communications keep their MTN-dependent Partial status. Remaining staff/portal journeys, recovery rehearsals and the stronger private staff-entry requirement retain their existing release gates; this content-editor completion is not whole-product acceptance.
+
+
+## Current owner-facing status and admissions follow-up
+
+See [current website/ERP status](website-erp-current-status.md) for all seven menu families and remaining workflows. The 1 November admissions pass added a fully isolated connected application/exam/enrollment/account-activation rehearsal, fixed two handoff defects and passed all 362 CI tests. A fictional live application completed public submission, Registrar review, administrator acceptance and Registrar enrollment with retained history. Approved student/guardian invitations returned success; live activation is pending. See [admissions evidence](admissions-enrollment-verification.md). Production remains paused; other academic/staff/provider/recovery gates remain open.

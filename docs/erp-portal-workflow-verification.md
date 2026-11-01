@@ -1,6 +1,6 @@
 # ERP and portal workflow verification
 
-Prepared 31 October 2026, America/Chicago. Production remains paused. School content is awaiting review, not approved.
+Prepared 31 October 2026, America/Chicago. Production remains paused. The owner-approved website content and its administration editor were verified on staging on 1 November; later dated entries supersede historical pending-content notes.
 
 ## Evidence method
 
@@ -40,7 +40,7 @@ The backend corrections in `d33bad0f7f5ddf5cfd6e25241826af6151011c2c` passed CI 
 
 ## Explicitly still open
 
-- School approval of the proposed website text, official facts, policies and asset permissions. The owner confirmed these materials were not previously created; see `school-website-content-review.md` for prepared drafts and a factual checklist.
+- Content approval and editable website pages: completed for the reviewed wording and existing facts/media; unspecified official details remain for administration to supply. See the 1 November entry and `website-administration.md`.
 - Full write/review browser rehearsals in an isolated fictional staging cohort and school acceptance. Existing learner records and published marks were inspected without modification. Read-only live guardian/student role checks are recorded below.
 - Full admissions-to-enrollment, year-end reporting/correction/promotion, account invitation/recovery, encrypted document/photo/Digital ID, HR/leave/payroll, expenses, detailed reporting/export and inventory transfer rehearsals. Existing unit/mocked tests and workspace loads are not relabeled as end-to-end acceptance.
 - Provider acceptance: Finance remains Partial for MTN MoMo; Communications remains Partial for MTN SMS. No live provider send/charge was attempted.
@@ -82,3 +82,10 @@ The owner's content approval is recorded, including the condition that school ad
 - Evidence: `outputs/website-about-us-photo-published.jpg`, `outputs/website-staff-photo-upload-controls.jpg`, `outputs/website-admin-editable-contacts.jpg`, `outputs/website-editor-fresh-backup.jpg`, `outputs/website-editor-staging-migration.jpg`, `outputs/website-editor-staging-isolation.jpg` (workspace outputs directory, outside repository).
 
 Production remains paused. PR 57 stays draft and unmerged. Finance/Communications keep their MTN-dependent Partial status. Remaining staff/portal journeys, recovery rehearsals and the stronger private staff-entry requirement retain their existing release gates; this content-editor completion is not whole-product acceptance.
+
+
+## 1 November: admissions handoff rehearsal
+
+The complete public application -> Registrar review -> Finance-controlled exam fee -> leadership-approved questions -> verified guardian/candidate submission -> separate mark approval/private result -> explicit admission decision -> one-time enrollment -> student/guardian invitation activation passed with real authentication and SQL in a disposable database. This found and fixed Principal question-approval permission and duplicate enrolled-guardian creation during portal invitations. CI 41301803362 passed all 362 tests with no failures/skips; staging f611605 deployed successfully in ip9pj1qr3epjvkzhxvgrzws3 without a migration.
+
+Live fictional application RIA-2026-983966D6 reached Registrar, was reviewed, accepted by a separate administrator and enrolled by Registrar as TEST-INTAKE-20261101. Student records and retained history were verified. Owner-approved student/guardian invitations returned success; human password selection and live family sessions remain pending. See admissions-enrollment-verification.md for exact evidence and limits. Current menu/workspace status is consolidated in website-erp-current-status.md; built public pages and completed ERP workflow acceptance remain distinct.
