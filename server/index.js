@@ -1,3 +1,4 @@
+import { createWebsitePagesRouter } from './websitePages.js';
 import { createPublicWebsiteRequestsRouter } from './websiteRequests.js';
 import 'dotenv/config';
 import express from 'express';
@@ -114,6 +115,7 @@ app.use('/api/student-id', createDigitalStudentIdRouter({ authenticate: authRout
 app.use('/api/portal-photos', createPortalPhotoRouter({ authenticate: authRouter.requireAuth }));
 app.use('/api/public/website-requests',createPublicWebsiteRequestsRouter({pool:runtimePool,publicUrl:process.env.APP_PUBLIC_URL}));
 app.use('/api/public/admissions', createPublicAdmissionsRouter({ pool: runtimePool }));
+app.use('/api/website-pages', createWebsitePagesRouter({pool:runtimePool,authenticate:authRouter.requireAuth}));
 app.use('/api/school-content', createPublicContentRouter({ pool: runtimePool, authenticate: authRouter.requireAuth }));
 
 app.use('/api', (_req, res) => {

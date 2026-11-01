@@ -1,3 +1,4 @@
+import {useWebsiteProfile} from './PublishedWebsiteContent.tsx';
 import { publicSchoolNavigation } from './PublicSchoolPages.tsx';
 import { schoolNavigationHref } from '../logic/publicSchoolRoutes.ts';
 import React, { useEffect, useRef, useState } from 'react';
@@ -45,6 +46,7 @@ export const Header: React.FC<HeaderProps> = ({
   onPortalSignIn,
 }) => {
   const [openMenu,setOpenMenu]=useState<string|null>(null);
+  const profile=useWebsiteProfile();
   const [mobileMenuOpen,setMobileMenuOpen]=useState(false);
   const desktopNavRef=useRef<HTMLElement|null>(null);
   useEffect(()=>{
@@ -77,14 +79,14 @@ export const Header: React.FC<HeaderProps> = ({
           <a href="/" className="text-left group cursor-pointer focus:outline-hidden">
             <div className="flex items-center gap-2">
               <span className="text-base font-extrabold text-slate-900 tracking-tight whitespace-nowrap block group-hover:text-blue-900 transition-colors">
-                {THE_REDEEMER_SCHOOL_INFO.name}
+                {profile.name}
               </span>
               <span className="hidden sm:inline-block px-1.5 py-0.5 text-[10px] font-bold bg-amber-50 text-amber-900 border border-amber-200/80 rounded-md">
-                Est. {THE_REDEEMER_SCHOOL_INFO.founded}
+                Est. {profile.founded}
               </span>
             </div>
             <span className="text-[11px] text-slate-500 font-medium whitespace-nowrap block">
-              Academic and Moral Excellence · Paynesville
+              {profile.motto} · Paynesville
             </span>
           </a>
         </div>
@@ -121,9 +123,9 @@ export const Header: React.FC<HeaderProps> = ({
             </summary>
             <div className="absolute right-0 top-full mt-2 w-80 max-w-[calc(100vw-2rem)] rounded-xl border border-slate-200 bg-white p-4 text-xs text-slate-700 shadow-xl z-50">
               <p className="font-bold text-slate-900">Redeemer's International Academy</p>
-              <p className="mt-2 leading-relaxed">{SCHOOL_CONTACT.address}</p>
+              <p className="mt-2 leading-relaxed">{profile.address}</p>
               <div className="mt-3 flex flex-col gap-1.5">
-                {SCHOOL_CONTACT.phones.map((phone) => (
+                {profile.phones.map((phone) => (
                   <a key={phone} href={`tel:${phone}`} className="font-semibold text-blue-700 hover:text-blue-900">{phone}</a>
                 ))}
               </div>
@@ -202,9 +204,9 @@ export const Header: React.FC<HeaderProps> = ({
             </summary>
             <div className="absolute right-0 top-full mt-2 w-80 max-w-[calc(100vw-2rem)] rounded-xl border border-slate-200 bg-white p-4 text-xs text-slate-700 shadow-xl z-50">
               <p className="font-bold text-slate-900">Redeemer's International Academy</p>
-              <p className="mt-2 leading-relaxed">{SCHOOL_CONTACT.address}</p>
+              <p className="mt-2 leading-relaxed">{profile.address}</p>
               <div className="mt-3 flex flex-col gap-1.5">
-                {SCHOOL_CONTACT.phones.map((phone) => (
+                {profile.phones.map((phone) => (
                   <a key={phone} href={`tel:${phone}`} className="font-semibold text-blue-700 hover:text-[#071d3e]">{phone}</a>
                 ))}
               </div>

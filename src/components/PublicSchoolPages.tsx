@@ -1,3 +1,4 @@
+import {PublishedPageAssets,usePublishedPage,useWebsiteProfile,type WebsiteImage,type WebsiteDocument} from './PublishedWebsiteContent.tsx';
 import { PublicWebsiteRequestForm } from './PublicWebsiteRequestForm.tsx';
 import React from 'react';
 import { schoolNavigationHref } from '../logic/publicSchoolRoutes.ts';
@@ -36,8 +37,8 @@ export const publicSchoolNavigation:{label:string;items:SchoolNavItem[]}[]=[
   {label:'Guardian Portal',slug:'guardian-portal'},{label:'News & Events',slug:'news-events'}]}
 ];
 
-type PageData={eyebrow:string;heading:string;intro:string;sections:{title:string;body:string}[]};
-const pages:Record<string,PageData>={
+type PageData={eyebrow:string;heading:string;intro:string;sections:{title:string;body:string}[];images?:WebsiteImage[];documents?:WebsiteDocument[]};
+export const pages:Record<string,PageData>={
  'about-us':{eyebrow:'School Info',heading:'About Redeemer’s International Academy',intro:'Redeemer’s International Academy, established in 2022, serves its school community in Thinker’s Village, Paynesville, Liberia.',sections:[{title:'Our school community',body:'The school brings learners, families, educators and community members together around academic and moral excellence.'},{title:'Visit our campus',body:'Families who wish to learn more about our school can contact the school office to arrange a visit.'}]},
  'mission-values':{eyebrow:'School Info',heading:'Our Mission & Values',intro:'Academic and Moral Excellence is the guiding motto of Redeemer’s International Academy.',sections:[{title:'Learning',body:'We seek to support curiosity, discipline and strong foundational learning.'},{title:'Character',body:'Respect, responsibility and service are central to our school community.'},{title:'Family partnership',body:'Parents and guardians are essential partners in each child’s education.'}]},
  'faculty-staff':{eyebrow:'School Info',heading:'Faculty & Staff',intro:'Meet the teachers and staff who support learning and school life at Redeemer.',sections:[{title:'Staff directory',body:'An approved staff directory with names, roles and photographs will appear here once authorized by the school administration.'},{title:'Contact a teacher',body:'Enrolled families can communicate using their secure Student and Guardian portals.'}]},
@@ -91,7 +92,8 @@ function PhotoAlbumPreview(){
  </section>;
 }
 export function PublicSchoolPages({slug,onApply,onPortalSignIn}:{slug:string;onApply:()=>void;onPortalSignIn:()=>void}){
- const data=pages[slug];
+ const content=usePublishedPage(slug);const profile=useWebsiteProfile();
+ const data=content===undefined?pages[slug]:content===null?(pages[slug]?{...pages[slug],intro:'This page is being updated. Please contact the school office for current information.',sections:[],images:[],documents:[]}:undefined):content;
  if(!data)return <div className="mx-auto max-w-5xl px-5 py-20"><h1 className="text-3xl font-bold">Page not found</h1><a className="mt-4 inline-block text-blue-800 underline" href="/">Return to school homepage</a></div>;
  const group=publicSchoolNavigation.find(g=>g.items.some(item=>item.slug===slug));
  return <div className="min-h-[65vh] bg-slate-50 text-slate-900">
@@ -100,7 +102,7 @@ export function PublicSchoolPages({slug,onApply,onPortalSignIn}:{slug:string;onA
     <h1 className="mt-3 max-w-4xl text-3xl font-extrabold sm:text-5xl">{data.heading}</h1><p className="mt-4 max-w-3xl text-base leading-7 text-slate-200">{data.intro}</p></div>
   </div>
   <div className="mx-auto grid max-w-6xl gap-8 px-5 py-9 md:grid-cols-[minmax(0,1fr)_250px]">
-   <main className="space-y-5">{data.sections.map(section=><section key={section.title} className="rounded-2xl border border-slate-200 bg-white p-6 shadow-sm">
+   <main className="space-y-5">{['contact-us','directions'].includes(slug)&&<section className="rounded-2xl border bg-white p-6"><h2 className="text-xl font-bold">School office</h2><p className="mt-3 leading-7">{profile.address}</p><div className="mt-3 flex flex-wrap gap-3">{profile.phones.map(phone=><a key={phone} href={`tel:${phone}`} className="text-blue-800 underline">{phone}</a>)}</div></section>}{data.sections.map(section=><section key={section.title} className="rounded-2xl border border-slate-200 bg-white p-6 shadow-sm">
      <h2 className="text-xl font-bold">{section.title}</h2><p className="mt-3 whitespace-pre-wrap leading-7 text-slate-600">{section.body}</p>
    </section>)}
    {['enrollment-process','admission-requirements','admissions-fees','school-visits'].includes(slug)&&<button onClick={onApply} className="inline-flex items-center gap-2 rounded-lg bg-blue-700 px-5 py-3 text-sm font-bold text-white">Apply for admission <ArrowRight className="h-4 w-4"/></button>}
@@ -112,11 +114,12 @@ export function PublicSchoolPages({slug,onApply,onPortalSignIn}:{slug:string;onA
    {slug==='school-calendar'&&<PublicSchoolUpdates kind="EVENT" limit={30}/>}
    {slug==='news-events'&&<PublicSchoolUpdates kind="ALL" limit={30}/>}
    {slug==='school-events'&&<PublicSchoolUpdates kind="EVENT" limit={30}/>}
-   {slug==='photo-albums'&&<PhotoAlbumPreview/>}
+   {slug==='photo-albums'&&content!==null&&!data.images?.length&&<PhotoAlbumPreview/>}
+   <PublishedPageAssets page={data}/>
    </main>
    <aside className="self-start rounded-2xl border border-slate-200 bg-white p-5 shadow-sm"><h2 className="font-bold">{group?.label||'Explore Redeemer'}</h2>
     <nav aria-label="Related pages" className="mt-3 space-y-1">{group?.items.map(item=><a key={item.slug} href={schoolNavigationHref(item.slug)} aria-current={slug===item.slug?'page':undefined} className={`block rounded-lg px-3 py-2 text-sm ${slug===item.slug?'bg-blue-50 font-bold text-blue-800':'text-slate-600 hover:bg-slate-50'}`}>{item.label}</a>)}</nav>
-    <div className="mt-5 border-t pt-4"><p className="text-xs font-semibold text-slate-500">CONTACT THE SCHOOL</p>{SCHOOL_CONTACT.phones.map(phone=><a className="mt-2 flex items-center gap-2 text-sm text-blue-800" key={phone} href={`tel:${phone}`}><Phone className="h-4 w-4"/>{phone}</a>)}</div>
+    <div className="mt-5 border-t pt-4"><p className="text-xs font-semibold text-slate-500">CONTACT THE SCHOOL</p>{profile.phones.map(phone=><a className="mt-2 flex items-center gap-2 text-sm text-blue-800" key={phone} href={`tel:${phone}`}><Phone className="h-4 w-4"/>{phone}</a>)}</div>
    </aside>
   </div>
  </div>;

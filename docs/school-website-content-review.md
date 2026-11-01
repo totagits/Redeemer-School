@@ -1,6 +1,8 @@
 # Redeemer website content for school review
 
-Status: DRAFT — prepared 31 October 2026. These drafts have not been approved by the Principal or published. Production remains paused.
+Status: OWNER APPROVED on 31 October 2026, conditional on the school administration being able to change/update the content. Production remains paused.
+
+The owner reviewed this pack and approved its supplied wording, existing school facts, policies/outline and photograph selection. The website page editor implements the update condition with drafts, preview, publication, withdrawal, PDF/photo management and retained versions. Historical review notes below explain which details were never supplied; approval does not manufacture missing names, hours, dates or fee amounts. The handbook outline remains an outline until detailed policies or a complete document are entered. Existing illustrative images retain accurate illustrative labels.
 
 The owner confirmed that the missing school content has not yet been created. This document supplies reviewable wording and identifies the facts that only the school can confirm. It does not create a handbook, fee policy, school calendar or publication consent by assumption.
 
