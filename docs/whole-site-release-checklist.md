@@ -144,3 +144,10 @@ content, all other process/role tests, MTN completion and release recovery gates
 The owner chose online forms plus staff follow-up for information enquiries, school visits and records requests. The implementation uses a private administrative Website requests queue; it adds no staff-login link to public pages. See [website-request workflow](website-request-workflow.md). Migration 111 and all three public review/confirm/receipt journeys are staging-verified. The administrative queue received each reference; assignment, waiting, resolution, filtering and preserved history passed. The scoped evidence and remaining production gates are recorded there; owner acceptance is still required.
 
 Public publishing follow-up: existing staging-only news/event posts were published, verified on public news/calendar/homepage, then unpublished and verified removed. Drafts remained private. See the dated audit report for exact scope; content approvals and remaining role/media checks are still open.
+
+
+## School content and ERP/portal follow-up
+
+The owner confirmed that the missing school content has not yet been created. [The school content review pack](school-website-content-review.md) now provides draft About/Mission/Principal wording, a handbook outline, safe page introductions and a checklist for official names, hours, dates, fees, uniform/supplies, services and image permissions. These are drafts; no policy or photo consent was invented or treated as approved.
+
+[ERP/portal workflow evidence](erp-portal-workflow-verification.md) now records an isolated real-SQL, authenticated HTTP rehearsal across setup, resources, assignment revision/review, independent grade approval/publication, attendance correction, student/guardian messaging, notification ownership, dual-currency family finance and independently approved procurement/receiving. Tests found and corrected assignment-review SQL, guardian-office privacy and procurement approval defects. Live role-browser, remaining modules, recovery and owner-acceptance gates remain explicit rather than inferred from test counts.

@@ -118,6 +118,15 @@ async function audit(req, action, entityType, entityId, details = {}) {
     [req.auth.claims.schoolId, req.auth.claims.userId, action, entityType, entityId, JSON.stringify(details)]
   );
 }
+function canAccessFamilyOffice(account) {
+  return account.roles.some(role => ['SCHOOL_ADMIN', 'PRINCIPAL', 'CAMPUS_ADMIN'].includes(role));
+}
+async function needsFamilyOffice(req, res, next) {
+  if (!canAccessFamilyOffice(req.auth.account)) {
+    await close(req, false); return res.status(403).json({ error: 'School office access is required for guardian conversations.' });
+  }
+  next();
+}
 function needsPermission(code) {
   return async (req, res, next) => {
     if (!req.auth.account.permissions.includes(code)) {
@@ -2524,9 +2533,9 @@ export function createOperationsRouter({ authenticate, sendExaminationEmail=send
     if(!['APPROVE','REJECT'].includes(decision)||(decision==='REJECT'&&!reason)){await close(req,false);return res.status(400).json({error:'Choose approve or reject; a reason is required when rejecting.'});}
     try{
       const status=decision==='APPROVE'?'APPROVED':'REJECTED';
-      const result=await req.auth.client.query(`UPDATE procurement_requests SET status=$3,approved_by=CASE WHEN $3='APPROVED' THEN $4 ELSE NULL END,approved_at=CASE WHEN $3='APPROVED' THEN now() ELSE NULL END,decided_at=now(),decision_reason=NULLIF($5,'')
-        WHERE school_id=$1 AND id=$2 AND status='SUBMITTED' RETURNING id,request_number,status,decision_reason`,[req.auth.claims.schoolId,req.params.requestId,status,req.auth.claims.userId,reason]);
-      if(!result.rowCount){await close(req,false);return res.status(409).json({error:'This request is no longer waiting for approval.'});}
+      const result=await req.auth.client.query(`UPDATE procurement_requests SET status=$3,approved_by=CASE WHEN $3='APPROVED' THEN $4::uuid ELSE NULL END,approved_at=CASE WHEN $3='APPROVED' THEN now() ELSE NULL END,decided_at=now(),decision_reason=$5
+        WHERE school_id=$1 AND id=$2 AND status='SUBMITTED' AND requested_by<>$4::uuid RETURNING id,request_number,status,decision_reason`,[req.auth.claims.schoolId,req.params.requestId,status,req.auth.claims.userId,reason]);
+      if(!result.rowCount){await close(req,false);return res.status(409).json({error:'This request is unavailable for review. Another authorized staff member must review a request you submitted.'});}
       await audit(req,`PROCUREMENT_REQUEST_${status}`,'PROCUREMENT_REQUEST',result.rows[0].id,{requestNumber:result.rows[0].request_number,reason});
       return done(req,res,200,{request:result.rows[0]});
     }catch(error){return fail(req,res,error);}
@@ -2555,8 +2564,8 @@ export function createOperationsRouter({ authenticate, sendExaminationEmail=send
   router.post('/inventory/orders/:orderId/approve', needsPermission('inventory.approve'), csrf, async(req,res)=>{
     try{
       const result=await req.auth.client.query(`UPDATE purchase_orders SET status='APPROVED',approved_by=$3,approved_at=now(),ordered_at=now()
-        WHERE school_id=$1 AND id=$2 AND status='SUBMITTED' RETURNING id,purchase_order_number,status,ordered_at`,[req.auth.claims.schoolId,req.params.orderId,req.auth.claims.userId]);
-      if(!result.rowCount){await close(req,false);return res.status(409).json({error:'This purchase order is no longer waiting for approval.'});}
+        WHERE school_id=$1 AND id=$2 AND status='SUBMITTED' AND requested_by<>$3 RETURNING id,purchase_order_number,status,ordered_at`,[req.auth.claims.schoolId,req.params.orderId,req.auth.claims.userId]);
+      if(!result.rowCount){await close(req,false);return res.status(409).json({error:'This order is unavailable for approval. Another authorized staff member must approve an order you submitted.'});}
       await req.auth.client.query(`UPDATE procurement_requests SET status='ORDERED' WHERE school_id=$1 AND id=(SELECT procurement_request_id FROM purchase_orders WHERE school_id=$1 AND id=$2) AND status='APPROVED'`,[req.auth.claims.schoolId,req.params.orderId]);
       await audit(req,'PURCHASE_ORDER_APPROVED','PURCHASE_ORDER',result.rows[0].id,{purchaseOrderNumber:result.rows[0].purchase_order_number});
       return done(req,res,200,{order:result.rows[0]});
@@ -2591,12 +2600,12 @@ export function createOperationsRouter({ authenticate, sendExaminationEmail=send
       req.auth.client.query(`SELECT a.id,a.title,a.body,a.audience,a.status,a.created_at,a.published_at,u.full_name AS author FROM announcements a JOIN user_accounts u ON u.school_id=a.school_id AND u.id=a.created_by WHERE a.school_id=$1 ORDER BY a.created_at DESC LIMIT 200`,[schoolId]),
       req.auth.client.query(`SELECT nd.id,nd.announcement_id,a.title,nd.channel,nd.status,count(*) OVER(PARTITION BY nd.announcement_id,nd.channel) AS audience_count,nd.queued_at,nd.sent_at,nd.error_code FROM notification_deliveries nd LEFT JOIN announcements a ON a.school_id=nd.school_id AND a.id=nd.announcement_id WHERE nd.school_id=$1 ORDER BY nd.queued_at DESC LIMIT 100`,[schoolId]),
       req.auth.client.query(`SELECT id,name,grade_level FROM class_groups WHERE school_id=$1 ORDER BY grade_level,name`,[schoolId]),
-      req.auth.client.query(`SELECT t.id,t.student_id,s.first_name,s.last_name,s.student_number,t.subject,t.status,t.updated_at,g.first_name AS guardian_first_name,g.last_name AS guardian_last_name,
+      canAccessFamilyOffice(req.auth.account) ? req.auth.client.query(`SELECT t.id,t.student_id,s.first_name,s.last_name,s.student_number,t.subject,t.status,t.updated_at,g.first_name AS guardian_first_name,g.last_name AS guardian_last_name,
         (SELECT fm.body FROM family_messages fm WHERE fm.school_id=t.school_id AND fm.thread_id=t.id ORDER BY fm.created_at DESC LIMIT 1) AS latest_message,
         (SELECT count(*)::int FROM family_messages fm WHERE fm.school_id=t.school_id AND fm.thread_id=t.id AND fm.sender_user_id=t.guardian_user_id AND fm.read_at IS NULL) AS unread_count
         FROM family_message_threads t JOIN students s ON s.school_id=t.school_id AND s.id=t.student_id JOIN guardians g ON g.school_id=t.school_id AND g.user_id=t.guardian_user_id
-        WHERE t.school_id=$1 ORDER BY t.updated_at DESC LIMIT 200`,[schoolId])
-    ]);await close(req,true);return res.json({announcements:announcements.rows,deliveries:deliveries.rows,classes:classes.rows,familyThreads:familyThreads.rows,canWrite:req.auth.account.permissions.includes('communications.write'),canSendSms:req.auth.account.permissions.includes('communications.sms.send'),smsConfigured:smsReadiness(),smsProvider:smsProviderName()});}catch(error){return fail(req,res,error);}
+        WHERE t.school_id=$1 ORDER BY t.updated_at DESC LIMIT 200`,[schoolId]) : Promise.resolve({rows:[]})
+    ]);await close(req,true);return res.json({announcements:announcements.rows,deliveries:deliveries.rows,classes:classes.rows,familyThreads:familyThreads.rows,canManageFamilyMessages:canAccessFamilyOffice(req.auth.account)&&req.auth.account.permissions.includes('communications.write'),canWrite:req.auth.account.permissions.includes('communications.write'),canSendSms:req.auth.account.permissions.includes('communications.sms.send'),smsConfigured:smsReadiness(),smsProvider:smsProviderName()});}catch(error){return fail(req,res,error);}
   });
 
   router.get('/portal/family-messages', needsPermission('portal.messages.read'), async(req,res)=>{
@@ -2628,7 +2637,7 @@ export function createOperationsRouter({ authenticate, sendExaminationEmail=send
   });
 
   router.get('/portal/family-messages/:threadId', async(req,res)=>{
-    try{const schoolId=req.auth.claims.schoolId;const userId=req.auth.claims.userId;const isParent=req.auth.account.roles.includes('PARENT');if((isParent&&!req.auth.account.permissions.includes('portal.messages.read'))||(!isParent&&!req.auth.account.permissions.includes('communications.read'))){await close(req,false);return res.status(403).json({error:'You do not have access to this family conversation.'});}
+    try{const schoolId=req.auth.claims.schoolId;const userId=req.auth.claims.userId;const isParent=req.auth.account.roles.includes('PARENT');if((isParent&&!req.auth.account.permissions.includes('portal.messages.read'))||(!isParent&&(!canAccessFamilyOffice(req.auth.account)||!req.auth.account.permissions.includes('communications.read')))){await close(req,false);return res.status(403).json({error:'You do not have access to this family conversation.'});}
       const thread=await req.auth.client.query(`SELECT t.id,t.subject,t.student_id,t.guardian_user_id,s.first_name,s.last_name FROM family_message_threads t JOIN students s ON s.school_id=t.school_id AND s.id=t.student_id WHERE t.school_id=$1 AND t.id=$2 AND ($3::boolean=false OR (t.guardian_user_id=$4 AND EXISTS (SELECT 1 FROM guardians g JOIN student_guardians sg ON sg.school_id=g.school_id AND sg.guardian_id=g.id WHERE g.school_id=t.school_id AND g.user_id=$4 AND g.active AND sg.student_id=t.student_id)))`,[schoolId,req.params.threadId,isParent,userId]);
       if(!thread.rowCount){await close(req,false);return res.status(404).json({error:'Family conversation not found.'});}
       const messages=await req.auth.client.query(`SELECT m.id,m.body,m.sender_user_id,m.created_at,m.read_at,u.full_name AS sender_name FROM family_messages m JOIN user_accounts u ON u.school_id=m.school_id AND u.id=m.sender_user_id WHERE m.school_id=$1 AND m.thread_id=$2 ORDER BY m.created_at`,[schoolId,thread.rows[0].id]);
@@ -2650,7 +2659,7 @@ export function createOperationsRouter({ authenticate, sendExaminationEmail=send
     }catch(error){return fail(req,res,error);}
   });
 
-  router.post('/communications/family-threads/:threadId/reply', needsPermission('communications.write'), csrf, async(req,res)=>{
+  router.post('/communications/family-threads/:threadId/reply', needsPermission('communications.write'), needsFamilyOffice, csrf, async(req,res)=>{
     const body=text(req.body?.body,5000);if(!body){await close(req,false);return res.status(400).json({error:'Write a reply before sending.'});}
     try{const schoolId=req.auth.claims.schoolId;const userId=req.auth.claims.userId;const thread=await req.auth.client.query(`SELECT id,guardian_user_id,subject FROM family_message_threads WHERE school_id=$1 AND id=$2 AND status='OPEN'`,[schoolId,req.params.threadId]);
       if(!thread.rowCount){await close(req,false);return res.status(404).json({error:'Open family conversation not found.'});}
@@ -3620,7 +3629,7 @@ export function createOperationsRouter({ authenticate, sendExaminationEmail=send
   router.post('/teaching/submissions/:submissionId/review', needsPermission('assignments.review'), csrf, async(req,res)=>{
     const feedback=text(req.body?.feedback,2000);const score=req.body?.score===''||req.body?.score==null?null:Number(req.body.score);const status=text(req.body?.status,20).toUpperCase();
     if(!['RETURNED','REVIEWED'].includes(status)||(score!==null&&(!Number.isFinite(score)||score<0))){await close(req,false);return res.status(400).json({error:'Choose Return for revision or Mark reviewed, and enter a valid optional score.'});}
-    try{const isTeacher=req.auth.account.roles.includes('TEACHER');const updated=await req.auth.client.query(`UPDATE assessment_submissions sub SET status=$4,feedback=NULLIF($5,''),score=$6,reviewed_by=$3,reviewed_at=now(),updated_at=now() FROM assessments a JOIN teacher_subject_assignments ta ON ta.school_id=a.school_id AND ta.id=a.teacher_assignment_id WHERE sub.school_id=$1 AND sub.id=$2 AND a.school_id=sub.school_id AND a.id=sub.assessment_id AND ($7::boolean=false OR ta.teacher_id=$3) AND (a.status='OPEN' OR $6 IS NULL) RETURNING sub.id,sub.assessment_id,sub.student_id,sub.status,sub.score`,[req.auth.claims.schoolId,req.params.submissionId,req.auth.claims.userId,status,feedback,score,isTeacher]);
+    try{const isTeacher=req.auth.account.roles.includes('TEACHER');const updated=await req.auth.client.query(`UPDATE assessment_submissions sub SET status=$4,feedback=NULLIF($5,''),score=$6::numeric,reviewed_by=$3,reviewed_at=now(),updated_at=now() FROM assessments a JOIN teacher_subject_assignments ta ON ta.school_id=a.school_id AND ta.id=a.teacher_assignment_id WHERE sub.school_id=$1 AND sub.id=$2 AND a.school_id=sub.school_id AND a.id=sub.assessment_id AND ($7::boolean=false OR ta.teacher_id=$3) AND (a.status='OPEN' OR $6::numeric IS NULL) RETURNING sub.id,sub.assessment_id,sub.student_id,sub.status,sub.score`,[req.auth.claims.schoolId,req.params.submissionId,req.auth.claims.userId,status,feedback,score,isTeacher]);
       if(!updated.rowCount){await close(req,false);return res.status(404).json({error:'Submission not found, or you are not assigned to its class.'});}
       const item=updated.rows[0];if(score!==null){const saved=await req.auth.client.query(`INSERT INTO assessment_scores(school_id,assessment_id,student_id,score,feedback,entered_by) SELECT $1,$2,$3,$4,NULLIF($5,''),$6 WHERE $4<=(SELECT max_score FROM assessments WHERE school_id=$1 AND id=$2) ON CONFLICT(school_id,assessment_id,student_id) DO UPDATE SET score=EXCLUDED.score,feedback=EXCLUDED.feedback,entered_by=EXCLUDED.entered_by,moderated_by=NULL,moderated_at=NULL,published_at=NULL RETURNING id`,[req.auth.claims.schoolId,item.assessment_id,item.student_id,score,feedback,req.auth.claims.userId]);if(!saved.rowCount){await close(req,false);return res.status(400).json({error:'The score exceeds the assignment maximum.'});}}
       await req.auth.client.query(`INSERT INTO portal_notifications(school_id,user_id,kind,title,body,target_url) SELECT $1,spl.user_id,'ASSIGNMENT','Assignment feedback is ready',$3,'/portal' FROM student_portal_links spl WHERE spl.school_id=$1 AND spl.student_id=$2`,[req.auth.claims.schoolId,item.student_id,status==='RETURNED'?'Your teacher returned work for revision.':'Your teacher reviewed your submitted work.']);
