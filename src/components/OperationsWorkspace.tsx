@@ -1,3 +1,4 @@
+import { TeacherCurriculumOverview } from './TeacherCurriculumOverview.tsx';
 import { WebsiteRequestsWorkspace } from './WebsiteRequestsWorkspace.tsx';
 import { GuardianEmailVerification } from './GuardianEmailVerification.tsx';
 import { PublicContentWorkspace } from './PublicContentWorkspace.tsx';
@@ -233,7 +234,7 @@ export const OperationsWorkspace: React.FC<Props> = ({ account, csrfToken, busy:
   const canManageTimetable = account.permissions.includes('timetable.manage');
   const canReviewGrades = ['grades.enter', 'grades.moderate', 'grades.publish'].some(permission => account.permissions.includes(permission));
   const isPortalUser = account.roles.includes('STUDENT') || account.roles.includes('PARENT');
-  const workspaceItems = account.roles.includes('STUDENT') ? [
+  const workspaceItems: Array<{id:string;label:string;icon:typeof BookOpen;status?:'available'|'connecting'|'partial'}> = account.roles.includes('STUDENT') ? [
     { id: 'overview', label: 'Overview', icon: LayoutDashboard, status: 'available' as const },
     { id: 'student-classes', label: 'My classes', icon: BookOpen, status: 'available' as const },
     { id: 'student-grades', label: 'Grades', icon: FileBarChart, status: 'available' as const },
@@ -259,7 +260,7 @@ export const OperationsWorkspace: React.FC<Props> = ({ account, csrfToken, busy:
   ] : [
     { id: 'overview', label: 'Overview', icon: LayoutDashboard, status: 'available' as const },
     ...(canConfigure ? [{ id: 'academics', label: 'School setup', icon: Settings2, status: 'available' as const }] : []),
-    ...(canManageCurriculum || account.permissions.includes('curriculum.read') ? [{ id: 'curriculum', label: 'Curriculum & timetable', icon: BookOpen, status: canManageCurriculum ? 'available' as const : 'connecting' as const }] : []),
+    ...(canManageCurriculum || account.permissions.includes('curriculum.read') ? [{ id: 'curriculum', label: 'Curriculum & timetable', icon: BookOpen, status: 'available' as const }] : []),
     ...(canManageStaff || account.permissions.includes('users.manage') || canEnroll ? [{ id: 'people', label: 'People & accounts', icon: Users, status: 'available' as const }] : []),
     ...(canReviewGrades || canTakeAttendance ? [{ id: 'teaching', label: 'Teaching & learning', icon: ClipboardList, status: 'available' as const }] : []),
     ...(account.permissions.includes('grades.publish') ? [{ id: 'year-end', label: 'Year-end report cards', icon: FileBarChart, status: 'available' as const }] : []),
@@ -396,6 +397,7 @@ export const OperationsWorkspace: React.FC<Props> = ({ account, csrfToken, busy:
             <div className="mt-3 space-y-3">{setup.classes.length ? setup.classes.map(row => <form key={String(row.id)+'-'+String(row.grade_level_id||'unlinked')} onSubmit={submit(async form => { const data = new FormData(form); const result = await post('classes/'+encodeURIComponent(String(row.id))+'/grade-level', { gradeLevelId: data.get('gradeLevelId') }); return String(result.notice||'Class grade level linked.'); })} className="grid gap-3 rounded-lg border border-slate-200 bg-white p-3 sm:grid-cols-[1fr_1fr_auto] sm:items-end"><div><p className="font-semibold text-slate-900">{row.name} · {row.academic_year_name}</p><p className="mt-1 text-xs text-slate-600">Grade label: {row.grade_level||'not set'} · Linked grade: {row.linked_grade_name||'not linked'} · Stage: {row.education_level_name||'not set'}</p></div><label className={labelClass}>Official grade<select required name="gradeLevelId" defaultValue={row.grade_level_id||''} className={inputClass}><option value="">Choose grade</option>{setup.gradeLevels.map(grade=><option key={grade.id} value={grade.id!}>{grade.education_level_name} · {grade.name}</option>)}</select></label><button disabled={saving||!setup.gradeLevels.length} className={buttonClass}><Check className="h-4 w-4"/> Link grade</button></form>) : <p className="text-sm text-slate-600">No classes are available to link yet.</p>}</div>
           </div>
         </section>}
+        {!canManageCurriculum && activeWorkspace === 'curriculum' && <TeacherCurriculumOverview userId={account.id} assignments={setup.assignments} classes={setup.classes} curriculum={setup.curriculum} timetable={setup.timetable}/>}
         {canManageCurriculum && activeWorkspace === 'curriculum' && <section className={`${sectionClass} mb-6`}><div className="mb-5 flex items-center gap-2"><BookOpen className="h-5 w-5 text-blue-700"/><h2 className="text-lg font-extrabold text-slate-950">Curriculum, books & timetable</h2></div>
           <div className="grid gap-5 md:grid-cols-2 xl:grid-cols-3">
             <form className="space-y-3 rounded-xl bg-slate-50 p-4" onSubmit={submit(async form => { const d = new FormData(form); await post('curriculum', { academicYearId: d.get('academicYearId'), gradeLevelId: d.get('gradeLevelId'), subjectId: d.get('subjectId'), termId: d.get('termId'), weeklyMinutes: Number(d.get('weeklyMinutes')), periodsPerWeek: Number(d.get('periodsPerWeek')), learningObjectives: d.get('learningObjectives') }); })}>
