@@ -81,6 +81,7 @@ Content review includes official staff/leadership names and photos, principal me
 | People & accounts | Built; verify | Staff/guardian/student linking, invitations, activation, duplicate checks and scoped access |
 | Teaching & learning | Built; verify | Class roll call, attendance corrections, materials, assignments, submission, marking and released grades |
 | Year-end report cards | Built; verify | Grade completeness, review, publication, correction, promotion/honors school decisions and portal reports |
+| Website requests | Staging verified; owner review | Enquiry, visit preference and records assistance to restricted staff queue; assignment, follow-up, resolution and preserved history verified; no automatic messaging, booking or document release |
 | Admissions | Built; verify | Public application to Registrar, review, documents, school decision and enrollment without duplicate learner creation |
 | Entrance examinations | Staging accepted | Guardian proof, eligibility, sitting, autosave/reload, manual/timeout submission, marking, separate approval, private release, corrections/history; see exam handoff |
 | Student records | Built; verify | Enrollment, guardian relationships, documents/photos, changes/history, Digital ID approval and verification |
@@ -89,7 +90,7 @@ Content review includes official staff/leadership names and photos, principal me
 | Staff & HR | Built; verify | Staff/contracts, attendance, leave, work review and payroll workflow without unapproved pay |
 | Inventory & procurement | Built; verify | Requisition, approval, ordering, receiving, stock movements, balances and reports |
 | Communications | **Partial — MTN SMS** | Notices, audience permissions, family messages and notifications; separately verify SMS configuration, consent, recipient selection, delivery/failure and provider behavior |
-| School website content | Built; verify | Draft, review/publish, public rendering and unpublish; public posts stay separate from private communications |
+| School website content | Publishing staging-verified; content/roles pending | Draft, review/publish, public rendering and unpublish; public posts stay separate from private communications |
 | Reports & EMIS | Built; verify | Filters, reconciliation to underlying records, access, exports and approved templates; export is not Ministry submission |
 | User access | Built; verify | Role grants, invitations, suspension/recovery, session invalidation and audit; no public role selection |
 | Guardian portal | Built; verify | Linked learners, timetable, released grades, attendance, materials, tuition/receipts, notices/messages and photo workflow |
@@ -140,4 +141,6 @@ staff intake and review history. All 330 automated checks passed for the deploye
 This is scoped evidence, not complete acceptance of every listed workflow. Public
 content, all other process/role tests, MTN completion and release recovery gates remain.
 
-The owner chose online forms plus staff follow-up for information enquiries, school visits and records requests. The implementation uses a private administrative Website requests queue; it adds no staff-login link to public pages. See [website-request workflow](website-request-workflow.md). Staging verification of migration 111 and this workflow is pending until recorded there.
+The owner chose online forms plus staff follow-up for information enquiries, school visits and records requests. The implementation uses a private administrative Website requests queue; it adds no staff-login link to public pages. See [website-request workflow](website-request-workflow.md). Migration 111 and all three public review/confirm/receipt journeys are staging-verified. The administrative queue received each reference; assignment, waiting, resolution, filtering and preserved history passed. The scoped evidence and remaining production gates are recorded there; owner acceptance is still required.
+
+Public publishing follow-up: existing staging-only news/event posts were published, verified on public news/calendar/homepage, then unpublished and verified removed. Drafts remained private. See the dated audit report for exact scope; content approvals and remaining role/media checks are still open.

@@ -101,9 +101,25 @@ Fictional test record **RIA-2026-68771FB3**, applicant **TEST Public Audit 20261
 ## Outstanding work surfaced
 
 - School-approved public content and assets, rather than placeholders or illustrative photographs.
-- Decide whether Request Information / visits / records requests need online forms and a staff queue, or retain a phone-only process. A question has been sent to the owner; do not treat elapsed time as acceptance.
-- Anonymous browsing, cross-role portal journeys, publishing/unpublishing and all other connected processes remain to verify systematically.
+- Resolved by the owner: add online forms and staff follow-up for enquiries, visits and records. These are now built and staging-verified; see the website-request workflow evidence.
+- Anonymous browsing, cross-role portal journeys and all other connected processes remain to verify systematically. Publishing/unpublishing has now been rechecked as described below.
 - Finance MoMo and Communications SMS remain distinct Partial integration gates.
 - Backup restore rehearsal, historical migration reconciliation, cross-workspace school-operation rehearsal and final owner release approval remain mandatory.
 
 The detailed continuing scope is [the whole-site release checklist](whole-site-release-checklist.md). This pass does not mark the whole website/ERP complete.
+
+
+## Follow-up pass: request forms and publishing
+
+The owner approved three online request forms and staff follow-up. See [the detailed workflow and evidence](website-request-workflow.md). Migration 111 was applied only to staging after a fresh verified backup. The corrected staging revision `c451d20619485b46f6b7e60d01c063c0c2b7ce11` passed all 337 CI tests plus type checking and build. Public receipt, all three receiving queue records, enquiry assignment/waiting/resolution, status filtering, preserved original/history, records verification guidance and visit-date handling passed live UI checks.
+
+Public news/event publishing was rechecked on this revision with the existing clearly marked staging-only posts, without replacing their text, photos or dates:
+
+1. The staff library held an unpublished news post, an unpublished calendar event with a saved featured image, and a separate draft calendar event. The public news page showed no published updates.
+2. Published only `STAGING TEST – Redeemer Website Publishing`. The news page displayed its exact summary; expanding Read full update displayed the complete fictional test body.
+3. Published only the existing illustrated `STAGING TEST – Redeemer School Calendar` event. The calendar displayed it with its saved date/time (30 October 2026, 10:00 am Liberia), summary and featured image. The separate calendar draft remained DRAFT in the staff library.
+4. The homepage displayed both the published news and published event. Its public navigation continued to offer family access without a staff-login link.
+5. Unpublished both test posts. The staff library retained them as UNPUBLISHED. Reloaded homepage, calendar and news page showed their empty published-content states, with no test posts. The separate draft was unchanged.
+6. No private class notices, guardian messages, records, financial information or learner details were copied into the public news workflow. No new content or images were uploaded in this pass. Publication used the existing School Administrator account; this is not evidence of independent editorial approval or of all other role restrictions.
+
+Evidence images in the task outputs: `public-news-published-verified.jpg`, `public-news-unpublished-verified.jpg`, and `website-request-follow-up-history.jpg`. These checks do not approve existing test imagery as production school media or turn content placeholders into approved school content. School-provided content and owner acceptance remain required. Production remains paused; PR #57 stays draft and unmerged.
