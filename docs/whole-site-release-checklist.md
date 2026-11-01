@@ -1,6 +1,6 @@
 # Whole-site completion and release checklist
 
-Updated: 2026-10-31. Scope: the public website, its main menus and submenus, staff ERP, student/guardian portals, and the workflows connecting them.
+Updated: 2026-11-01. Scope: the public website, its main menus and submenus, staff ERP, student/guardian portals, and the workflows connecting them.
 
 ## Release decision
 
@@ -90,7 +90,7 @@ Content review includes official staff/leadership names and photos, principal me
 | Staff & HR | Built; verify | Staff/contracts, attendance, leave, work review and payroll workflow without unapproved pay |
 | Inventory & procurement | Built; verify | Requisition, approval, ordering, receiving, stock movements, balances and reports |
 | Communications | **Partial — MTN SMS** | Notices, audience permissions, family messages and notifications; separately verify SMS configuration, consent, recipient selection, delivery/failure and provider behavior |
-| School website content | Publishing staging-verified; content/roles pending | Draft, review/publish, public rendering and unpublish; public posts stay separate from private communications |
+| School website content | Approved content and page/photo editor staging-verified | Draft, review/publish, public rendering and unpublish; public posts stay separate from private communications |
 | Reports & EMIS | Built; verify | Filters, reconciliation to underlying records, access, exports and approved templates; export is not Ministry submission |
 | User access | Built; verify | Role grants, invitations, suspension/recovery, session invalidation and audit; no public role selection |
 | Guardian portal | Built; verify | Linked learners, timetable, released grades, attendance, materials, tuition/receipts, notices/messages and photo workflow |
@@ -153,3 +153,17 @@ The owner confirmed that the missing school content has not yet been created. [T
 [ERP/portal workflow evidence](erp-portal-workflow-verification.md) now records an isolated real-SQL, authenticated HTTP rehearsal across setup, resources, assignment revision/review, independent grade approval/publication, attendance correction, student/guardian messaging, notification ownership, dual-currency family finance and independently approved procurement/receiving. Tests found and corrected assignment-review SQL, guardian-office privacy and procurement approval defects. Live role-browser, remaining modules, recovery and owner-acceptance gates remain explicit rather than inferred from test counts.
 
 Live role follow-up: the existing guardian account loaded nine family workspaces and the student account loaded ten learner workspaces without submitting changes. The teacher sign-in exposed missing submission-review/message panels and an absent curriculum-reader view; these were corrected and checked on staging. See the ERP/portal evidence report for exact deployed revisions and remaining write/review acceptance.
+
+
+## 1 November 2026: approved content and photo editor verified on staging
+
+The owner's content approval is recorded, including the condition that school administration can update it. The homepage and all 34 menu pages now have editable draft/published snapshots. School Administrator/Principal management uses the existing public-content permission; public menus contain no staff-login entry. Missing official names, detailed policies, dates and schedules have not been invented.
+
+- CI runs 41266219992 and 41300220578 passed. The editor's complete suite reports 356 tests passed, zero failed/skipped; type checking and build also passed. Real SQL/HTTP checks cover tenant/role denial, CSRF, concurrent-version rejection, private image/PDF access, publication/withdrawal, restored drafts and protected history. These are distinct from live browser evidence.
+- Staging migration 112 completed with COMMIT against `redeemer_school_staging` only. Verified 35/35 initial public snapshots, forced row security on all three tables, no runtime DELETE and no superuser/RLS-bypass privilege. The pre-existing backup succeeded at 02:41:51 UTC. An additional fresh backup completed at 11:04:51 UTC (2.67 MB) before migration 113 corrected imported punctuation, preserving original snapshots and adding correction history. Migration 113 also committed successfully; the original 112 file was retained unchanged.
+- Exact deployed application: `ee7c017b78050b781cbbea2efc4d61baccc4f654`, manual Coolify deployment `qd2qagzs5ben5dnlqirdc2f8`, successful 11:05:50 UTC deployment (new container started 11:06:16 UTC). Prior editor deployment `eghhitgub1vqusmmzdtdrrfi` also succeeded.
+- Live School Administrator browser journey: select About Us; upload existing approved illustrative courtyard WebP with accurate accessibility description/caption and publication consent; save private version 3; confirm public version 2 still has no photo; review saved preview and explicitly confirm; publish version 4; verify public image, caption and original approved wording. Upload completed with the ordinary Windows picker; no browser-extension permission change was needed.
+- Live checks confirmed the approved Principal message, Mission/Values and handbook contents outline. The homepage editor exposes school identity, address, phone numbers and content blocks. Detailed handbook policies still need school-specific completion when supplied; the published outline accurately directs families to the office.
+- Evidence: `outputs/website-about-us-photo-published.jpg`, `outputs/website-staff-photo-upload-controls.jpg`, `outputs/website-admin-editable-contacts.jpg`, `outputs/website-editor-fresh-backup.jpg`, `outputs/website-editor-staging-migration.jpg`, `outputs/website-editor-staging-isolation.jpg` (workspace outputs directory, outside repository).
+
+Production remains paused. PR 57 stays draft and unmerged. Finance/Communications keep their MTN-dependent Partial status. Remaining staff/portal journeys, recovery rehearsals and the stronger private staff-entry requirement retain their existing release gates; this content-editor completion is not whole-product acceptance.
