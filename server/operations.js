@@ -1941,7 +1941,7 @@ export function createOperationsRouter({ authenticate, sendExaminationEmail=send
     }catch(error){return fail(req,res,error);}
   });
 
-  router.post('/admissions/entrance-exams/:examId/publish-questions',needsPermission('admissions.write'),csrf,async(req,res)=>{
+  router.post('/admissions/entrance-exams/:examId/publish-questions',needsPermission('admissions.read'),csrf,async(req,res)=>{
     if(process.env.ENABLE_CANDIDATE_EXAM_PREVIEW!=='true'){await close(req,false);return res.status(503).json({error:'Candidate examination preview is not enabled.'});}
     if(!req.auth.account.roles.some(role=>['SCHOOL_ADMIN','PRINCIPAL'].includes(role))){await close(req,false);return res.status(403).json({error:'Only the Principal or School Administrator may approve examination questions.'});}
     try{
@@ -3053,6 +3053,18 @@ export function createOperationsRouter({ authenticate, sendExaminationEmail=send
         }
         await close(req, false); return res.status(409).json({ error: 'This learner already has a portal account. Pending accounts can receive a new setup email by entering the same account details.' });
       }
+      // Enrollment may already have created this learner's guardian record.
+      // Link that record only after an authorized invitation request; matching an
+      // email elsewhere in the school must not silently grant family access.
+      const intakeGuardians = type === 'PARENT'
+        ? await req.auth.client.query(`SELECT g.id FROM guardians g
+            JOIN student_guardians sg ON sg.school_id=g.school_id AND sg.guardian_id=g.id
+            WHERE g.school_id=$1 AND sg.student_id=$2 AND lower(g.email)=$3
+              AND g.user_id IS NULL AND g.active FOR UPDATE OF g`, [schoolId, studentId, email])
+        : { rows: [], rowCount: 0 };
+      if (intakeGuardians.rowCount > 1) {
+        await close(req, false); return res.status(409).json({ error: 'More than one guardian record has this email for the learner. Review the guardian relationships before creating portal access.' });
+      }
       const passwordHash = await hashPassword(randomBytes(32).toString('base64url'));
       const account = await req.auth.client.query(`INSERT INTO user_accounts (school_id, email, password_hash, full_name, role, status, must_reset_password) VALUES ($1, $2, $3, $4, $5, 'ACTIVE', true) RETURNING id, email, full_name, role`, [schoolId, email, passwordHash, fullName, type]);
       await req.auth.client.query(`INSERT INTO user_role_assignments (school_id, user_id, role_id, assigned_by) SELECT $1, $2, id, $3 FROM school_roles WHERE school_id = $1 AND code = $4`, [schoolId, account.rows[0].id, req.auth.claims.userId, type]);
@@ -3060,8 +3072,15 @@ export function createOperationsRouter({ authenticate, sendExaminationEmail=send
         await req.auth.client.query('INSERT INTO student_portal_links (school_id, student_id, user_id, linked_by) VALUES ($1, $2, $3, $4)', [schoolId, studentId, account.rows[0].id, req.auth.claims.userId]);
       } else {
         const parts = fullName.trim().split(/\s+/); const firstName = parts[0]; const lastName = parts.slice(1).join(' ') || parts[0];
-        const guardian = await req.auth.client.query(`INSERT INTO guardians (school_id, user_id, first_name, last_name, email) VALUES ($1, $2, $3, $4, $5) RETURNING id`, [schoolId, account.rows[0].id, firstName, lastName, email]);
-        await req.auth.client.query(`INSERT INTO student_guardians (school_id, student_id, guardian_id, relationship, can_view_results, can_view_finance, communication_consent) VALUES ($1, $2, $3, $4, $5, $6, $7)`, [schoolId, studentId, guardian.rows[0].id, relationship, req.body?.canViewResults !== false, Boolean(req.body?.canViewFinance), Boolean(req.body?.communicationConsent)]);
+        if (intakeGuardians.rowCount) {
+          const guardianId = intakeGuardians.rows[0].id;
+          await req.auth.client.query('UPDATE guardians SET user_id=$3 WHERE school_id=$1 AND id=$2 AND user_id IS NULL', [schoolId, guardianId, account.rows[0].id]);
+          await req.auth.client.query(`UPDATE student_guardians SET relationship=$4,can_view_results=$5,can_view_finance=$6,communication_consent=$7
+            WHERE school_id=$1 AND student_id=$2 AND guardian_id=$3`, [schoolId, studentId, guardianId, relationship, req.body?.canViewResults !== false, Boolean(req.body?.canViewFinance), Boolean(req.body?.communicationConsent)]);
+        } else {
+          const guardian = await req.auth.client.query(`INSERT INTO guardians (school_id, user_id, first_name, last_name, email) VALUES ($1, $2, $3, $4, $5) RETURNING id`, [schoolId, account.rows[0].id, firstName, lastName, email]);
+          await req.auth.client.query(`INSERT INTO student_guardians (school_id, student_id, guardian_id, relationship, can_view_results, can_view_finance, communication_consent) VALUES ($1, $2, $3, $4, $5, $6, $7)`, [schoolId, studentId, guardian.rows[0].id, relationship, req.body?.canViewResults !== false, Boolean(req.body?.canViewFinance), Boolean(req.body?.communicationConsent)]);
+        }
       }
       await createAndSendInvitation(req.auth.client, { schoolId, userId: account.rows[0].id, email, fullName, role: type, createdBy: req.auth.claims.userId }, sendInvitation);
       await audit(req, 'PORTAL_ACCOUNT_CREATED', `${type}_PORTAL`, account.rows[0].id, { studentId });

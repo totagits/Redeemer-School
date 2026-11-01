@@ -34,6 +34,7 @@ class FakeClient {
     if (normalized.startsWith('SELECT u.id, u.email, u.full_name, u.role, u.status, u.must_reset_password FROM student_portal_links')) return this.existingPortalLink ? { rows: [this.existingPortalLink], rowCount: 1 } : { rows: [], rowCount: 0 };
     if (normalized.startsWith('SELECT u.id, u.email, u.full_name, u.role, u.status, u.must_reset_password FROM student_guardians')) return this.existingPortalLink ? { rows: [this.existingPortalLink], rowCount: 1 } : { rows: [], rowCount: 0 };
     if (normalized.startsWith('INSERT INTO student_portal_links')) return { rows: [{ id: 'student-portal-link-id' }], rowCount: 1 };
+    if (normalized.startsWith('SELECT g.id FROM guardians g')) return { rows: [], rowCount: 0 };
     if (normalized.startsWith('INSERT INTO guardians')) return { rows: [{ id: 'guardian-id' }], rowCount: 1 };
     if (normalized.startsWith('INSERT INTO student_guardians')) return { rows: [], rowCount: 1 };
     if (normalized.startsWith('UPDATE account_invitations')) return { rows: [], rowCount: 0 };
