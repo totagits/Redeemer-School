@@ -12,14 +12,14 @@ const currentClassId = 'd210b463-c02c-4be9-9003-8a9005e8dbe5';
 const nextClassId = 'e210b463-c02c-4be9-9003-8a9005e8dbe5';
 
 class FakeClient {
-  constructor({ permissions = ['students.write'], history = true, activeEnrollmentCount = 1, targetFound = true } = {}) { this.permissions = permissions; this.history = history; this.activeEnrollmentCount = activeEnrollmentCount; this.targetFound = targetFound; this.statements = []; }
+  constructor({ permissions = ['students.write'], history = true, activeEnrollmentCount = 1, targetFound = true, enrolledOn = '2026-09-01', historyOn = '2026-09-01' } = {}) { this.enrolledOn=enrolledOn; this.historyOn=historyOn; this.permissions = permissions; this.history = history; this.activeEnrollmentCount = activeEnrollmentCount; this.targetFound = targetFound; this.statements = []; }
   async query(sql, params = []) {
     const statement = sql.replace(/\s+/g, ' ').trim();
     this.statements.push({ statement, params });
     if (['BEGIN', 'COMMIT', 'ROLLBACK'].includes(statement)) return { rows: [], rowCount: 0 };
     if (statement.startsWith('SELECT id FROM students WHERE school_id=$1 AND id=$2 FOR UPDATE')) return { rows: [{ id: studentId }], rowCount: 1 };
-    if (statement.startsWith('SELECT ce.class_group_id, ce.enrolled_on')) return { rows: Array.from({ length: this.activeEnrollmentCount }, () => ({ class_group_id: currentClassId, enrolled_on: '2026-09-01', academic_year_id: 'year-one', campus_id: 'campus-one', class_name: 'Grade 4A' })), rowCount: this.activeEnrollmentCount };
-    if (statement.startsWith('SELECT effective_on FROM student_enrollment_history')) return { rows: this.history ? [{ effective_on: '2026-09-01' }] : [], rowCount: this.history ? 1 : 0 };
+    if (statement.startsWith('SELECT ce.class_group_id, ce.enrolled_on')) return { rows: Array.from({ length: this.activeEnrollmentCount }, () => ({ class_group_id: currentClassId, enrolled_on: this.enrolledOn, academic_year_id: 'year-one', campus_id: 'campus-one', class_name: 'Grade 4A' })), rowCount: this.activeEnrollmentCount };
+    if (statement.startsWith('SELECT effective_on FROM student_enrollment_history')) return { rows: this.history ? [{ effective_on: this.historyOn }] : [], rowCount: this.history ? 1 : 0 };
     if (statement.startsWith('SELECT id, name, academic_year_id, campus_id FROM class_groups')) return this.targetFound ? { rows: [{ id: nextClassId, name: 'Grade 5A', academic_year_id: 'year-two', campus_id: 'campus-one' }], rowCount: 1 } : { rows: [], rowCount: 0 };
     if (statement.startsWith('UPDATE class_enrollments SET status=\'COMPLETED\'')) return { rows: [{ class_group_id: currentClassId }], rowCount: 1 };
     if (statement.startsWith('INSERT INTO class_enrollments')) return { rows: [], rowCount: 1 };
@@ -118,4 +118,22 @@ test('class transfer rejects a future effective date before touching enrollment'
   assert.equal(response.status, 400);
   assert.equal(clients[0].statements.some(item => item.statement.startsWith("UPDATE class_enrollments SET status='COMPLETED'")), false);
   assert.equal(clients[0].statements.at(-1).statement, 'ROLLBACK');
+});
+
+
+test('driver Date values allow transfer on the enrollment day and preserve ISO history dates', async t => {
+  for (const history of [true,false]) {
+    const {url,clients}=await startServer(t,{history,enrolledOn:new Date(2026,8,1),historyOn:new Date(2026,8,1)});
+    const response=await fetch(`${url}/api/operations/students/${studentId}/transfer`,{method:'POST',headers,body:JSON.stringify({classGroupId:nextClassId,effectiveOn:'2026-09-01',reason:'Fictional same-day placement correction'})});
+    assert.equal(response.status,200,JSON.stringify(await response.json()));
+    if(!history)assert.equal(clients[0].statements.find(item=>item.statement.startsWith('INSERT INTO student_enrollment_history')).params[5],'2026-09-01');
+  }
+});
+
+test('driver Date values still reject transfer before the enrollment or history day', async t => {
+  for (const options of [{enrolledOn:new Date(2026,8,2),historyOn:new Date(2026,8,2)},{enrolledOn:new Date(2026,8,1),historyOn:new Date(2026,8,2)}]) {
+    const {url,clients}=await startServer(t,options);
+    const response=await fetch(`${url}/api/operations/students/${studentId}/transfer`,{method:'POST',headers,body:JSON.stringify({classGroupId:nextClassId,effectiveOn:'2026-09-01',reason:'Fictional invalid backdating'})});
+    assert.equal(response.status,400);assert.equal(clients[0].statements.some(item=>item.statement.startsWith("UPDATE class_enrollments SET status='COMPLETED'")),false);
+  }
 });

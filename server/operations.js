@@ -36,6 +36,13 @@ function validDate(value) {
   const date = new Date(`${value}T00:00:00Z`);
   return Number.isFinite(date.valueOf()) && date.toISOString().slice(0, 10) === value;
 }
+
+// node-postgres returns DATE columns as local-midnight Date objects; embedded
+// SQL engines can return ISO strings. Compare calendar days consistently.
+function databaseDate(value) {
+  if (value instanceof Date) return `${value.getFullYear()}-${String(value.getMonth()+1).padStart(2,'0')}-${String(value.getDate()).padStart(2,'0')}`;
+  return String(value).slice(0,10);
+}
 function csvCell(value) {
   let text = value == null ? '' : String(value);
   if (/^[\s\u0000-\u001f]*[=+\-@]/u.test(text)) text = `'${text}`;
@@ -1680,10 +1687,10 @@ export function createOperationsRouter({ authenticate, sendExaminationEmail=send
       if (current.rowCount !== 1) { await close(req, false); return res.status(409).json({ error: 'Multiple active class enrollments were found. A school administrator must resolve this inconsistency before transfer.' }); }
       const from = current.rows[0];
       if (String(from.class_group_id) === classGroupId) { await close(req, false); return res.status(400).json({ error: 'Choose a different destination class.' }); }
-      if (effectiveOn < String(from.enrolled_on).slice(0, 10)) { await close(req, false); return res.status(400).json({ error: 'The transfer date cannot be before the current class enrollment date.' }); }
+      if (effectiveOn < databaseDate(from.enrolled_on)) { await close(req, false); return res.status(400).json({ error: 'The transfer date cannot be before the current class enrollment date.' }); }
       const openHistory = await req.auth.client.query(`SELECT effective_on FROM student_enrollment_history
         WHERE school_id=$1 AND student_id=$2 AND class_group_id=$3 AND ended_on IS NULL ORDER BY effective_on DESC LIMIT 1 FOR UPDATE`, [schoolId, req.params.studentId, from.class_group_id]);
-      if (openHistory.rowCount && effectiveOn < String(openHistory.rows[0].effective_on).slice(0, 10)) { await close(req, false); return res.status(400).json({ error: 'The transfer date cannot be before the recorded start of this class enrollment.' }); }
+      if (openHistory.rowCount && effectiveOn < databaseDate(openHistory.rows[0].effective_on)) { await close(req, false); return res.status(400).json({ error: 'The transfer date cannot be before the recorded start of this class enrollment.' }); }
       const target = await req.auth.client.query(`SELECT id, name, academic_year_id, campus_id FROM class_groups
         WHERE school_id=$1 AND id=$2 FOR UPDATE`, [schoolId, classGroupId]);
       if (!target.rowCount) { await close(req, false); return res.status(400).json({ error: 'Choose a destination class belonging to this school.' }); }
@@ -1699,7 +1706,7 @@ export function createOperationsRouter({ authenticate, sendExaminationEmail=send
         await req.auth.client.query(`INSERT INTO student_enrollment_history
           (school_id,student_id,academic_year_id,campus_id,class_group_id,status,effective_on,ended_on,reason,recorded_by)
           VALUES($1,$2,$3,$4,$5,'TRANSFERRED_OUT',$6,$7,$8,$9)`,
-        [schoolId, req.params.studentId, from.academic_year_id, from.campus_id, from.class_group_id, String(from.enrolled_on).slice(0, 10), effectiveOn, reason, req.auth.claims.userId]);
+        [schoolId, req.params.studentId, from.academic_year_id, from.campus_id, from.class_group_id, databaseDate(from.enrolled_on), effectiveOn, reason, req.auth.claims.userId]);
       }
       await req.auth.client.query(`INSERT INTO student_enrollment_history
         (school_id,student_id,academic_year_id,campus_id,class_group_id,status,effective_on,reason,recorded_by)
