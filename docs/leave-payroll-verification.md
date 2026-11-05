@@ -20,4 +20,18 @@ The full local regression suite passed 379 tests, no failures, with one existing
 
 The disposable PostgreSQL-compatible database tests exercise actual authentication, CSRF, runtime RLS, review transitions, employee privacy, foreign-school denial, date overlap, exact decimal arithmetic, locked lines, returning drafts, independent approval, payment retries and duplicate periods. Provider readiness never sends traffic. Existing MTN adapter regression tests remain included in the full suite.
 
-Migration 115_leave_payroll_workflows.sql extends existing leave/payroll tables and adds append-only workflow events with forced school RLS. Staging backup, deployment, migration and live browser verification are pending at this commit. No production release is authorized.
+GitHub run 42094264965 passed all 380 tests with no failures or skips for implementation 63732a2975ece2c273ea749c0d389a0d6f93af11.
+
+## Staging evidence
+
+The fresh redeemer_school_staging backup succeeded at 19:29:59 UTC on 5 November, 3.01 MB: pg-dump-redeemer_school_staging-1793906997-2tov7qm8qijjeq1shlkbssaz.dmp. Deployment 8rgd9lfvkczcd0kkhlv5shz9 finished successfully with the tested revision. Migration 115_leave_payroll_workflows.sql committed inside a transaction, migration lock and explicit staging-database guard. Its ledger entry and forced row security on leave requests, payroll runs, payroll lines and workflow events were verified.
+
+Live leave: HR Manager James Williams requested TEST ONLY — leave workflow 20261105 for 1–2 February 2027. School Administrator Michael Gwoah recorded the separate HR review; his reviewed request had no approval action. Principal James Doe approved it. The history retained all three actors and timestamps. The Principal then cancelled the fictional leave, retaining history and leaving no active test absence.
+
+Live manual payroll: Finance Agnes Thompson created the October 2026 USD run with reference STAGING-TEST-PAYROLL-20261105-NO-REAL-PAY for fictional employee TEST-HR-20261105 only. Gross 100.05 + additions 10.10 − deductions 5.02 produced net 105.13. Submission locked the employee amounts. Principal James Doe approved separately. Finance recorded simulated payment evidence STAGING-TEST-NO-TRANSFER-20261105 dated 5 November. The paid view has no edit or payment action; actor history is retained. No real salary, contract, tax or funds transfer was involved. Finance's own payslip view remained empty rather than exposing the fictional employee's pay. Actual employee payslip access was proven in the isolated authenticated SQL test; no new live account invitation was sent.
+
+Live external readiness: MoMo SANDBOX configuration ready, MTN SMS incomplete/disabled, staging email configuration ready. No live enable flag changed and no provider traffic was sent. Existing MTN adapter acceptance remains separate from the readiness view.
+
+Live guide: selecting Payroll started the 14-step narrated visual demonstration automatically and advanced to its approval/payment screen without manual lesson or narration clicks. Evidence screenshots are in outputs/leave-payroll-staging-backup.jpg, outputs/leave-payroll-migration-verified.jpg, outputs/leave-approved-history.jpg, outputs/manual-payroll-paid-history.jpg, outputs/external-service-readiness.jpg and outputs/manual-payroll-automatic-guide.jpg.
+
+No production release is authorized. Remaining dependencies are the school-approved automated leave/payroll rules, post-payment correction/statutory remittance scope, and actual MTN provider approvals and witnessed acceptance.
