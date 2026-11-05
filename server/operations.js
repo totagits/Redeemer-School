@@ -1,5 +1,7 @@
 import { registerWebsiteRequestStaffRoutes } from './websiteRequests.js';
 import { registerHrRecruitmentRoutes } from './hrRecruitment.js';
+import { registerStaffWorkflowRoutes } from './staffWorkflows.js';
+import { registerIntegrationReadiness } from './integrationReadiness.js';
 import { registerExamMarkingRoutes } from './admissionExamMarking.js';
 import { createGuardianEmailChallenge, findVerifiedGuardianEmail } from './admissionGuardianEmail.js';
 import { sendExamEmail } from './admissionExamEmail.js';
@@ -238,6 +240,8 @@ export function createOperationsRouter({ authenticate, sendExaminationEmail=send
   router.use(authenticate);
   router.use((_req, res, next) => { res.setHeader('Cache-Control', 'no-store'); next(); });
   registerHrRecruitmentRoutes(router,{csrf,close,done,fail,audit});
+  registerStaffWorkflowRoutes(router,{csrf,close,done,fail,audit});
+  registerIntegrationReadiness(router,{close,done});
 
   async function pushToUser(schoolId, userId, payload) {
     if (!pool || !process.env.VAPID_PUBLIC_KEY || !process.env.VAPID_PRIVATE_KEY || !process.env.VAPID_SUBJECT) return;

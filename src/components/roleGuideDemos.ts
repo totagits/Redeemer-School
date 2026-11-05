@@ -1,3 +1,4 @@
+import {staffWorkflowGuideDemos} from './staffWorkflowGuideDemos';
 export type DemoControl = {
   label: string;
   kind: 'text' | 'select' | 'button' | 'read' | 'file';
@@ -300,6 +301,7 @@ export function roleGuideDemos(permissions: string[], parent: boolean, roles: st
       ],
     };
   }
+  Object.assign(demos,staffWorkflowGuideDemos(roles,permissions));
   // Controls used by a permission-gated action follow the same visibility rule as that action.
   for (const demo of Object.values(demos)) {
     const hidden = new Set(demo.actions.filter(action => action.permissions && !action.permissions.some(can)).map(action => action.target));

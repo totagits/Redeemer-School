@@ -2,6 +2,10 @@ type Step = readonly [control: string, narration: string];
 type Lesson = readonly [title: string, ...steps: Step[]];
 
 export const guideLessons: Record<string, Lesson> = {
+  leave: ['Request, review and decide staff leave'],
+  payroll: ['Prepare and independently approve manual payroll'],
+  payslips: ['Read your private paid payslips'],
+  integrations: ['Check external service readiness'],
   overview: ['Find your way around', ['Overview', 'Start with the summary and quick links for your account. On a phone, open the navigation menu first.'], ['User guide', 'Choose a lesson to preview a workspace. Sign out when you finish on a shared device.']],
   academics: ['Set up an academic year', ['Add year', 'Enter the school-approved academic year and dates.'], ['Add class', 'Choose that year and the official grade level. Enter the class name and section before saving.']],
   curriculum: ['Use the curriculum and timetable', ['Curriculum & timetable', 'Open the workspace to review subjects, class assignments and lesson schedules.'], ['Teaching assignments', 'Check the class and subject before working with curriculum or scheduled lessons. Editing depends on your permissions.']],

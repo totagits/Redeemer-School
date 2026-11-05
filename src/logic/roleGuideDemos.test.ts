@@ -18,7 +18,7 @@ const permissionSets = [
 
 test('every narrated staff and guardian action has a visible control after preceding actions', () => {
   for (const permissions of permissionSets) {
-   for (const roles of [[], ['HR_MANAGER'], ['PRINCIPAL'], ['SCHOOL_ADMIN']]) {
+   for (const roles of [[], ['HR_MANAGER'], ['PRINCIPAL'], ['SCHOOL_ADMIN'], ['FINANCE'], ['TEACHER']]) {
     const lessons = roleGuideDemos(permissions, false, roles);
     for (const [id, lesson] of Object.entries(lessons)) {
       let screen = lesson.screen;
