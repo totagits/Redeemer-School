@@ -25,7 +25,7 @@ export const guideLessons: Record<string, Lesson> = {
   'student-materials': ['Open learning materials', ['Learning materials', 'Look for published material from your class and select the resource you need.']],
   'student-notices': ['Read school notices', ['School notices', 'Open the notices for your account and check the date and instructions.']],
   'student-fees': ['Check fees and balances', ['Fees & balance', 'Check your invoice, currency and balance. Use the payment options currently approved by the school.']],
-  'student-assignments': ['Submit or revise an assignment', ['Your answer', 'Open the assignment and enter your response. If needed, attach one supported file and check the size limit shown on screen.'], ['Submit assignment', 'Submit your work and look for the Submitted status.'], ['Resubmit assignment', 'If the teacher returns your work, read the feedback. Revise the answer and resubmit while the assignment is open.']],
+  'student-assignments': ['Submit and revise a written assignment'],
   'student-id': ['Check your Digital ID', ['My Digital ID', 'Check whether the school has issued your ID. Use it only for its stated school purpose.']],
   'student-messages': ['Message an assigned teacher', ['Messages', 'Choose your assigned teacher or an existing conversation. Check who will receive your message before sending.']],
   'student-alerts': ['Review your alerts', ['Alerts', 'Open your account alerts and read any instructions from the school.']],

@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from 'react';
 import { ArrowLeft, ArrowRight, BookOpen, MousePointer2, Square, Volume2 } from 'lucide-react';
 import { guideLessons } from './guideLessons';
+import { AssignmentGuideDemo, assignmentDemoSteps } from './AssignmentGuideDemo';
 import './userGuide.css';
 
 type Workspace = { id: string; label: string };
@@ -20,7 +21,7 @@ export function UserGuide({ workspaces, permissions, onOpen }: {
   const topics = workspaces.filter(workspace => guideLessons[workspace.id]);
   const topic = topics.find(workspace => workspace.id === selected) ?? topics[0];
   const [title, ...allSteps] = guideLessons[topic.id];
-  const steps = topic.id === 'teaching' ? allSteps.filter(([control]) => {
+  const steps = topic.id === 'student-assignments' ? assignmentDemoSteps : topic.id === 'teaching' ? allSteps.filter(([control]) => {
     if (control === 'Teacher class roll call') return permissions.includes('attendance.write');
     if (control === 'Approve marks awaiting review') return permissions.includes('grades.moderate');
     if (control === 'Publish approved marks') return permissions.includes('grades.publish');
@@ -54,8 +55,6 @@ export function UserGuide({ workspaces, permissions, onOpen }: {
   function playVoice(index: number) {
     stopVoice();
     setAudioError(false);
-    setStep(index);
-    setTake(value => value + 1);
     const utterance = new SpeechSynthesisUtterance(steps[index]?.[1] ?? script);
     utterance.lang = 'en';
     utterance.rate = 0.95;
@@ -68,8 +67,16 @@ export function UserGuide({ workspaces, permissions, onOpen }: {
     };
     utterance.onend = () => {
       if (narration.current !== utterance) return;
-      if (index + 1 < stepCount) playVoice(index + 1);
+      if (index + 1 < stepCount) {
+        narration.current = null;
+        playVoice(index + 1);
+      }
       else finish(false);
+    };
+    utterance.onstart = () => {
+      if (narration.current !== utterance) return;
+      setStep(index);
+      setTake(value => value + 1);
     };
     utterance.onerror = () => finish(true);
     setSpeaking(true);
@@ -101,7 +108,7 @@ export function UserGuide({ workspaces, permissions, onOpen }: {
             <span className="text-sm font-bold text-slate-900">{topic.label}</span>
             <span className="rounded-full bg-blue-100 px-2 py-1 text-xs font-bold text-blue-900">Practice screen</span>
           </div>
-          <div className="p-4 sm:p-6">
+          {topic.id === 'student-assignments' ? <AssignmentGuideDemo key={`${step}-${take}`} step={step} /> : <div className="p-4 sm:p-6">
             <p className="mb-3 text-xs font-bold uppercase tracking-wide text-slate-600">Click demonstration</p>
             <div className="grid gap-2">
               {(steps.length ? steps.map(([label]) => label) : [target]).map((label, index) =>
@@ -111,7 +118,7 @@ export function UserGuide({ workspaces, permissions, onOpen }: {
                   {step === index && <span key={`${topic.id}-${step}-${take}`} className="guide-cursor absolute right-4 top-3" aria-hidden="true"><MousePointer2 className="relative h-5 w-5 fill-blue-700 text-blue-950"/></span>}
                 </div>)}
             </div>
-          </div>
+          </div>}
         </div>
         <p aria-live="polite" className="mt-4 min-h-12 text-sm leading-6 text-slate-700">{script}</p>
         <div className="mt-4 flex flex-wrap gap-2">
