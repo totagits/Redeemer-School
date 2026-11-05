@@ -1,4 +1,5 @@
 import { registerWebsiteRequestStaffRoutes } from './websiteRequests.js';
+import { registerHrRecruitmentRoutes } from './hrRecruitment.js';
 import { registerExamMarkingRoutes } from './admissionExamMarking.js';
 import { createGuardianEmailChallenge, findVerifiedGuardianEmail } from './admissionGuardianEmail.js';
 import { sendExamEmail } from './admissionExamEmail.js';
@@ -215,10 +216,28 @@ async function createAndSendInvitation(client, { schoolId, userId, email, fullNa
   await sendInvitation({ email, fullName, role, token });
 }
 
+async function linkOrCreateStaffRecord(client,{schoolId,userId,employeeNumber,fullName,email,jobTitle}) {
+  const existing=await client.query('SELECT id,user_id,employee_number,email,employment_status FROM staff_records WHERE school_id=$1 AND (employee_number=$2 OR lower(email)=$3) FOR UPDATE',[schoolId,employeeNumber,email]);
+  if(existing.rowCount){
+    const staff=existing.rows[0];
+    if(existing.rowCount!==1||staff.user_id||staff.employee_number!==employeeNumber||String(staff.email).toLowerCase()!==email||staff.employment_status!=='ACTIVE'){
+      throw Object.assign(new Error('Review the existing employee record before linking an account.'),{code:'23505'});
+    }
+    const linked=await client.query('UPDATE staff_records SET user_id=$3,updated_at=now() WHERE school_id=$1 AND id=$2 AND user_id IS NULL RETURNING id',[schoolId,staff.id,userId]);
+    if(!linked.rowCount)throw Object.assign(new Error('Employee account link changed.'),{code:'23505'});
+    return linked.rows[0];
+  }
+  const names=fullName.split(/\s+/);
+  const created=await client.query(`INSERT INTO staff_records(school_id,user_id,employee_number,first_name,last_name,email,job_title)
+    VALUES($1,$2,$3,$4,$5,$6,$7) RETURNING id`,[schoolId,userId,employeeNumber,names[0],names.slice(1).join(' ')||names[0],email,jobTitle]);
+  return created.rows[0];
+}
+
 export function createOperationsRouter({ authenticate, sendExaminationEmail=sendExamEmail, sendInvitation = sendAccountInvitation, pool = null, momoClient = createMomoClient() }) {
   const router = express.Router();
   router.use(authenticate);
   router.use((_req, res, next) => { res.setHeader('Cache-Control', 'no-store'); next(); });
+  registerHrRecruitmentRoutes(router,{csrf,close,done,fail,audit});
 
   async function pushToUser(schoolId, userId, payload) {
     if (!pool || !process.env.VAPID_PUBLIC_KEY || !process.env.VAPID_PRIVATE_KEY || !process.env.VAPID_SUBJECT) return;
@@ -3131,9 +3150,7 @@ export function createOperationsRouter({ authenticate, sendExaminationEmail=send
       const assigned = await req.auth.client.query(`INSERT INTO user_role_assignments (school_id, user_id, role_id, assigned_by)
         SELECT $1, $2, id, $3 FROM school_roles WHERE school_id = $1 AND code = $4 AND active RETURNING id`, [schoolId, userId, req.auth.claims.userId, role]);
       if (!assigned.rowCount) throw new Error('Configured school role could not be assigned.');
-      const nameParts = fullName.split(/\s+/);
-      await req.auth.client.query(`INSERT INTO staff_records (school_id, user_id, employee_number, first_name, last_name, email, job_title)
-        VALUES ($1, $2, $3, $4, $5, $6, $7)`, [schoolId, userId, employeeNumber, nameParts[0], nameParts.slice(1).join(' ') || nameParts[0], email, jobTitle]);
+      await linkOrCreateStaffRecord(req.auth.client,{schoolId,userId,employeeNumber,fullName,email,jobTitle});
       await createAndSendInvitation(req.auth.client, { schoolId, userId, email, fullName, role, createdBy: req.auth.claims.userId }, sendInvitation);
       await audit(req, 'STAFF_ACCOUNT_CREATED', 'STAFF_ACCOUNT', userId, { role, employeeNumber, jobTitle });
       return done(req, res, 201, { account: account.rows[0], notice: `Staff account created and password setup email sent to ${email}. The setup link expires in 48 hours.` });
@@ -3166,11 +3183,9 @@ export function createOperationsRouter({ authenticate, sendExaminationEmail=send
       const teacherId = account.rows[0].id;
       await req.auth.client.query(`INSERT INTO user_role_assignments (school_id, user_id, role_id, assigned_by)
         SELECT $1, $2, id, $3 FROM school_roles WHERE school_id = $1 AND code = 'TEACHER'`, [schoolId, teacherId, req.auth.claims.userId]);
-      const staff = await req.auth.client.query(`INSERT INTO staff_records (school_id, user_id, employee_number, first_name, last_name, email, job_title)
-        VALUES ($1, $2, $3, $4, $5, $6, 'Teacher') RETURNING id`,
-      [schoolId, teacherId, employeeNumber, fullName.split(/\s+/)[0], fullName.split(/\s+/).slice(1).join(' ') || fullName, email]);
+      const staffRecord=await linkOrCreateStaffRecord(req.auth.client,{schoolId,userId:teacherId,employeeNumber,fullName,email,jobTitle:'Teacher'});
       await req.auth.client.query(`INSERT INTO teacher_profiles (school_id, user_id, employee_number, employment_type, active, staff_record_id)
-        VALUES ($1, $2, $3, 'FULL_TIME', true, $4)`, [schoolId, teacherId, employeeNumber, staff.rows[0].id]);
+        VALUES ($1, $2, $3, 'FULL_TIME', true, $4)`, [schoolId, teacherId, employeeNumber, staffRecord.id]);
       await createAndSendInvitation(req.auth.client, { schoolId, userId: teacherId, email, fullName, role: 'TEACHER', createdBy: req.auth.claims.userId }, sendInvitation);
       await audit(req, 'TEACHER_CREATED', 'TEACHER', teacherId, { employeeNumber });
       return done(req, res, 201, { teacher: { ...account.rows[0], employee_number: employeeNumber }, notice: `Teacher account created and password setup email sent to ${email}. The setup link expires in 48 hours.` });

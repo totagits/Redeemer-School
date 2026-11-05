@@ -10,9 +10,10 @@ import './userGuide.css';
 type Workspace = { id: string; label: string };
 const controlClass = 'inline-flex items-center gap-2 rounded-lg border border-slate-300 px-3 py-2 text-sm font-semibold hover:bg-slate-50 disabled:opacity-40';
 
-export function UserGuide({ workspaces, permissions, onOpen }: {
+export function UserGuide({ workspaces, permissions, roles = [], onOpen }: {
   workspaces: Workspace[];
   permissions: string[];
+  roles?: string[];
   onOpen: (id: string) => void;
 }) {
   const [selected, setSelected] = useState('overview');
@@ -21,19 +22,21 @@ export function UserGuide({ workspaces, permissions, onOpen }: {
   const [audioError, setAudioError] = useState(false);
   const [take, setTake] = useState(0);
   const [tour, setTour] = useState(false);
+  const [playbackRun, setPlaybackRun] = useState(0);
   const narration = useRef<SpeechSynthesisUtterance | null>(null);
   const lessonPanel = useRef<HTMLElement>(null);
   const topics = workspaces.filter(workspace => guideLessons[workspace.id]);
   const topic = topics.find(workspace => workspace.id === selected) ?? topics[0];
   const [title] = guideLessons[topic.id];
   const studentLesson = workspaces.some(workspace => workspace.id === 'student-classes') && studentGuideSteps[topic.id];
-  const roleDemo = roleGuideDemos(permissions, workspaces.some(workspace => workspace.id === 'parent-children'))[topic.id];
+  const roleDemo = roleGuideDemos(permissions, workspaces.some(workspace => workspace.id === 'parent-children'),roles)[topic.id];
   const steps: readonly (readonly [string, string])[] = topic.id === 'student-assignments' ? assignmentDemoSteps : studentLesson || [
     [topic.label, `Click ${topic.label} in the sidebar to open the workspace.`],
     ...roleDemo.actions.map(action => [action.target, action.narration] as const),
   ];
   const script = steps[step]?.[1] ?? 'Open the workspace to see the tools available to your account.';
   const stepCount = Math.max(steps.length, 1);
+  const lessonIndex = topics.findIndex(item => item.id === topic.id);
   const voiceAvailable = typeof window !== 'undefined' && 'speechSynthesis' in window && 'SpeechSynthesisUtterance' in window;
 
   function stopVoice() {
@@ -56,6 +59,16 @@ export function UserGuide({ workspaces, permissions, onOpen }: {
     stopVoice();
     setAudioError(false);
     setStep(index);
+  }
+
+  function startLesson(id: string) {
+    stopVoice();
+    setAudioError(false);
+    setStep(0);
+    setSelected(id);
+    setTour(voiceAvailable);
+    setPlaybackRun(run => run + 1);
+    lessonPanel.current?.scrollIntoView({ block: 'start', behavior: 'instant' });
   }
 
   function playVoice(index: number) {
@@ -105,7 +118,7 @@ export function UserGuide({ workspaces, permissions, onOpen }: {
       lessonPanel.current?.scrollIntoView({ block: 'start', behavior: 'instant' });
       playVoice(0);
     }
-  }, [tour, selected]);
+  }, [tour, selected, playbackRun]);
 
   return <section className="space-y-5" aria-label="User guide">
     <div className="rounded-2xl bg-slate-950 p-6 text-white">
@@ -113,11 +126,8 @@ export function UserGuide({ workspaces, permissions, onOpen }: {
       <h2 className="mt-2 text-2xl font-extrabold">Learn your workspace</h2>
       <p className="mt-2 max-w-2xl text-sm leading-6 text-slate-200">Choose a lesson from your menu and follow the highlighted clicks. These practice screens use examples and never save school records.</p>
       {voiceAvailable && <button type="button" className="mt-4 inline-flex items-center gap-2 rounded-lg bg-white px-4 py-3 text-sm font-bold text-blue-950 hover:bg-blue-50" onClick={() => {
-        stopVoice();
-        if (tour) { setTour(false); return; }
-        setSelected(topics[0].id);
-        setStep(0);
-        setTour(true);
+        if (tour) { stopVoice(); setTour(false); return; }
+        startLesson(topics[0].id);
       }}>{tour ? <><Square className="h-4 w-4" aria-hidden="true"/> Stop guided tour</> : <><Volume2 className="h-4 w-4" aria-hidden="true"/> Start guided tour</>}</button>}
       <p className="mt-2 text-sm text-blue-200">{tour ? `Lesson ${topics.findIndex(item => item.id === topic.id) + 1} of ${topics.length} · ${topic.label} · Next lessons open automatically` : 'The guided tour opens and narrates every lesson in sequence. You can also choose a lesson below.'}</p>
     </div>
@@ -127,7 +137,7 @@ export function UserGuide({ workspaces, permissions, onOpen }: {
         <div className="grid gap-1 sm:grid-cols-2 xl:grid-cols-1">
           {topics.map(item => <button type="button" key={item.id} aria-current={item.id === topic.id ? 'true' : undefined}
             className={`rounded-lg px-3 py-2 text-left text-sm font-semibold ${item.id === topic.id ? 'bg-blue-100 text-blue-900' : 'text-slate-700 hover:bg-slate-100'}`}
-            onClick={() => { showStep(0); setSelected(item.id); }}>{item.label}</button>)}
+            onClick={() => startLesson(item.id)}>{item.label}</button>)}
         </div>
       </nav>
       <article ref={lessonPanel} className="min-w-0 scroll-mt-4 rounded-2xl border border-slate-200 bg-white p-4 sm:p-6">
@@ -144,14 +154,18 @@ export function UserGuide({ workspaces, permissions, onOpen }: {
         </div>
         <p aria-live="polite" className="mt-4 min-h-12 text-sm leading-6 text-slate-700">{script}</p>
         <div className="mt-4 flex flex-wrap gap-2">
-          <button type="button" className={controlClass} disabled={step === 0} onClick={() => showStep(step - 1)}><ArrowLeft className="h-4 w-4" aria-hidden="true"/> Previous</button>
-          <button type="button" className={controlClass} disabled={step + 1 >= stepCount} onClick={() => showStep(step + 1)}>Next <ArrowRight className="h-4 w-4" aria-hidden="true"/></button>
+          <button type="button" className={controlClass} disabled={lessonIndex === 0} onClick={() => startLesson(topics[lessonIndex - 1].id)}><ArrowLeft className="h-4 w-4" aria-hidden="true"/> Previous lesson</button>
+          <button type="button" className={controlClass} disabled={lessonIndex + 1 >= topics.length} onClick={() => startLesson(topics[lessonIndex + 1].id)}>Next lesson <ArrowRight className="h-4 w-4" aria-hidden="true"/></button>
           {voiceAvailable && <button type="button" className={controlClass} onClick={() => {
             if (speaking) { stopVoice(); setTour(false); }
-            else setTour(true);
+            else startLesson(topic.id);
           }}>
             {speaking ? <><Square className="h-4 w-4" aria-hidden="true"/> Stop guided tour</> : <><Volume2 className="h-4 w-4" aria-hidden="true"/> Play guided tour from here</>}
           </button>}
+        </div>
+        <div className="mt-3 flex flex-wrap gap-2" aria-label="Demonstration step controls">
+          <button type="button" className={controlClass} disabled={step === 0} onClick={() => showStep(step - 1)}>Previous step</button>
+          <button type="button" className={controlClass} disabled={step + 1 >= stepCount} onClick={() => showStep(step + 1)}>Next step</button>
         </div>
         {(!voiceAvailable || audioError) && <p role="status" className="mt-2 text-sm text-slate-600">Narration is unavailable on this device. The full step is written above.</p>}
         <button type="button" className="mt-5 text-sm font-bold text-blue-800 underline" onClick={() => onOpen(topic.id)}>Open {topic.label}</button>

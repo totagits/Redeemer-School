@@ -27,7 +27,7 @@ const learner = read('Selected learner', 'Example Learner · PRACTICE-001 · Gra
 const exampleInvoice = table(['Invoice', 'Currency', 'Total', 'Paid', 'Balance'], ['PRACTICE-INV-001', 'USD', '100.00', '75.00', '25.00']);
 const familySchool = [select('Select learner', 'Example Learner · PRACTICE-001', 'Example Sibling · PRACTICE-002')];
 
-export function roleGuideDemos(permissions: string[], parent: boolean): Record<string, WorkspaceDemo> {
+export function roleGuideDemos(permissions: string[], parent: boolean, roles: string[] = []): Record<string, WorkspaceDemo> {
   const can = (permission: string) => permissions.includes(permission);
   const demos: Record<string, WorkspaceDemo> = {
     overview: {
@@ -131,6 +131,13 @@ export function roleGuideDemos(permissions: string[], parent: boolean): Record<s
       actions: [
         { target: 'Staff record', narration: 'Verify the employee name and staff ID before working with personnel records.' },
         { target: 'Leave request', narration: 'Check the requested dates and leave status. Attendance, leave and payroll actions depend on your assigned responsibilities.' },
+      ],
+    },
+    recruitment: {
+      screen: { title: 'Recruitment & onboarding', controls: [read('Hiring responsibilities', 'HR manages vacancies, applications, interviews and onboarding. A Principal or School Administrator authorizes hiring.'),read('Employee account', 'An administrator can link the onboarded employee through People & accounts.')] },
+      actions: [
+        { target: 'Hiring responsibilities', narration: 'Follow the school hiring responsibilities. HR records each stage and school leadership authorizes the decision.' },
+        { target: 'Employee account', narration: 'After onboarding, an authorized administrator uses People and accounts to link an individual login. Recruitment retains the employee record and history.' },
       ],
     },
     inventory: {
@@ -248,6 +255,36 @@ export function roleGuideDemos(permissions: string[], parent: boolean): Record<s
     },
   };
 
+  if(roles.some(role=>['HR_MANAGER','SCHOOL_ADMIN'].includes(role))&&can('staff.write')){
+    demos.recruitment={screen:{title:'Create vacancy',controls:[text('Vacancy code'),text('Job title'),read('Vacancy details','Example school department · Approved requirements · One position · Future closing date'),button('Save vacancy draft')]},actions:[
+      {target:'Vacancy code',narration:'Enter a unique vacancy code for the hiring request.',value:'PRACTICE-HIRE-001'},
+      {target:'Job title',narration:'Enter the job title and complete the department, description, requirements, approved number of positions and closing date.',value:'Example Teacher'},
+      {target:'Save vacancy draft',narration:'Save the vacancy draft for another authorized school leader to approve.',screen:{title:'Vacancy approval handoff',controls:[read('Leadership approval','Example vacancy approved by another authorized Principal'),button('Open vacancy')]}},
+      {target:'Leadership approval',narration:'School leadership must approve the vacancy before HR opens intake. This example continues after that separate approval.'},
+      {target:'Open vacancy',narration:'Open the approved vacancy. Publish its approved application instructions through the website editor.',screen:{title:'Record application',controls:[text('Applicant name'),text('Applicant email'),read('Qualifications','Example teaching qualifications reviewed from the application'),button('Save application')]}},
+      {target:'Applicant name',narration:'Record the applicant name from their application.',value:'Example Applicant'},
+      {target:'Applicant email',narration:'Check and enter the applicant contact email.',value:'applicant@example.invalid'},
+      {target:'Save application',narration:'Save the application against this vacancy, then review it for shortlisting.',screen:{title:'Applicant pipeline',controls:[read('Candidate','Example Applicant · APPLIED'),button('Shortlist for interview')]}},
+      {target:'Shortlist for interview',narration:'Record the shortlisting action with a reason. HR can now schedule an interview.',screen:{title:'Schedule interview',controls:[read('Interview appointment','Example panel · School office · Scheduled future appointment'),button('Schedule interview')]}},
+      {target:'Schedule interview',narration:'Save the future date, time, interview panel and venue. Complete feedback after the interview takes place.',screen:{title:'Interview feedback',controls:[text('Interview feedback'),button('Complete interview')]}},
+      {target:'Interview feedback',narration:'After the interview, record the panel feedback and evidence.',value:'Practice interview completed and qualifications reviewed.'},
+      {target:'Complete interview',narration:'Save the completed interview feedback. A recommendation is available after this stage.',screen:{title:'Hiring recommendation',controls:[button('Recommend hiring')]}},
+      {target:'Recommend hiring',narration:'Submit the hiring recommendation with its evidence. A separate authorized leader must decide.',screen:{title:'Hiring authorization handoff',controls:[read('Hiring approval','Example recommendation authorized by a separate Principal'),button('Record offer issued')]}},
+      {target:'Hiring approval',narration:'Continue only after a separate Principal or School Administrator authorizes the hire.'},
+      {target:'Record offer issued',narration:'Record the approved offer reference and retain the evidence of issuance.',screen:{title:'Candidate response',controls:[read('Offer reference','PRACTICE-OFFER-001'),button('Record candidate acceptance')]}},
+      {target:'Record candidate acceptance',narration:'Record the candidate acceptance before starting onboarding.',screen:{title:'Complete onboarding',controls:[text('Employee number'),read('Onboarding checks','Identity, references, signed contract, safeguarding and school orientation completed'),button('Complete onboarding')]}},
+      {target:'Employee number',narration:'Enter the employee number and employment start date.',value:'PRACTICE-EMP-001'},
+      {target:'Onboarding checks',narration:'Verify each required onboarding check and record the completion evidence.'},
+      {target:'Complete onboarding',narration:'Complete onboarding to create one employee record. The school administrator can then separately link an authorized login.',screen:{title:'Employee onboarded',notice:'Practice employee record created.',controls:[read('Employee','Example Applicant · PRACTICE-EMP-001 · ACTIVE')]}},
+    ]};
+  }else if(roles.some(role=>['PRINCIPAL','SCHOOL_ADMIN'].includes(role))){
+    demos.recruitment={screen:{title:'Vacancy review',controls:[read('Draft vacancy','Example Teacher · One position · Created by HR'),button('Approve vacancy')]},actions:[
+      {target:'Draft vacancy',narration:'Review the HR vacancy request, responsibilities, requirements, number of positions and closing date. Another authorized leader must approve a vacancy you created yourself.'},
+      {target:'Approve vacancy',narration:'Approve the reviewed vacancy so HR can open intake.',screen:{title:'Hiring recommendation review',controls:[read('Recommendation evidence','Example Applicant · Completed interview feedback · HR recommendation'),button('Authorize hire')]}},
+      {target:'Recommendation evidence',narration:'For a hiring decision, review the candidate application, completed interview and HR recommendation. You must be a different user from the recommender.'},
+      {target:'Authorize hire',narration:'Record the authorized decision and its evidence. HR can issue the approved offer and complete onboarding after candidate acceptance.',screen:{title:'Hiring decision recorded',notice:'Practice hire authorized.',controls:[read('Next responsibility','HR records offer acceptance, verifies onboarding checks and creates the employee record.')]}},
+    ]};
+  }
   if (can('attendance.write')) {
     const gradebook = demos.teaching.screen;
     demos.teaching = {

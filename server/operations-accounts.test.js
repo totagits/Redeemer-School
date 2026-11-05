@@ -24,6 +24,7 @@ class FakeClient {
       ? { rows: [{ id: newUserId, email: params[1], full_name: params[3], role: params[4] }], rowCount: 1 }
       : { rows: [], rowCount: 0 };
     if (normalized.startsWith('INSERT INTO user_role_assignments')) return { rows: [{ id: 'role-assignment-id' }], rowCount: 1 };
+    if (normalized.startsWith('SELECT id,user_id,employee_number,email,employment_status FROM staff_records')) return { rows: [], rowCount: 0 };
     if (normalized.startsWith('INSERT INTO staff_records')) return { rows: [{ id: 'staff-record-id' }], rowCount: 1 };
     if (normalized.startsWith('INSERT INTO teacher_profiles')) return { rows: [{ id: 'teacher-profile-id' }], rowCount: 1 };
     if (normalized.startsWith('SELECT id FROM students WHERE school_id = $1 AND id = $2')) return { rows: [{ id: params[1] }], rowCount: 1 };

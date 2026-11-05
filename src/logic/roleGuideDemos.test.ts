@@ -18,7 +18,8 @@ const permissionSets = [
 
 test('every narrated staff and guardian action has a visible control after preceding actions', () => {
   for (const permissions of permissionSets) {
-    const lessons = roleGuideDemos(permissions, false);
+   for (const roles of [[], ['HR_MANAGER'], ['PRINCIPAL'], ['SCHOOL_ADMIN']]) {
+    const lessons = roleGuideDemos(permissions, false, roles);
     for (const [id, lesson] of Object.entries(lessons)) {
       let screen = lesson.screen;
       for (const action of lesson.actions) {
@@ -28,6 +29,7 @@ test('every narrated staff and guardian action has a visible control after prece
         if (action.screen) screen = action.screen;
       }
     }
+   }
   }
 });
 
