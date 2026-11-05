@@ -1,8 +1,10 @@
 import { useEffect, useRef, useState } from 'react';
-import { ArrowLeft, ArrowRight, BookOpen, MousePointer2, Square, Volume2 } from 'lucide-react';
+import { ArrowLeft, ArrowRight, BookOpen, Square, Volume2 } from 'lucide-react';
 import { guideLessons } from './guideLessons';
 import { AssignmentGuideDemo, assignmentDemoSteps } from './AssignmentGuideDemo';
 import { StudentGuideDemo, studentGuideSteps } from './StudentGuideDemo';
+import { RoleGuideDemo } from './RoleGuideDemo';
+import { roleGuideDemos } from './roleGuideDemos';
 import './userGuide.css';
 
 type Workspace = { id: string; label: string };
@@ -20,17 +22,17 @@ export function UserGuide({ workspaces, permissions, onOpen }: {
   const [take, setTake] = useState(0);
   const [tour, setTour] = useState(false);
   const narration = useRef<SpeechSynthesisUtterance | null>(null);
+  const lessonPanel = useRef<HTMLElement>(null);
   const topics = workspaces.filter(workspace => guideLessons[workspace.id]);
   const topic = topics.find(workspace => workspace.id === selected) ?? topics[0];
-  const [title, ...allSteps] = guideLessons[topic.id];
+  const [title] = guideLessons[topic.id];
   const studentLesson = workspaces.some(workspace => workspace.id === 'student-classes') && studentGuideSteps[topic.id];
-  const steps = topic.id === 'student-assignments' ? assignmentDemoSteps : studentLesson || (topic.id === 'teaching' ? allSteps.filter(([control]) => {
-    if (control === 'Teacher class roll call') return permissions.includes('attendance.write');
-    if (control === 'Approve marks awaiting review') return permissions.includes('grades.moderate');
-    if (control === 'Publish approved marks') return permissions.includes('grades.publish');
-    return permissions.includes('grades.enter');
-  }) : allSteps);
-  const [target, script] = steps[step] ?? ['Teaching & learning', 'Open Teaching and learning to see the class tools available to your account.'];
+  const roleDemo = roleGuideDemos(permissions, workspaces.some(workspace => workspace.id === 'parent-children'))[topic.id];
+  const steps: readonly (readonly [string, string])[] = topic.id === 'student-assignments' ? assignmentDemoSteps : studentLesson || [
+    [topic.label, `Click ${topic.label} in the sidebar to open the workspace.`],
+    ...roleDemo.actions.map(action => [action.target, action.narration] as const),
+  ];
+  const script = steps[step]?.[1] ?? 'Open the workspace to see the tools available to your account.';
   const stepCount = Math.max(steps.length, 1);
   const voiceAvailable = typeof window !== 'undefined' && 'speechSynthesis' in window && 'SpeechSynthesisUtterance' in window;
 
@@ -99,7 +101,10 @@ export function UserGuide({ workspaces, permissions, onOpen }: {
   }
 
   useEffect(() => {
-    if (tour) playVoice(0);
+    if (tour) {
+      lessonPanel.current?.scrollIntoView({ block: 'start', behavior: 'instant' });
+      playVoice(0);
+    }
   }, [tour, selected]);
 
   return <section className="space-y-5" aria-label="User guide">
@@ -125,7 +130,7 @@ export function UserGuide({ workspaces, permissions, onOpen }: {
             onClick={() => { showStep(0); setSelected(item.id); }}>{item.label}</button>)}
         </div>
       </nav>
-      <article className="min-w-0 rounded-2xl border border-slate-200 bg-white p-4 sm:p-6">
+      <article ref={lessonPanel} className="min-w-0 scroll-mt-4 rounded-2xl border border-slate-200 bg-white p-4 sm:p-6">
         <div className="flex flex-wrap items-center justify-between gap-2">
           <h3 className="text-lg font-extrabold text-slate-950">{title}</h3>
           <p className="text-sm font-semibold text-slate-600">Step {step + 1} of {stepCount}</p>
@@ -135,24 +140,14 @@ export function UserGuide({ workspaces, permissions, onOpen }: {
             <span className="text-sm font-bold text-slate-900">{topic.label}</span>
             <span className="rounded-full bg-blue-100 px-2 py-1 text-xs font-bold text-blue-900">Practice screen</span>
           </div>
-          {topic.id === 'student-assignments' ? <AssignmentGuideDemo step={step} take={take} /> : studentLesson ? <StudentGuideDemo key={topic.id} topic={topic.id} label={topic.label} step={step} take={take} /> : <div className="p-4 sm:p-6">
-            <p className="mb-3 text-xs font-bold uppercase tracking-wide text-slate-600">Click demonstration</p>
-            <div className="grid gap-2">
-              {(steps.length ? steps.map(([label]) => label) : [target]).map((label, index) =>
-                <div key={label} className={`relative flex min-h-11 items-center gap-3 rounded-lg border px-3 py-2 pr-12 text-sm font-semibold ${step === index ? 'border-blue-500 bg-blue-100 text-blue-950' : 'border-slate-200 bg-white text-slate-600'}`}>
-                  <span className="grid h-6 w-6 shrink-0 place-items-center rounded-full bg-white text-xs">{index + 1}</span>
-                  {label}
-                  {step === index && <span key={`${topic.id}-${step}-${take}`} className="guide-cursor absolute right-4 top-3" aria-hidden="true"><MousePointer2 className="relative h-5 w-5 fill-blue-700 text-blue-950"/></span>}
-                </div>)}
-            </div>
-          </div>}
+          {topic.id === 'student-assignments' ? <AssignmentGuideDemo step={step} take={take} /> : studentLesson ? <StudentGuideDemo key={topic.id} topic={topic.id} label={topic.label} step={step} take={take} /> : <RoleGuideDemo key={topic.id} demo={roleDemo} label={topic.label} step={step} take={take} />}
         </div>
         <p aria-live="polite" className="mt-4 min-h-12 text-sm leading-6 text-slate-700">{script}</p>
         <div className="mt-4 flex flex-wrap gap-2">
           <button type="button" className={controlClass} disabled={step === 0} onClick={() => showStep(step - 1)}><ArrowLeft className="h-4 w-4" aria-hidden="true"/> Previous</button>
           <button type="button" className={controlClass} disabled={step + 1 >= stepCount} onClick={() => showStep(step + 1)}>Next <ArrowRight className="h-4 w-4" aria-hidden="true"/></button>
           {voiceAvailable && <button type="button" className={controlClass} onClick={() => { setTour(false); if (speaking) stopVoice(); else playVoice(0); }}>
-            {speaking ? <><Square className="h-4 w-4" aria-hidden="true"/> Stop narration</> : <><Volume2 className="h-4 w-4" aria-hidden="true"/> Play narrated lesson</>}
+            {speaking ? <><Square className="h-4 w-4" aria-hidden="true"/> {tour ? 'Stop guided tour' : 'Stop narration'}</> : <><Volume2 className="h-4 w-4" aria-hidden="true"/> Play narrated lesson</>}
           </button>}
         </div>
         {(!voiceAvailable || audioError) && <p role="status" className="mt-2 text-sm text-slate-600">Narration is unavailable on this device. The full step is written above.</p>}
