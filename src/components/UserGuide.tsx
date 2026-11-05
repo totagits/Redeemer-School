@@ -108,7 +108,7 @@ export function UserGuide({ workspaces, permissions, onOpen }: {
             <span className="text-sm font-bold text-slate-900">{topic.label}</span>
             <span className="rounded-full bg-blue-100 px-2 py-1 text-xs font-bold text-blue-900">Practice screen</span>
           </div>
-          {topic.id === 'student-assignments' ? <AssignmentGuideDemo key={`${step}-${take}`} step={step} /> : <div className="p-4 sm:p-6">
+          {topic.id === 'student-assignments' ? <AssignmentGuideDemo step={step} take={take} /> : <div className="p-4 sm:p-6">
             <p className="mb-3 text-xs font-bold uppercase tracking-wide text-slate-600">Click demonstration</p>
             <div className="grid gap-2">
               {(steps.length ? steps.map(([label]) => label) : [target]).map((label, index) =>

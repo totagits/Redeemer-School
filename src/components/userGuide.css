@@ -25,3 +25,15 @@
   25% { opacity: .85; }
   100% { transform: scale(1.5); opacity: 0; }
 }
+
+@media (prefers-reduced-motion: no-preference) {
+  .guide-demo-click {
+    animation: guide-click-ring 350ms ease-out both;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .guide-demo-click {
+    display: none;
+  }
+}
