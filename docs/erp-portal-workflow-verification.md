@@ -41,8 +41,8 @@ The backend corrections in `d33bad0f7f5ddf5cfd6e25241826af6151011c2c` passed CI 
 ## Explicitly still open
 
 - Content approval and editable website pages: completed for the reviewed wording and existing facts/media; unspecified official details remain for administration to supply. See the 1 November entry and `website-administration.md`.
-- Full write/review browser rehearsals in an isolated fictional staging cohort and school acceptance. Existing learner records and published marks were inspected without modification. Read-only live guardian/student role checks are recorded below.
-- Full admissions-to-enrollment, year-end reporting/correction/promotion, account invitation/recovery, encrypted document/photo/Digital ID, HR/leave/payroll, expenses, detailed reporting/export and inventory transfer rehearsals. Existing unit/mocked tests and workspace loads are not relabeled as end-to-end acceptance.
+- Remaining live teaching and portal checks are listed in the 4 November entry. Earlier read-only browser observations remain recorded below.
+- Year-end reporting/correction/promotion, account recovery, encrypted document/photo/Digital ID, HR/leave/payroll, expenses, detailed reporting/export and inventory transfer rehearsals. The admissions-to-enrollment and student/guardian activation evidence is in the 1 November entry.
 - Provider acceptance: Finance remains Partial for MTN MoMo; Communications remains Partial for MTN SMS. No live provider send/charge was attempted.
 - Historical migration-ledger reconciliation, backup restore rehearsal, recovery/monitoring, cross-campus scope and whole-school rehearsal, followed by explicit owner release approval.
 
@@ -89,3 +89,15 @@ Production remains paused. PR 57 stays draft and unmerged. Finance/Communication
 The complete public application -> Registrar review -> Finance-controlled exam fee -> leadership-approved questions -> verified guardian/candidate submission -> separate mark approval/private result -> explicit admission decision -> one-time enrollment -> student/guardian invitation activation passed with real authentication and SQL in a disposable database. This found and fixed Principal question-approval permission and duplicate enrolled-guardian creation during portal invitations. CI 41301803362 passed all 362 tests with no failures/skips; staging f611605 deployed successfully in ip9pj1qr3epjvkzhxvgrzws3 without a migration.
 
 Live fictional application RIA-2026-983966D6 reached Registrar, was reviewed, accepted by a separate administrator and enrolled by Registrar as TEST-INTAKE-20261101. Student records and retained history were verified. Owner-approved student/guardian invitations returned success. The owner then activated both; live student and guardian sign-ins, correct single-learner linkage, guardian result/finance denial and student staff-route redirection passed. See the activation entry in admissions-enrollment-verification.md. See admissions-enrollment-verification.md for exact evidence and limits. Current menu/workspace status is consolidated in website-erp-current-status.md; built public pages and completed ERP workflow acceptance remain distinct.
+
+## 4 November 2026 — written assignment and publication
+
+Chrome staging verified the isolated fictional learner's transfer history, initial submission, teacher return and feedback, learner revision, teacher score of 8/10, submission for review, and separate Principal approval and publication. The rehearsal exposed a missing learner resubmission form, which was fixed, deployed and retested. See [the teaching rehearsal](teaching-staging-rehearsal.md) for the revision and evidence.
+
+The authenticated SQL/HTTP suite verifies student visibility after publication and guardian denial when results permission is disabled. The browser display checks for the already published staging grade remain open and can be combined with the next student and guardian sessions. Attachments, deadlines, attendance and year-end workflows remain separate.
+
+## 5 November 2026 — guide lesson navigation and HR recruitment
+
+The owner approved HR handling recruitment and interviews, leadership authorizing hiring, and HR completing onboarding. The connected recruitment workspace now implements those stages with independent approval, history, revision checks, position limits and one-time employee creation. Revision 8d18608 passed all 374 GitHub tests without failures or skips. See [the HR report](hr-recruitment-verification.md) for the actual scope and remaining staging migration and browser rehearsal. The application deployment was started after a successful fresh staging backup. Approval-review usage limits prevented its completion check; migration 114 remains unapplied.
+
+Guide controls now distinguish Previous lesson and Next lesson from Previous step and Next step. Direct lesson selection starts narration. The navigation correction awaits its final live browser check with the same deployment.

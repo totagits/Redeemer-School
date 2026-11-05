@@ -1,6 +1,8 @@
 # Whole-site completion and release checklist
 
-Updated: 2026-11-01. Scope: the public website, its main menus and submenus, staff ERP, student/guardian portals, and the workflows connecting them.
+Updated: 2026-11-04. Scope: the public website, its main menus and submenus, staff ERP, student/guardian portals, and the workflows connecting them.
+
+5 November update: [HR recruitment and guide navigation](hr-recruitment-verification.md) records implementation and passing isolated checks. The reviewed HR staging migration and live rehearsal remain pending after a fresh backup and a deployment start. Recruitment must not be marked staging-accepted until those checks are complete.
 
 ## Release decision
 
@@ -35,7 +37,7 @@ Seven menu families, 37 submenu items and 36 unique destinations are present in 
 | School Info | Mission & Values | `/school/mission-values` | Built; verify route, content and workflow |
 | School Info | Faculty & Staff | `/school/faculty-staff` | Content pending; verify route and obtain approved school content |
 | School Info | School Leadership | `/school/leadership` | Content pending; verify route and obtain approved school content |
-| School Info | Principal's Message | `/school/principal-message` | Content pending; verify route and obtain approved school content |
+| School Info | Principal's Message | `/school/principal-message` | Approved message verified on staging; editable by authorized staff |
 | School Info | Records Requests | `/school/records-requests` | Built; verify route, content and workflow |
 | School Info | School & Office Hours | `/school/school-hours` | Content pending; verify route and obtain approved school content |
 | School Info | School Calendar | `/school/school-calendar` | Content pending; verify route and obtain approved school content |
@@ -56,7 +58,7 @@ Seven menu families, 37 submenu items and 36 unique destinations are present in 
 | Student Life | School Uniform | `/school/school-uniform` | Built; verify route, content and workflow |
 | Student Life | Student Achievements | `/school/achievements` | Built; verify route, content and workflow |
 | Parents | Parent Resources | `/school/parent-resources` | Built; verify route, content and workflow |
-| Parents | Parent Handbook | `/school/parent-handbook` | Content pending; verify route and obtain approved school content |
+| Parents | Parent Handbook | `/school/parent-handbook` | Approved outline verified on staging; detailed school policies pending |
 | Parents | Parent FAQs | `/school/parent-faq` | Built; verify route, content and workflow |
 | Parents | Attendance & Absences | `/school/attendance-absence` | Built; verify route, content and workflow |
 | Parents | Meals & School Services | `/school/school-services` | Content pending; verify route and obtain approved school content |
@@ -79,10 +81,10 @@ Content review includes official staff/leadership names and photos, principal me
 | School setup | Built; verify | School/campus, year/term/class/subject setup; dependent dropdowns; invalid/duplicate handling |
 | Curriculum & timetable | Built; verify | Subjects, periods, rooms, teacher assignments, conflicts, staff/family views |
 | People & accounts | Built; verify | Staff/guardian/student linking, invitations, activation, duplicate checks and scoped access |
-| Teaching & learning | Built; verify | Class roll call, attendance corrections, materials, assignments, submission, marking and released grades |
+| Teaching & learning | Written assignment staging-verified through publication | Check the existing published grade in the learner and restricted guardian views during the next portal sessions. Attachment/deadline cases, materials and roll call have separate checks. See [teaching evidence](teaching-staging-rehearsal.md). |
 | Year-end report cards | Built; verify | Grade completeness, review, publication, correction, promotion/honors school decisions and portal reports |
 | Website requests | Staging verified; owner review | Enquiry, visit preference and records assistance to restricted staff queue; assignment, follow-up, resolution and preserved history verified; no automatic messaging, booking or document release |
-| Admissions | Built; verify | Public application to Registrar, review, documents, school decision and enrollment without duplicate learner creation |
+| Admissions | Staging-verified intake, review, decision, enrollment and portal activation | Preserve completed evidence. Encrypted document and photo workflows are tracked under Student records. See [admissions evidence](admissions-enrollment-verification.md). |
 | Entrance examinations | Staging accepted | Guardian proof, eligibility, sitting, autosave/reload, manual/timeout submission, marking, separate approval, private release, corrections/history; see exam handoff |
 | Student records | Built; verify | Enrollment, guardian relationships, documents/photos, changes/history, Digital ID approval and verification |
 | Finance | **Partial — MTN MoMo** | Recheck existing fee/invoice/payment/receipt/allocation/reversal/statement/reconciliation flows; provider success/failure/timeout/duplicate callbacks must be proven before MTN completion |
