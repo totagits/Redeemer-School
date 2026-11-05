@@ -2,6 +2,7 @@ import { useEffect, useRef, useState } from 'react';
 import { ArrowLeft, ArrowRight, BookOpen, MousePointer2, Square, Volume2 } from 'lucide-react';
 import { guideLessons } from './guideLessons';
 import { AssignmentGuideDemo, assignmentDemoSteps } from './AssignmentGuideDemo';
+import { StudentGuideDemo, studentGuideSteps } from './StudentGuideDemo';
 import './userGuide.css';
 
 type Workspace = { id: string; label: string };
@@ -21,12 +22,13 @@ export function UserGuide({ workspaces, permissions, onOpen }: {
   const topics = workspaces.filter(workspace => guideLessons[workspace.id]);
   const topic = topics.find(workspace => workspace.id === selected) ?? topics[0];
   const [title, ...allSteps] = guideLessons[topic.id];
-  const steps = topic.id === 'student-assignments' ? assignmentDemoSteps : topic.id === 'teaching' ? allSteps.filter(([control]) => {
+  const studentLesson = workspaces.some(workspace => workspace.id === 'student-classes') && studentGuideSteps[topic.id];
+  const steps = topic.id === 'student-assignments' ? assignmentDemoSteps : studentLesson || (topic.id === 'teaching' ? allSteps.filter(([control]) => {
     if (control === 'Teacher class roll call') return permissions.includes('attendance.write');
     if (control === 'Approve marks awaiting review') return permissions.includes('grades.moderate');
     if (control === 'Publish approved marks') return permissions.includes('grades.publish');
     return permissions.includes('grades.enter');
-  }) : allSteps;
+  }) : allSteps);
   const [target, script] = steps[step] ?? ['Teaching & learning', 'Open Teaching and learning to see the class tools available to your account.'];
   const stepCount = Math.max(steps.length, 1);
   const voiceAvailable = typeof window !== 'undefined' && 'speechSynthesis' in window && 'SpeechSynthesisUtterance' in window;
@@ -108,7 +110,7 @@ export function UserGuide({ workspaces, permissions, onOpen }: {
             <span className="text-sm font-bold text-slate-900">{topic.label}</span>
             <span className="rounded-full bg-blue-100 px-2 py-1 text-xs font-bold text-blue-900">Practice screen</span>
           </div>
-          {topic.id === 'student-assignments' ? <AssignmentGuideDemo step={step} take={take} /> : <div className="p-4 sm:p-6">
+          {topic.id === 'student-assignments' ? <AssignmentGuideDemo step={step} take={take} /> : studentLesson ? <StudentGuideDemo key={topic.id} topic={topic.id} label={topic.label} step={step} take={take} /> : <div className="p-4 sm:p-6">
             <p className="mb-3 text-xs font-bold uppercase tracking-wide text-slate-600">Click demonstration</p>
             <div className="grid gap-2">
               {(steps.length ? steps.map(([label]) => label) : [target]).map((label, index) =>
