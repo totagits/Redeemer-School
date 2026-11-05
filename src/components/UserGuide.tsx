@@ -146,8 +146,11 @@ export function UserGuide({ workspaces, permissions, onOpen }: {
         <div className="mt-4 flex flex-wrap gap-2">
           <button type="button" className={controlClass} disabled={step === 0} onClick={() => showStep(step - 1)}><ArrowLeft className="h-4 w-4" aria-hidden="true"/> Previous</button>
           <button type="button" className={controlClass} disabled={step + 1 >= stepCount} onClick={() => showStep(step + 1)}>Next <ArrowRight className="h-4 w-4" aria-hidden="true"/></button>
-          {voiceAvailable && <button type="button" className={controlClass} onClick={() => { setTour(false); if (speaking) stopVoice(); else playVoice(0); }}>
-            {speaking ? <><Square className="h-4 w-4" aria-hidden="true"/> {tour ? 'Stop guided tour' : 'Stop narration'}</> : <><Volume2 className="h-4 w-4" aria-hidden="true"/> Play narrated lesson</>}
+          {voiceAvailable && <button type="button" className={controlClass} onClick={() => {
+            if (speaking) { stopVoice(); setTour(false); }
+            else setTour(true);
+          }}>
+            {speaking ? <><Square className="h-4 w-4" aria-hidden="true"/> Stop guided tour</> : <><Volume2 className="h-4 w-4" aria-hidden="true"/> Play guided tour from here</>}
           </button>}
         </div>
         {(!voiceAvailable || audioError) && <p role="status" className="mt-2 text-sm text-slate-600">Narration is unavailable on this device. The full step is written above.</p>}
