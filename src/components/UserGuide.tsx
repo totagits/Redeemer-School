@@ -18,6 +18,7 @@ export function UserGuide({ workspaces, permissions, onOpen }: {
   const [speaking, setSpeaking] = useState(false);
   const [audioError, setAudioError] = useState(false);
   const [take, setTake] = useState(0);
+  const [tour, setTour] = useState(false);
   const narration = useRef<SpeechSynthesisUtterance | null>(null);
   const topics = workspaces.filter(workspace => guideLessons[workspace.id]);
   const topic = topics.find(workspace => workspace.id === selected) ?? topics[0];
@@ -49,6 +50,7 @@ export function UserGuide({ workspaces, permissions, onOpen }: {
   }, []);
 
   function showStep(index: number) {
+    setTour(false);
     stopVoice();
     setAudioError(false);
     setStep(index);
@@ -66,6 +68,7 @@ export function UserGuide({ workspaces, permissions, onOpen }: {
       narration.current = null;
       setSpeaking(false);
       setAudioError(failed);
+      if (failed) setTour(false);
     };
     utterance.onend = () => {
       if (narration.current !== utterance) return;
@@ -73,7 +76,17 @@ export function UserGuide({ workspaces, permissions, onOpen }: {
         narration.current = null;
         playVoice(index + 1);
       }
-      else finish(false);
+      else if (tour) {
+        const nextTopic = topics[topics.findIndex(item => item.id === topic.id) + 1];
+        narration.current = null;
+        if (nextTopic) {
+          setStep(0);
+          setSelected(nextTopic.id);
+        } else {
+          setSpeaking(false);
+          setTour(false);
+        }
+      } else finish(false);
     };
     utterance.onstart = () => {
       if (narration.current !== utterance) return;
@@ -85,11 +98,23 @@ export function UserGuide({ workspaces, permissions, onOpen }: {
     window.speechSynthesis.speak(utterance);
   }
 
+  useEffect(() => {
+    if (tour) playVoice(0);
+  }, [tour, selected]);
+
   return <section className="space-y-5" aria-label="User guide">
     <div className="rounded-2xl bg-slate-950 p-6 text-white">
       <p className="flex items-center gap-2 text-sm font-semibold text-blue-200"><BookOpen className="h-4 w-4" aria-hidden="true"/> Redeemer learning center</p>
       <h2 className="mt-2 text-2xl font-extrabold">Learn your workspace</h2>
       <p className="mt-2 max-w-2xl text-sm leading-6 text-slate-200">Choose a lesson from your menu and follow the highlighted clicks. These practice screens use examples and never save school records.</p>
+      {voiceAvailable && <button type="button" className="mt-4 inline-flex items-center gap-2 rounded-lg bg-white px-4 py-3 text-sm font-bold text-blue-950 hover:bg-blue-50" onClick={() => {
+        stopVoice();
+        if (tour) { setTour(false); return; }
+        setSelected(topics[0].id);
+        setStep(0);
+        setTour(true);
+      }}>{tour ? <><Square className="h-4 w-4" aria-hidden="true"/> Stop guided tour</> : <><Volume2 className="h-4 w-4" aria-hidden="true"/> Start guided tour</>}</button>}
+      <p className="mt-2 text-sm text-blue-200">{tour ? `Lesson ${topics.findIndex(item => item.id === topic.id) + 1} of ${topics.length} · ${topic.label} · Next lessons open automatically` : 'The guided tour opens and narrates every lesson in sequence. You can also choose a lesson below.'}</p>
     </div>
     <div className="grid gap-5 xl:grid-cols-[16rem_minmax(0,1fr)]">
       <nav aria-label="Guide topics" className="rounded-2xl border border-slate-200 bg-white p-4">
@@ -126,7 +151,7 @@ export function UserGuide({ workspaces, permissions, onOpen }: {
         <div className="mt-4 flex flex-wrap gap-2">
           <button type="button" className={controlClass} disabled={step === 0} onClick={() => showStep(step - 1)}><ArrowLeft className="h-4 w-4" aria-hidden="true"/> Previous</button>
           <button type="button" className={controlClass} disabled={step + 1 >= stepCount} onClick={() => showStep(step + 1)}>Next <ArrowRight className="h-4 w-4" aria-hidden="true"/></button>
-          {voiceAvailable && <button type="button" className={controlClass} onClick={speaking ? stopVoice : () => playVoice(0)}>
+          {voiceAvailable && <button type="button" className={controlClass} onClick={() => { setTour(false); if (speaking) stopVoice(); else playVoice(0); }}>
             {speaking ? <><Square className="h-4 w-4" aria-hidden="true"/> Stop narration</> : <><Volume2 className="h-4 w-4" aria-hidden="true"/> Play narrated lesson</>}
           </button>}
         </div>
