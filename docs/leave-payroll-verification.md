@@ -1,6 +1,6 @@
 # Leave, manual payroll and external service readiness
 
-Updated 5 November 2026. Production remains paused.
+Updated 6 November 2026. Production remains paused.
 
 The owner approved: employees request leave, HR reviews, a separate Principal or School Administrator decides; Finance prepares manual payroll, a separate leader approves, then Finance records payment completed outside the ERP.
 
@@ -22,6 +22,8 @@ The disposable PostgreSQL-compatible database tests exercise actual authenticati
 
 GitHub run 42094264965 passed all 380 tests with no failures or skips for implementation 63732a2975ece2c273ea749c0d389a0d6f93af11.
 
+The final interface polish d82f75534bb8e0b0367b5dc7ff677c3701343ee9 also passed all 380 tests without failures or skips in GitHub run 42096322030. Type checking and build passed. It hides action forms when the signed-in user has no available action and consistently displays two-decimal payroll totals. Coolify deployment ivxn3lu3dllsyr4fovw5ofdl was confirmed Finished with this revision on 5 November; it required no additional migration.
+
 ## Staging evidence
 
 The fresh redeemer_school_staging backup succeeded at 19:29:59 UTC on 5 November, 3.01 MB: pg-dump-redeemer_school_staging-1793906997-2tov7qm8qijjeq1shlkbssaz.dmp. Deployment 8rgd9lfvkczcd0kkhlv5shz9 finished successfully with the tested revision. Migration 115_leave_payroll_workflows.sql committed inside a transaction, migration lock and explicit staging-database guard. Its ledger entry and forced row security on leave requests, payroll runs, payroll lines and workflow events were verified.
@@ -33,5 +35,7 @@ Live manual payroll: Finance Agnes Thompson created the October 2026 USD run wit
 Live external readiness: MoMo SANDBOX configuration ready, MTN SMS incomplete/disabled, staging email configuration ready. No live enable flag changed and no provider traffic was sent. Existing MTN adapter acceptance remains separate from the readiness view.
 
 Live guide: selecting Payroll started the 14-step narrated visual demonstration automatically and advanced to its approval/payment screen without manual lesson or narration clicks. Evidence screenshots are in outputs/leave-payroll-staging-backup.jpg, outputs/leave-payroll-migration-verified.jpg, outputs/leave-approved-history.jpg, outputs/manual-payroll-paid-history.jpg, outputs/external-service-readiness.jpg and outputs/manual-payroll-automatic-guide.jpg.
+
+The final browser reload to inspect the polished no-action state was blocked by the automatic approval usage limit on 5 November. A 6 November retry was explicitly rejected because the origin approval gate still considered the earlier block unresolved. No alternate browser, remote command or other workaround was used after that rejection. The complete workflow rehearsals above are already verified; only that final visual check of the small interface polish remains pending restored browser authority. No workflow, backup, deployment or migration needs to be repeated for that check.
 
 No production release is authorized. Remaining dependencies are the school-approved automated leave/payroll rules, post-payment correction/statutory remittance scope, and actual MTN provider approvals and witnessed acceptance.
