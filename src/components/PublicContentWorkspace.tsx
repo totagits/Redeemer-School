@@ -1,3 +1,4 @@
+import {WebsitePagesWorkspace} from './WebsitePagesWorkspace.tsx';
 import React, { useCallback, useEffect, useState } from 'react';
 type Post={id:string;kind:'NEWS'|'EVENT';title:string;summary:string;body:string;status:'DRAFT'|'PUBLISHED'|'UNPUBLISHED';event_starts_at:string|null;published_at:string|null;created_at:string;has_featured_image?:boolean;image_caption?:string;image_alt?:string};
 export function PublicContentWorkspace({csrfToken}:{csrfToken:string}){
@@ -118,7 +119,7 @@ export function PublicContentWorkspace({csrfToken}:{csrfToken:string}){
     }catch(e){setError(e instanceof Error?e.message:'Could not update status.');}
     finally{setBusy(false);}
   }
-  return <div className="space-y-5">
+  return <div className="space-y-5"><WebsitePagesWorkspace csrfToken={csrfToken}/>
     <section className="rounded-2xl border border-slate-200 bg-white p-6">
       <p className="text-xs font-bold uppercase tracking-widest text-blue-800">School website</p>
       <h2 className="mt-2 text-xl font-extrabold">Public news & events</h2>

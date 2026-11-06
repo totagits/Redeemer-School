@@ -1,0 +1,39 @@
+@media (prefers-reduced-motion: no-preference) {
+  .guide-cursor {
+    animation: guide-point-and-click 700ms ease-out both;
+  }
+
+  .guide-cursor::before {
+    position: absolute;
+    inset: -5px;
+    border: 2px solid #2563eb;
+    border-radius: 50%;
+    content: '';
+    animation: guide-click-ring 320ms 420ms ease-out both;
+  }
+}
+
+@keyframes guide-point-and-click {
+  0% { transform: translate(18px, 12px); opacity: 0; }
+  55% { transform: translate(0, 0); opacity: 1; }
+  72% { transform: scale(.78); }
+  100% { transform: scale(1); }
+}
+
+@keyframes guide-click-ring {
+  0% { transform: scale(.45); opacity: 0; }
+  25% { opacity: .85; }
+  100% { transform: scale(1.5); opacity: 0; }
+}
+
+@media (prefers-reduced-motion: no-preference) {
+  .guide-demo-click {
+    animation: guide-click-ring 350ms ease-out both;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .guide-demo-click {
+    display: none;
+  }
+}

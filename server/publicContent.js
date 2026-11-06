@@ -12,7 +12,7 @@ function webpDimensions(bytes){
  if(kind==='VP8X'&&bytes.length>=30)return {width:1+bytes.readUIntLE(24,3),height:1+bytes.readUIntLE(27,3)};
  return null;
 }
-function decodeImage(value){
+export function decodeImage(value){
  if(typeof value!=='string'||!/^data:image\/webp;base64,[A-Za-z0-9+/]+={0,2}$/.test(value)||value.length>2200000)return null;
  const bytes=Buffer.from(value.slice('data:image/webp;base64,'.length),'base64');
  if(bytes.length<100||bytes.length>1572864)return null;

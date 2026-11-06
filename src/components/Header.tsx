@@ -1,4 +1,6 @@
+import {useWebsiteProfile} from './PublishedWebsiteContent.tsx';
 import { publicSchoolNavigation } from './PublicSchoolPages.tsx';
+import { schoolNavigationHref } from '../logic/publicSchoolRoutes.ts';
 import React, { useEffect, useRef, useState } from 'react';
 import { 
   Home,
@@ -34,7 +36,6 @@ interface HeaderProps {
   currentView: ERPView;
   onSelectView: (view: ERPView) => void;
   lowStockCount: number;
-  onSignIn: () => void;
   onPortalSignIn?: () => void;
 }
 
@@ -42,10 +43,10 @@ export const Header: React.FC<HeaderProps> = ({
   currentView,
   onSelectView,
   lowStockCount,
-  onSignIn,
   onPortalSignIn,
 }) => {
   const [openMenu,setOpenMenu]=useState<string|null>(null);
+  const profile=useWebsiteProfile();
   const [mobileMenuOpen,setMobileMenuOpen]=useState(false);
   const desktopNavRef=useRef<HTMLElement|null>(null);
   useEffect(()=>{
@@ -78,14 +79,14 @@ export const Header: React.FC<HeaderProps> = ({
           <a href="/" className="text-left group cursor-pointer focus:outline-hidden">
             <div className="flex items-center gap-2">
               <span className="text-base font-extrabold text-slate-900 tracking-tight whitespace-nowrap block group-hover:text-blue-900 transition-colors">
-                {THE_REDEEMER_SCHOOL_INFO.name}
+                {profile.name}
               </span>
               <span className="hidden sm:inline-block px-1.5 py-0.5 text-[10px] font-bold bg-amber-50 text-amber-900 border border-amber-200/80 rounded-md">
-                Est. {THE_REDEEMER_SCHOOL_INFO.founded}
+                Est. {profile.founded}
               </span>
             </div>
             <span className="text-[11px] text-slate-500 font-medium whitespace-nowrap block">
-              Academic and Moral Excellence · Paynesville
+              {profile.motto} · Paynesville
             </span>
           </a>
         </div>
@@ -122,9 +123,9 @@ export const Header: React.FC<HeaderProps> = ({
             </summary>
             <div className="absolute right-0 top-full mt-2 w-80 max-w-[calc(100vw-2rem)] rounded-xl border border-slate-200 bg-white p-4 text-xs text-slate-700 shadow-xl z-50">
               <p className="font-bold text-slate-900">Redeemer's International Academy</p>
-              <p className="mt-2 leading-relaxed">{SCHOOL_CONTACT.address}</p>
+              <p className="mt-2 leading-relaxed">{profile.address}</p>
               <div className="mt-3 flex flex-col gap-1.5">
-                {SCHOOL_CONTACT.phones.map((phone) => (
+                {profile.phones.map((phone) => (
                   <a key={phone} href={`tel:${phone}`} className="font-semibold text-blue-700 hover:text-blue-900">{phone}</a>
                 ))}
               </div>
@@ -150,7 +151,7 @@ export const Header: React.FC<HeaderProps> = ({
                 <div className="mb-3 flex items-center justify-between border-b border-[#071d3e]/20 pb-3"><span className="text-xs font-extrabold uppercase tracking-[.16em] text-[#071d3e]">{group.label}</span><span className="text-xs text-[#071d3e]/75">Explore Redeemer</span></div>
                 <div className="grid grid-cols-2 gap-x-4 gap-y-1">
                   {group.items.map(item=><a key={item.slug} tabIndex={openMenu===group.label?0:-1} onClick={()=>setOpenMenu(null)}
-                    href={item.slug==='apply-online'?'/apply':item.slug==='student-portal'||item.slug==='guardian-portal'?'/portal':`/school/${item.slug}`}
+                    href={schoolNavigationHref(item.slug)}
                     className="group flex items-center justify-between gap-2 rounded-lg px-3 py-2.5 text-sm font-semibold text-[#071d3e] transition-all duration-150 hover:bg-[#071d3e] hover:text-white focus-visible:bg-[#071d3e] focus-visible:text-white focus-visible:outline-[#071d3e]">
                     <span>{item.label}</span><ArrowUpRight aria-hidden="true" className="h-3.5 w-3.5 shrink-0 opacity-0 transition-opacity group-hover:opacity-100 group-focus-visible:opacity-100"/>
                   </a>)}
@@ -175,7 +176,7 @@ export const Header: React.FC<HeaderProps> = ({
               <summary className="flex cursor-pointer list-none items-center justify-between px-3 py-3 text-sm font-extrabold text-slate-800 group-open:bg-amber-400 group-open:text-[#071d3e]">{group.label}<ChevronDown className="h-4 w-4 transition-transform group-open:rotate-180"/></summary>
               <div className="grid grid-cols-1 gap-1 rounded-lg bg-amber-400 p-2 sm:grid-cols-2">
                 {group.items.map(item=><a key={item.slug} className="rounded-md px-3 py-2.5 text-sm font-semibold text-[#071d3e] hover:bg-[#071d3e] hover:text-white focus-visible:bg-[#071d3e] focus-visible:text-white"
-                  href={item.slug==='apply-online'?'/apply':item.slug==='student-portal'||item.slug==='guardian-portal'?'/portal':`/school/${item.slug}`}>{item.label}</a>)}
+                  href={schoolNavigationHref(item.slug)}>{item.label}</a>)}
               </div>
             </details>)}
             <a href="/portal" className="mt-3 block rounded-lg bg-[#071d3e] px-4 py-3 text-center text-sm font-extrabold text-white">Student & Guardian Portal</a>
@@ -203,9 +204,9 @@ export const Header: React.FC<HeaderProps> = ({
             </summary>
             <div className="absolute right-0 top-full mt-2 w-80 max-w-[calc(100vw-2rem)] rounded-xl border border-slate-200 bg-white p-4 text-xs text-slate-700 shadow-xl z-50">
               <p className="font-bold text-slate-900">Redeemer's International Academy</p>
-              <p className="mt-2 leading-relaxed">{SCHOOL_CONTACT.address}</p>
+              <p className="mt-2 leading-relaxed">{profile.address}</p>
               <div className="mt-3 flex flex-col gap-1.5">
-                {SCHOOL_CONTACT.phones.map((phone) => (
+                {profile.phones.map((phone) => (
                   <a key={phone} href={`tel:${phone}`} className="font-semibold text-blue-700 hover:text-[#071d3e]">{phone}</a>
                 ))}
               </div>

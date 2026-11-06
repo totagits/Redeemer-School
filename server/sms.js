@@ -7,35 +7,35 @@ const LIBERIA_SENDER_ADDRESS = 'tel:+2310000';
 let orangeToken = null;
 let mtnToken = null;
 
-function orangeConfigured() {
-  return Boolean(process.env.ORANGE_SMS_CLIENT_ID && process.env.ORANGE_SMS_CLIENT_SECRET);
+function orangeConfigured(env=process.env) {
+  return Boolean(env.ORANGE_SMS_CLIENT_ID && env.ORANGE_SMS_CLIENT_SECRET);
 }
 
-function gatewayConfigured() {
-  return Boolean(process.env.SMS_GATEWAY_URL && process.env.SMS_GATEWAY_TOKEN && process.env.SMS_GATEWAY_SENDER);
+function gatewayConfigured(env=process.env) {
+  return Boolean(env.SMS_GATEWAY_URL && env.SMS_GATEWAY_TOKEN && env.SMS_GATEWAY_SENDER);
 }
 
-function mtnConfigured() {
-  return Boolean(process.env.MTN_SMS_CLIENT_ID && process.env.MTN_SMS_CLIENT_SECRET && process.env.MTN_SMS_SENDER_ADDRESS);
+function mtnConfigured(env=process.env) {
+  return Boolean(env.MTN_SMS_CLIENT_ID && env.MTN_SMS_CLIENT_SECRET && env.MTN_SMS_SENDER_ADDRESS);
 }
 
-function selectedProvider() {
-  const configured = String(process.env.SMS_PROVIDER || '').trim().toUpperCase();
+function selectedProvider(env=process.env) {
+  const configured = String(env.SMS_PROVIDER || '').trim().toUpperCase();
   if (configured) return configured;
   // Preserve existing Orange/gateway installations. MTN must be explicitly
   // selected because its SMS endpoint is production and may be chargeable.
-  if (orangeConfigured()) return 'ORANGE';
-  if (gatewayConfigured()) return 'GATEWAY';
+  if (orangeConfigured(env)) return 'ORANGE';
+  if (gatewayConfigured(env)) return 'GATEWAY';
   return 'NONE';
 }
 
-export function smsReadiness() {
-  const provider = selectedProvider();
-  return provider === 'MTN' ? mtnConfigured() && process.env.MTN_SMS_ENABLE_LIVE === 'true' : provider === 'ORANGE' ? orangeConfigured() : provider === 'GATEWAY' ? gatewayConfigured() : false;
+export function smsReadiness(env=process.env) {
+  const provider = selectedProvider(env);
+  return provider === 'MTN' ? mtnConfigured(env) && env.MTN_SMS_ENABLE_LIVE === 'true' : provider === 'ORANGE' ? orangeConfigured(env) : provider === 'GATEWAY' ? gatewayConfigured(env) : false;
 }
 
-export function smsProviderName() {
-  const provider = selectedProvider();
+export function smsProviderName(env=process.env) {
+  const provider = selectedProvider(env);
   return provider === 'MTN' ? 'MTN SMS V2' : provider === 'ORANGE' ? 'Orange SMS' : provider === 'GATEWAY' ? 'SMS gateway' : 'SMS provider';
 }
 
