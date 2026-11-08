@@ -1,6 +1,6 @@
 # Leave, manual payroll and external service readiness
 
-Updated 6 November 2026. Production remains paused.
+Updated 7 November 2026. Production remains paused.
 
 The owner approved: employees request leave, HR reviews, a separate Principal or School Administrator decides; Finance prepares manual payroll, a separate leader approves, then Finance records payment completed outside the ERP.
 
@@ -36,6 +36,6 @@ Live external readiness: MoMo SANDBOX configuration ready, MTN SMS incomplete/di
 
 Live guide: selecting Payroll started the 14-step narrated visual demonstration automatically and advanced to its approval/payment screen without manual lesson or narration clicks. Evidence screenshots are in outputs/leave-payroll-staging-backup.jpg, outputs/leave-payroll-migration-verified.jpg, outputs/leave-approved-history.jpg, outputs/manual-payroll-paid-history.jpg, outputs/external-service-readiness.jpg and outputs/manual-payroll-automatic-guide.jpg.
 
-The final browser reload to inspect the polished no-action state was blocked by the automatic approval usage limit on 5 November. A 6 November retry was explicitly rejected because the origin approval gate still considered the earlier block unresolved. No alternate browser, remote command or other workaround was used after that rejection. The complete workflow rehearsals above are already verified; only that final visual check of the small interface polish remains pending restored browser authority. No workflow, backup, deployment or migration needs to be repeated for that check.
+The final browser reload was initially blocked by the automatic approval usage limit. On 7 November, authorized Edge access succeeded through the normal browser approval mechanism. After loading the deployed interface and signing in as HR Manager, the cancelled test leave was expanded. No leave action selector, note form or save button was displayed. View leave history retained the request, separate HR review, Principal approval and cancellation, including actors and timestamps. This completes the final visual check of the interface polish. Evidence: outputs/leave-final-cancelled-verified.jpg. No workflow, backup, deployment or migration was repeated.
 
 No production release is authorized. Remaining dependencies are the school-approved automated leave/payroll rules, post-payment correction/statutory remittance scope, and actual MTN provider approvals and witnessed acceptance.
