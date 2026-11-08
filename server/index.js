@@ -15,6 +15,9 @@ import { createDigitalStudentIdRouter } from './studentDigitalId.js';
 import { createPortalPhotoRouter } from './portalPhotos.js';
 import { isStrongSessionSecret } from './authCrypto.js';
 import { applyAdmissionsMigrationIfRequested } from './applyAdmissionsMigration.js';
+import { assertSchoolRuntimeMode } from './hostingMode.js';
+
+assertSchoolRuntimeMode();
 
 // This runs only when explicitly enabled after a verified staging backup.
 await applyAdmissionsMigrationIfRequested();

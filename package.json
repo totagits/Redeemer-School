@@ -10,6 +10,7 @@
     "start": "node server/index.js",
     "db:migrate": "node server/migrate.js",
     "db:bootstrap-admin": "node server/bootstrapAdmin.js",
+    "platform": "node server/platform/cli.js",
     "keys:vapid": "node server/generateVapidKeys.js",
     "keys:student-documents": "node server/generateStudentDocumentKey.js",
     "test": "node --import tsx --test src/logic/*.test.ts server/*.test.js",

@@ -1,6 +1,6 @@
 # Current website and ERP completion status
 
-Updated 7 November 2026. Production is paused. This summary distinguishes implementation, staging verification and school acceptance.
+Updated 8 November 2026. Production is paused. This summary distinguishes implementation, staging verification and school acceptance.
 
 ## Public navigation and content
 
@@ -31,3 +31,7 @@ Still open:
 - Automated payroll: the [school rules template](payroll-rules-for-school-approval.md) is drafted for HR/Finance completion and school approval. No statutory rates or calculation policies have been assumed or activated. Existing manual payroll remains separate.
 
 See whole-site-release-checklist.md for the full workspace list and erp-portal-workflow-verification.md for dated evidence. Owner release approval follows completion and acceptance of launch workflows; no production deployment is authorized by this report.
+
+## TOTAG school-platform direction
+
+The owner approved separate deployments and databases for Redeemer and the first schools, using one maintained codebase, with shared SaaS developed separately. The operator configuration registry is implemented with branding/contact fields, requested domains, department/TVET catalogs, dedicated resource reservations and retained audit history. It is not connected to school runtime routing, branding publication or live infrastructure. Operational TVET, complete configurable branding, the TOTAG console, subscriptions and shared-school isolation remain outstanding. See [the platform implementation and delivery plan](totag-school-platform.md). This work does not change Redeemer's production pause or mark its remaining ERP workflows complete.
