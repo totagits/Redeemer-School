@@ -1,12 +1,14 @@
+import { EntranceExamMarking } from './EntranceExamMarking.tsx';
+import { EntranceExamQuestions } from './EntranceExamQuestions.tsx';
 import React, { useCallback, useEffect, useState } from 'react';
 import { EntranceExamEligibility } from './EntranceExamEligibility.tsx';
 import { examTimeOptions, liberiaExamInstant, liberiaExamDate, liberiaExamTime } from '../logic/entranceExamTime.ts';
 
 type Exam = { id: string; title: string; grade_label: string; mode: 'PAPER'|'ONLINE'|'INTERVIEW'; venue: string; starts_at: string; ends_at: string; status: string; applicant_count: number };
 type Applicant = { id: string; application_number: string; first_name?: string; last_name?: string; status: string };
-type Props = { applications: Applicant[]; canWrite: boolean; post: (path: string, body: Record<string, unknown>) => Promise<Record<string, unknown>> };
+type Props = { applications: Applicant[]; canWrite: boolean; canApproveQuestions: boolean; currentUserId:string; post: (path: string, body: Record<string, unknown>) => Promise<Record<string, unknown>> };
 
-export const EntranceExamScheduling: React.FC<Props> = ({ applications, canWrite, post }) => {
+export const EntranceExamScheduling: React.FC<Props> = ({ applications, canWrite, canApproveQuestions, currentUserId, post }) => {
   const [exams,setExams] = useState<Exam[]>([]);
   const [loading,setLoading] = useState(true);
   const [ready,setReady] = useState(false);
@@ -14,6 +16,7 @@ export const EntranceExamScheduling: React.FC<Props> = ({ applications, canWrite
   const [notice,setNotice] = useState('');
   const [busy,setBusy] = useState(false);
   const [editingExamId,setEditingExamId] = useState('');
+  const [confirmation,setConfirmation] = useState<{kind:'schedule'|'reschedule';examId:string;title:string;startsAt:string;endsAt:string;applicantCount:number}|null>(null);
   const refresh = useCallback(async () => {
     try {
       const response=await fetch('/api/operations/admissions/entrance-exams',{credentials:'same-origin'});
@@ -26,8 +29,8 @@ export const EntranceExamScheduling: React.FC<Props> = ({ applications, canWrite
   useEffect(()=>{void refresh();},[refresh]);
   const perform=async(path:string,body:Record<string,unknown>,message:string)=>{
     setBusy(true);setError('');setNotice('');
-    try{await post(path,body);setNotice(message);await refresh();}
-    catch(cause){setError(cause instanceof Error?cause.message:'The operation could not be completed.');}
+    try{await post(path,body);setNotice(message);await refresh();return true;}
+    catch(cause){setError(cause instanceof Error?cause.message:'The operation could not be completed.');return false;}
     finally{setBusy(false);}
   };
   const create=async(event:React.FormEvent<HTMLFormElement>)=>{
@@ -80,9 +83,7 @@ export const EntranceExamScheduling: React.FC<Props> = ({ applications, canWrite
                 const startsAt=liberiaExamInstant(examDate,String(values.get('startTime')||''));
                 const endsAt=liberiaExamInstant(examDate,String(values.get('endTime')||''));
                 if(new Date(endsAt)<=new Date(startsAt)){setError('The end time must follow the start time.');return;}
-                if(!window.confirm('Correct this examination schedule? Existing applicant assignments remain linked. No invitations will be sent.'))return;
-                await perform('admissions/entrance-exams/'+encodeURIComponent(exam.id)+'/reschedule',{startsAt,endsAt},'Examination time corrected and recorded in the audit log.');
-                setEditingExamId('');
+                setConfirmation({kind:'reschedule',examId:exam.id,title:exam.title,startsAt,endsAt,applicantCount:exam.applicant_count});
               }catch(cause){setError(cause instanceof Error?cause.message:'Invalid examination time.');}
             }}>
               <label className="text-xs font-semibold">Date<input required type="date" name="examDate" defaultValue={liberiaExamDate(exam.starts_at)} className="mt-1 block rounded-lg border p-2"/></label>
@@ -95,11 +96,24 @@ export const EntranceExamScheduling: React.FC<Props> = ({ applications, canWrite
             <label className="min-w-56 flex-1 text-xs font-semibold text-slate-700">Assign eligible applicant<select required name="applicationId" defaultValue="" className="mt-1 block w-full rounded-lg border border-slate-300 bg-white p-2.5 text-sm"><option value="" disabled>Select application reference</option>{eligible.map(app=><option key={app.id} value={app.id}>{app.application_number} — {app.first_name} {app.last_name}</option>)}</select></label>
             <button type="submit" disabled={busy||!eligible.length} className="rounded-lg border border-[#071d3e] px-3 py-2.5 text-sm font-bold text-[#071d3e] disabled:opacity-50">Assign applicant</button>
           </form>}
-          <EntranceExamEligibility examId={exam.id} />
-          {canWrite&&exam.status==='DRAFT'&&<button type="button" disabled={busy||Number(exam.applicant_count)<1} onClick={()=>{if(window.confirm('Schedule this entrance examination for its assigned applicants? This does not send invitations.')) void perform('admissions/entrance-exams/'+encodeURIComponent(exam.id)+'/schedule',{},'Examination scheduled. Invitation delivery is not yet enabled.');}} className="mt-3 rounded-lg bg-amber-400 px-4 py-2 text-sm font-bold text-[#071d3e] disabled:cursor-not-allowed disabled:opacity-50">Confirm examination schedule</button>}
+          {exam.mode==='ONLINE'&&exam.status==='DRAFT'&&<EntranceExamQuestions examId={exam.id} post={post} canWrite={canWrite} canApprove={canApproveQuestions}/>}
+          {exam.mode==='ONLINE'&&['SCHEDULED','COMPLETED'].includes(exam.status)&&<EntranceExamMarking examId={exam.id} post={post} canWrite={canWrite} canApprove={canApproveQuestions} currentUserId={currentUserId}/>}
+          <EntranceExamEligibility examId={exam.id} canWrite={canWrite&&exam.mode==='ONLINE'} post={post} />
+          {canWrite&&exam.status==='DRAFT'&&<button type="button" disabled={busy||Number(exam.applicant_count)<1} onClick={()=>setConfirmation({kind:'schedule',examId:exam.id,title:exam.title,startsAt:exam.starts_at,endsAt:exam.ends_at,applicantCount:exam.applicant_count})} className="mt-3 rounded-lg bg-amber-400 px-4 py-2 text-sm font-bold text-[#071d3e] disabled:cursor-not-allowed disabled:opacity-50">Confirm examination schedule</button>}
+          {canWrite&&confirmation?.examId===exam.id&&<div role="region" aria-label="Review examination schedule" className="mt-3 space-y-2 rounded-lg border border-amber-300 bg-amber-50 p-4 text-sm">
+            <h4 className="font-bold">Review {confirmation.kind==='reschedule'?'time correction':'examination schedule'}</h4>
+            <p>{confirmation.title}</p>
+            <p>{new Date(confirmation.startsAt).toLocaleString('en-GB',{timeZone:'Africa/Monrovia'})} – {new Date(confirmation.endsAt).toLocaleString('en-GB',{timeZone:'Africa/Monrovia'})} GMT</p>
+            <p>{confirmation.applicantCount} assigned applicant(s). Existing assignments remain linked. No invitations will be sent.</p>
+            <div className="flex flex-wrap gap-2"><button type="button" disabled={busy} onClick={()=>setConfirmation(null)} className="rounded-lg border px-3 py-2">Cancel review</button><button type="button" disabled={busy} onClick={async()=>{
+              const review=confirmation;
+              const saved=await perform('admissions/entrance-exams/'+encodeURIComponent(review.examId)+'/'+(review.kind==='reschedule'?'reschedule':'schedule'),review.kind==='reschedule'?{startsAt:review.startsAt,endsAt:review.endsAt}:{},review.kind==='reschedule'?'Examination time corrected and recorded in the audit log.':'Examination scheduled. No invitations were sent.');
+              if(saved){setConfirmation(null);if(review.kind==='reschedule')setEditingExamId('');}
+            }} className="rounded-lg bg-[#071d3e] px-3 py-2 font-bold text-white">{confirmation.kind==='reschedule'?'Apply reviewed time correction':'Schedule reviewed examination'}</button></div>
+          </div>}
         </article>)}
       </div>
-      <p className="mt-4 text-xs text-slate-500">Private scheduling only. Exam questions, candidate login, grading, approvals, and secure result notifications will be enabled in subsequent verified phases.</p>
+      <p className="mt-4 text-xs text-slate-500">Private scheduling only. Candidate access, marking and result delivery require the controlled examination preview and staff approvals.</p>
     </>}
   </section>;
 };

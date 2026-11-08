@@ -1,4 +1,4 @@
-const CACHE_NAME = 'redeemer-family-portal-v2';
+const CACHE_NAME = 'redeemer-family-portal-v3';
 const SHELL = ['/', '/portal', '/redeemer-portal.webmanifest', '/redeemer-seal.svg?v=2'];
 
 self.addEventListener('install', event => {
@@ -30,11 +30,11 @@ self.addEventListener('fetch', event => {
       const copy = response.clone();
       void caches.open(CACHE_NAME).then(cache => cache.put(url.pathname === '/portal' ? '/portal' : '/', copy));
       return response;
-    }).catch(async () => (await caches.match(url.pathname === '/portal' ? '/portal' : '/')) || Response.error()));
+    }).catch(async () => (await (await caches.open(CACHE_NAME)).match(url.pathname === '/portal' ? '/portal' : '/')) || Response.error()));
     return;
   }
   if (url.pathname.startsWith('/assets/')) {
-    event.respondWith(caches.match(request).then(cached => cached || fetch(request)));
+    event.respondWith(caches.open(CACHE_NAME).then(cache=>cache.match(request)).then(cached => cached || fetch(request)));
   }
 });
 

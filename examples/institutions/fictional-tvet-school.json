@@ -1,0 +1,38 @@
+{
+  "schemaVersion": 1,
+  "school": {
+    "code": "TEST-TVET",
+    "name": "TEST Technical High School — Fictional",
+    "motto": "Fictional training example",
+    "timezone": "Africa/Monrovia",
+    "currency": "LRD",
+    "address": "TEST ONLY — not a real school address",
+    "phones": ["0000000000"],
+    "email": "office@example.invalid"
+  },
+  "branding": {
+    "logoPath": "/institution-assets/test-school.png",
+    "primaryColor": "#164E63",
+    "secondaryColor": "#083344",
+    "accentColor": "#FDE68A"
+  },
+  "domains": [
+    {"hostname": "test-tvet.example.invalid", "purpose": "PUBLIC"},
+    {"hostname": "staff.test-tvet.example.invalid", "purpose": "STAFF"}
+  ],
+  "academics": {
+    "departments": [
+      {"code": "ELEC", "name": "Electrical", "programs": [{"code": "ELEC-FOUND", "name": "Electrical Foundations", "type": "TVET", "levels": ["Foundation"], "qualification": "TEST qualification — approval required"}]},
+      {"code": "METAL", "name": "Metalwork", "programs": [{"code": "METAL-FOUND", "name": "Metalwork Foundations", "type": "TVET", "levels": ["Foundation"], "qualification": "TEST qualification — approval required"}]},
+      {"code": "AGRI", "name": "Agriculture", "programs": [{"code": "AGRI-FOUND", "name": "Agriculture Foundations", "type": "TVET", "levels": ["Foundation"], "qualification": "TEST qualification — approval required"}]},
+      {"code": "WOOD", "name": "Carpentry", "programs": [{"code": "WOOD-FOUND", "name": "Carpentry Foundations", "type": "TVET", "levels": ["Foundation"], "qualification": "TEST qualification — approval required"}]}
+    ]
+  },
+  "deployment": {
+    "model": "DEDICATED_DATABASE",
+    "environment": "STAGING",
+    "reference": "test-tvet-staging-app",
+    "databaseReference": "test-tvet-staging-db"
+  },
+  "approvalReference": "FICTIONAL EXAMPLE ONLY — not school approval"
+}

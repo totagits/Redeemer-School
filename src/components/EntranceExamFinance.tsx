@@ -1,3 +1,4 @@
+import {INSTITUTION,SCHOOL_LOGO_ALT} from '../data/institution.ts';
 import React, { useCallback, useEffect, useState } from 'react';
 import { createPortal } from 'react-dom';
 
@@ -106,12 +107,12 @@ export const EntranceExamFinance:React.FC<Props> = ({canWrite,post})=>{
     <div id="entrance-exam-print-receipt" className="mx-auto max-w-xl rounded-xl bg-white p-6 text-slate-900 shadow-xl sm:p-10">
      <header className="flex items-center justify-between gap-4 border-b-2 border-[#273a99] pb-5">
       <div className="flex items-center gap-3">
-       <img src={document.querySelector<HTMLLinkElement>('link[rel="icon"]')?.href || '/favicon.ico'} alt="Redeemer’s International Academy crest" className="h-16 w-16 shrink-0 object-contain" />
+       <img src={document.querySelector<HTMLLinkElement>('link[rel="icon"]')?.href || '/favicon.ico'} alt={SCHOOL_LOGO_ALT} className="h-16 w-16 shrink-0 object-contain" />
        <div>
-        <p className="text-[10px] font-extrabold uppercase tracking-[0.18em] text-[#273a99]">Redeemer’s International Academy</p>
+        <p className="text-[10px] font-extrabold uppercase tracking-[0.18em] text-[#273a99]">{INSTITUTION.name}</p>
         <h2 className="mt-1 text-xl font-extrabold text-[#071d3e]">Entrance examination {receipt.kind==='WAIVER'?'fee waiver':'payment receipt'}</h2>
-        <p className="mt-1 text-xs text-slate-600">RIA Highway, Thinker's Village, Guest House Road</p>
-        <p className="text-xs text-slate-600">Paynesville, Montserrado, Liberia</p>
+        <p className="mt-1 text-xs text-slate-600">{INSTITUTION.address}</p>
+        <p className="text-xs text-slate-600">{INSTITUTION.name}</p>
        </div>
       </div>
       <div className="max-w-[35%] text-right text-xs"><p className="font-extrabold uppercase tracking-wide text-[#071d3e]">Receipt reference</p><p className="break-all font-semibold">{receipt.reference}</p><p className="mt-1 text-slate-600">{new Date(receipt.verified_at).toLocaleDateString('en-LR',{timeZone:'Africa/Monrovia'})}</p></div>

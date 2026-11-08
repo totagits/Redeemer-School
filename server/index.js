@@ -1,8 +1,12 @@
+import { createWebsitePagesRouter } from './websitePages.js';
+import { createPublicWebsiteRequestsRouter } from './websiteRequests.js';
 import 'dotenv/config';
 import express from 'express';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import pg from 'pg';
+import { createCandidateExamRouter } from './candidateExamAuth.js';
+import { startExamTimeoutWorker } from './examTimeoutWorker.js';
 import { createAuthRouter } from './auth.js';
 import { createOperationsRouter } from './operations.js';
 import { createPublicAdmissionsRouter } from './publicAdmissions.js';
@@ -11,6 +15,11 @@ import { createDigitalStudentIdRouter } from './studentDigitalId.js';
 import { createPortalPhotoRouter } from './portalPhotos.js';
 import { isStrongSessionSecret } from './authCrypto.js';
 import { applyAdmissionsMigrationIfRequested } from './applyAdmissionsMigration.js';
+import { assertSchoolRuntimeMode } from './hostingMode.js';
+import { initializeDedicatedInstitution,createDedicatedSchoolGuard,enforceSchoolSelection,setServerInstitution } from './dedicatedInstitution.js';
+import {createStagingReviewRouter} from './stagingReview.js';
+
+assertSchoolRuntimeMode();
 
 // This runs only when explicitly enabled after a verified staging backup.
 await applyAdmissionsMigrationIfRequested();
@@ -43,6 +52,8 @@ const runtimePool = process.env.RUNTIME_DATABASE_URL
   : null;
 const sessionSecret = process.env.APP_SESSION_SECRET || '';
 const authConfigured = Boolean(runtimePool && isStrongSessionSecret(sessionSecret));
+const institutionBinding=await initializeDedicatedInstitution({pool:runtimePool,distDir});
+setServerInstitution(institutionBinding);
 
 app.disable('x-powered-by');
 // Coolify routes requests through one trusted reverse proxy. This lets IP-based
@@ -53,9 +64,13 @@ app.use((_req, res, next) => {
   res.setHeader('X-Content-Type-Options', 'nosniff');
   next();
 });
+app.use(createDedicatedSchoolGuard(institutionBinding));
+app.use('/api/candidate-exams',createCandidateExamRouter({pool:runtimePool,secret:sessionSecret,publicUrl:process.env.APP_PUBLIC_URL,enabled:process.env.ENABLE_CANDIDATE_EXAM_PREVIEW==='true'}));
+
 // Assignment submissions may contain one small school document (encoded in
 // JSON). The endpoint enforces a strict per-file limit before writing to DB.
 app.use(express.json({ limit: '9mb' }));
+app.use(enforceSchoolSelection);
 
 app.get('/api/health/live', (_req, res) => {
   res.status(200).json({ status: 'ok', release: 'family-fee-invoice-v7' });
@@ -107,8 +122,11 @@ app.use('/api/auth', authRouter);
 app.use('/api/operations', createOperationsRouter({ authenticate: authRouter.requireAuth, pool: runtimePool }));
 app.use('/api/student-id', createDigitalStudentIdRouter({ authenticate: authRouter.requireAuth }));
 app.use('/api/portal-photos', createPortalPhotoRouter({ authenticate: authRouter.requireAuth }));
+app.use('/api/public/website-requests',createPublicWebsiteRequestsRouter({pool:runtimePool,publicUrl:process.env.APP_PUBLIC_URL}));
 app.use('/api/public/admissions', createPublicAdmissionsRouter({ pool: runtimePool }));
+app.use('/api/website-pages', createWebsitePagesRouter({pool:runtimePool,authenticate:authRouter.requireAuth}));
 app.use('/api/school-content', createPublicContentRouter({ pool: runtimePool, authenticate: authRouter.requireAuth }));
+app.use('/api/staging-review',createStagingReviewRouter());
 
 app.use('/api', (_req, res) => {
   res.status(404).json({ error: 'API route not found' });
@@ -135,8 +153,12 @@ app.get('*', (_req, res) => {
 const server = app.listen(port, '0.0.0.0', () => {
   console.log(`Redeemer School ERP server listening on port ${port}`);
 });
+const stopExamTimeoutWorker=startExamTimeoutWorker({pool:runtimePool,
+ enabled:process.env.ENABLE_CANDIDATE_EXAM_PREVIEW==='true',
+ schoolCodes:(process.env.EXAM_TIMEOUT_SCHOOL_CODES||institutionBinding?.code||'RIA').split(',').map(code=>code.trim().toUpperCase()).filter(Boolean)});
 
 async function shutdown(signal) {
+  stopExamTimeoutWorker();
   console.log(`${signal} received; closing server and database pool.`);
   server.close(async () => {
     await Promise.all([runtimePool?.end()].filter(Boolean));

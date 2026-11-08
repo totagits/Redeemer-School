@@ -29,18 +29,23 @@ export function readMomoConfig(env = process.env) {
   const apiKey = env.MTN_MOMO_API_KEY || '';
   const subscriptionKey = env.MTN_MOMO_SUBSCRIPTION_KEY || '';
   const liveEnabled = String(env.MTN_MOMO_ENABLE_LIVE_COLLECTIONS || '').toLowerCase() === 'true';
+  const feeInput=String(env.MTN_MOMO_FEE_RATE_BPS||'').trim();
+  const agreement=String(env.MTN_MOMO_FEE_AGREEMENT_REF||'').trim();
+  const approvedFee=/^\d{1,5}$/.test(feeInput)&&Number(feeInput)<=10000&&agreement.length>0&&agreement.length<=200;
   const currencyValid = environment === 'SANDBOX' ? currency === 'EUR' : currency === 'LRD';
-  const configured = validEnvironment && validBase && Boolean(apiUser && apiKey && subscriptionKey) && currencyValid && (environment !== 'PRODUCTION' || liveEnabled);
+  const configured = validEnvironment && validBase && Boolean(apiUser && apiKey && subscriptionKey) && currencyValid && (environment !== 'PRODUCTION' || (liveEnabled&&approvedFee));
   return {
     enabled: configured,
     environment,
     baseUrl,
     targetEnvironment: environment === 'PRODUCTION' ? 'mtnliberia' : 'sandbox',
     currency,
-    feeRateBps: 250,
+    feeRateBps: environment==='SANDBOX'?250:approvedFee?Number(feeInput):null,
+    feeAgreementRef: environment==='SANDBOX'?'SANDBOX-TEST':approvedFee?agreement:null,
     reason: !validEnvironment || !validBase ? 'MTN MoMo endpoint configuration is invalid.'
       : !currencyValid ? (environment === 'SANDBOX' ? 'MTN MoMo sandbox uses EUR for test transactions.' : 'MTN MoMo Liberia production collections use LRD.')
         : environment === 'PRODUCTION' && !liveEnabled ? 'Live MTN collections are disabled. Complete sandbox acceptance and explicitly enable live collections before switching this environment.'
+          : environment === 'PRODUCTION' && !approvedFee ? 'Confirm the merchant-agreement fee rate and reference before enabling live MTN collections.'
           : !configured ? 'MTN MoMo Collection API credentials are not configured.' : '',
   };
 }
@@ -109,8 +114,8 @@ export function createMomoClient({ env = process.env, fetchImpl = fetch } = {}) 
         body: JSON.stringify({
           amount: Number(amount).toFixed(2), currency, externalId,
           payer: { partyIdType: 'MSISDN', partyId: msisdn },
-          payerMessage: String(payerMessage || 'Redeemer school fee payment').slice(0, 160),
-          payeeNote: String(payeeNote || 'Redeemer school fee payment').slice(0, 160),
+          payerMessage: String(payerMessage || 'School fee payment').slice(0, 160),
+          payeeNote: String(payeeNote || 'School fee payment').slice(0, 160),
         }),
       }, { outcomeUnknown: true });
     } catch (error) {

@@ -176,7 +176,7 @@ export function createAuthRouter({ pool, secret, sessionTtlMs = 8 * 60 * 60 * 10
     if (!await isRuntimeRoleSafe()) return authDisabled(res);
     const token = requestToken(req);
     const claims = verifySessionClaims(token, secret);
-    if (!claims) return res.status(401).json({ error: 'Authentication required.' });
+    if (!claims || (req.schoolBinding && claims.schoolId!==req.schoolBinding.id)) return res.status(401).json({ error: 'Authentication required.' });
 
     let client;
     try {
@@ -438,6 +438,7 @@ export function createAuthRouter({ pool, secret, sessionTtlMs = 8 * 60 * 60 * 10
       }
 
       const { school_id: schoolId, user_id: userId } = result.rows[0];
+      if(req.schoolBinding && schoolId!==req.schoolBinding.id){await rollbackAndRelease(client);client=null;return res.status(400).json({error:'Use the password reset link on the correct school website.'});}
       await setTenantContext(client, schoolId);
       await client.query(
         'DELETE FROM public.auth_sessions WHERE school_id = $1 AND user_id = $2',
@@ -476,17 +477,23 @@ export function createAuthRouter({ pool, secret, sessionTtlMs = 8 * 60 * 60 * 10
       return res.status(400).json({ error: 'Use a valid invitation link and choose a password with at least 12 characters.' });
     }
 
+    let client;
     try {
       const passwordHash = await hashPassword(newPassword);
-      const result = await pool.query(
+      if(req.schoolBinding){client=await pool.connect();await client.query('BEGIN');}
+      const result = await (client||pool).query(
         'SELECT school_id, user_id FROM app.consume_account_invitation($1, $2)',
         [hashInvitationToken(token), passwordHash]
       );
+      if(req.schoolBinding && result.rows[0] && result.rows[0].school_id!==req.schoolBinding.id){await rollbackAndRelease(client);client=null;return res.status(400).json({error:'Use the invitation on the correct school website.'});}
       if (!result.rowCount) {
+        await rollbackAndRelease(client);client=null;
         return res.status(400).json({ error: 'This invitation link is invalid, expired, already used, or the account is no longer active. Ask the school administrator to send a new invitation.' });
       }
+      if(client){await commitAndRelease(client);client=null;}
       return res.status(204).end();
     } catch {
+      await rollbackAndRelease(client);
       return res.status(503).json({ error: 'Password setup is temporarily unavailable. Please try again.' });
     }
   });

@@ -1,5 +1,25 @@
 @import "tailwindcss";
 
+.institution-themed :is(.bg-blue-600,.bg-blue-700,.bg-blue-800,.bg-blue-900) { background-color:var(--school-primary); }
+.institution-themed .bg-blue-950 { background-color:var(--school-secondary); }
+.institution-themed :is(.text-blue-700,.text-blue-800,.text-blue-900) { color:var(--school-primary); }
+.institution-themed :is(.bg-amber-400,.bg-amber-300) { background-color:var(--school-accent); }
+.institution-themed :is(.bg-blue-50,.bg-sky-50) { background-color:color-mix(in srgb,var(--school-primary) 7%,white); }
+.institution-themed [class~="bg-[#071d3e]"] { background-color:var(--school-primary); }
+.institution-themed [class~="text-[#071d3e]"] { color:var(--school-primary); }
+.institution-themed [class~="hover:bg-[#071d3e]"]:hover,
+.institution-themed [class~="hover:bg-[#123866]"]:hover { background-color:var(--school-secondary); }
+.institution-themed [class~="hover:bg-amber-400"]:hover { background-color:var(--school-accent); }
+.institution-themed [class~="hover:bg-blue-800"]:hover,
+.institution-themed [class~="hover:bg-blue-900"]:hover { background-color:var(--school-secondary); }
+
+@media print {
+  body:has(.school-policy-worksheet) header { display:none; }
+  .school-policy-worksheet { font-size:10pt; color:black; }
+  .school-policy-worksheet textarea { overflow:visible; resize:none; color:black; }
+  .school-policy-worksheet tr { break-inside:avoid; }
+}
+
 @layer base {
   body {
     font-family: 'Plus Jakarta Sans', system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;

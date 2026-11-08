@@ -1,3 +1,4 @@
+import {INSTITUTION,SCHOOL_PORTAL_NAME} from '../data/institution.ts';
 import React, { useState } from 'react';
 import { ArrowLeft, Eye, EyeOff, LoaderCircle, LockKeyhole, ShieldCheck } from 'lucide-react';
 
@@ -65,7 +66,7 @@ export const InvitationPasswordSetupPage: React.FC<{ onContinue: () => void }> =
 
   return <section className="grid min-h-screen place-items-center bg-slate-50 px-4 py-10">
     <div className="w-full max-w-md rounded-2xl border border-slate-200 bg-white p-6 shadow-xl sm:p-8">
-      <p className="text-xs font-bold uppercase tracking-[0.16em] text-blue-700">Redeemer ERP · Staging</p>
+      <p className="text-xs font-bold uppercase tracking-[0.16em] text-blue-700">{SCHOOL_PORTAL_NAME} · {INSTITUTION.environment}</p>
       {complete ? <>
         <h1 className="mt-2 text-2xl font-extrabold text-slate-950">{isReset ? 'Password reset' : 'Password set'}</h1>
         <p className="mt-3 text-sm leading-6 text-slate-600">{isReset ? 'Your password has been changed. Sign in with your school code, email address, and new password.' : 'Your account is ready. Sign in with your school code, email address, and new password.'}</p>
@@ -86,7 +87,7 @@ export const InvitationPasswordSetupPage: React.FC<{ onContinue: () => void }> =
 };
 
 export const SignInPage: React.FC<SignInPageProps> = ({ onCancel, onSignedIn, audience = 'STAFF' }) => {
-  const [schoolCode, setSchoolCode] = useState('RIA');
+  const [schoolCode, setSchoolCode] = useState(INSTITUTION.code);
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [showPassword, setShowPassword] = useState(false);
@@ -130,7 +131,7 @@ export const SignInPage: React.FC<SignInPageProps> = ({ onCancel, onSignedIn, au
             <span className="grid h-11 w-11 place-items-center rounded-xl bg-blue-50 text-blue-800"><LockKeyhole className="h-5 w-5" /></span>
             <div>
               <p className="text-xs font-bold uppercase tracking-[0.16em] text-blue-700">{audience === 'PORTAL' ? 'Student & family portal' : 'School staff sign-in'}</p>
-              <h1 className="mt-1 text-xl font-bold text-slate-950">{audience === 'PORTAL' ? 'Sign in to your school portal' : 'Sign in to Redeemer ERP'}</h1>
+              <h1 className="mt-1 text-xl font-bold text-slate-950">{audience === 'PORTAL' ? 'Sign in to your school portal' : `Sign in to ${SCHOOL_PORTAL_NAME}`}</h1>
             </div>
           </div>
           <p className="mb-6 text-sm leading-6 text-slate-600">{audience === 'PORTAL' ? 'Use the school code and login details provided by the school. This portal shows only learners linked to your account.' : 'Use your school code and the account details provided by your school administrator.'}</p>
@@ -175,7 +176,7 @@ export const SignInPage: React.FC<SignInPageProps> = ({ onCancel, onSignedIn, au
             finally { setBusy(false); }
           }}>
             <h2 className="text-sm font-bold text-slate-900">Reset your password</h2>
-            <label className="block text-sm font-semibold text-slate-700">School code<input required name="schoolCode" defaultValue="RIA" autoComplete="organization" className="mt-1 w-full rounded-lg border border-slate-300 bg-white px-3 py-2.5 font-normal uppercase" /></label>
+            <label className="block text-sm font-semibold text-slate-700">School code<input required name="schoolCode" defaultValue={INSTITUTION.code} autoComplete="organization" className="mt-1 w-full rounded-lg border border-slate-300 bg-white px-3 py-2.5 font-normal uppercase" /></label>
             <label className="block text-sm font-semibold text-slate-700">Registered school email<input required type="email" name="email" autoComplete="email" className="mt-1 w-full rounded-lg border border-slate-300 bg-white px-3 py-2.5 font-normal" /></label>
             {error && <p role="alert" className="rounded-lg bg-red-50 p-2.5 text-sm text-red-800">{error}</p>}
             {recoveryMessage && <p role="status" className="rounded-lg bg-emerald-50 p-2.5 text-sm text-emerald-900">{recoveryMessage}</p>}
@@ -184,10 +185,10 @@ export const SignInPage: React.FC<SignInPageProps> = ({ onCancel, onSignedIn, au
           {recoveryMode === 'email' && <div className="mt-4 rounded-xl border border-blue-100 bg-blue-50 p-4 text-sm leading-6 text-slate-700">
             <h2 className="font-bold text-slate-900">Forgot your school email?</h2>
             <p className="mt-2">For your privacy, this page cannot reveal account email addresses. Contact the school office and share your name and school or staff/student ID. The office should verify your identity before changing the email linked to your account.</p>
-            <p className="mt-2 font-semibold">Redeemer’s International Academy · 0778786116 / 0555664239</p>
-            <p>RIA Highway, Thinker’s Village, Guest House Road, Paynesville, Montserrado, Liberia</p>
+            <p className="mt-2 font-semibold">{INSTITUTION.name} · {INSTITUTION.phones.join(' / ')}</p>
+            <p>{INSTITUTION.address}</p>
           </div>}
-          <p className="mt-5 flex items-start gap-2 rounded-lg bg-amber-50 p-3 text-xs leading-5 text-amber-950"><ShieldCheck className="mt-0.5 h-4 w-4 shrink-0" /> Staging environment: use authorized test accounts and test records only. Available ERP workspaces use school database records, but some modules and integrations are still being validated. Contact the school administrator for account access or password reset.</p>
+          {INSTITUTION.environment!=='PRODUCTION'&&<p className="mt-5 flex items-start gap-2 rounded-lg bg-amber-50 p-3 text-xs leading-5 text-amber-950"><ShieldCheck className="mt-0.5 h-4 w-4 shrink-0" /> Staging environment: use authorized test accounts and test records only. Available ERP workspaces use school database records, but some modules and integrations are still being validated. Contact the school administrator for account access or password reset.</p>}
         </div>
       </div>
     </section>
@@ -210,7 +211,7 @@ export const SignedInPage: React.FC<SignedInPageProps> = ({ account, busy, error
           <p className="text-xs font-bold uppercase tracking-[0.16em] text-emerald-700">Sign-in verified</p>
           <h1 className="mt-1 text-2xl font-bold text-slate-950">Welcome, {account.fullName}</h1>
           <p className="mt-2 text-sm text-slate-600">{account.schoolName} · {account.email}</p>
-          <p className="mt-1 text-xs text-slate-500">School code: RIA · Access: {account.roles.join(', ') || 'school account'}</p>
+          <p className="mt-1 text-xs text-slate-500">School code: {INSTITUTION.code} · Access: {account.roles.join(', ') || 'school account'}</p>
         </div>
       </div>
       <div className="mt-7 rounded-xl border border-amber-200 bg-amber-50 p-4">

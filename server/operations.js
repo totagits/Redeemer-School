@@ -1,6 +1,15 @@
+import { registerWebsiteRequestStaffRoutes } from './websiteRequests.js';
+import { registerHrRecruitmentRoutes } from './hrRecruitment.js';
+import { registerStaffWorkflowRoutes } from './staffWorkflows.js';
+import { registerIntegrationReadiness } from './integrationReadiness.js';
+import {claimAnnouncementSms,dispatchClaimedSms} from './smsDispatch.js';
+import { registerExamMarkingRoutes } from './admissionExamMarking.js';
+import { createGuardianEmailChallenge, findVerifiedGuardianEmail } from './admissionGuardianEmail.js';
+import { sendExamEmail } from './admissionExamEmail.js';
 import { createCipheriv, createDecipheriv, createHash, randomBytes, randomUUID, timingSafeEqual } from 'node:crypto';
 import express from 'express';
 import { hashPassword } from './authCrypto.js';
+import { issueCandidateSecret } from './admissionExamCredential.js';
 import { createInvitationSecret, InvitationDeliveryError, sendAccountInvitation } from './invitations.js';
 import { createMomoClient, MomoProviderError } from './mtnMomo.js';
 import { sendWebPush } from './webPush.js';
@@ -30,6 +39,13 @@ function validDate(value) {
   if (typeof value !== 'string' || !DATE_RE.test(value)) return false;
   const date = new Date(`${value}T00:00:00Z`);
   return Number.isFinite(date.valueOf()) && date.toISOString().slice(0, 10) === value;
+}
+
+// node-postgres returns DATE columns as local-midnight Date objects; embedded
+// SQL engines can return ISO strings. Compare calendar days consistently.
+function databaseDate(value) {
+  if (value instanceof Date) return `${value.getFullYear()}-${String(value.getMonth()+1).padStart(2,'0')}-${String(value.getDate()).padStart(2,'0')}`;
+  return String(value).slice(0,10);
 }
 function csvCell(value) {
   let text = value == null ? '' : String(value);
@@ -113,6 +129,15 @@ async function audit(req, action, entityType, entityId, details = {}) {
     [req.auth.claims.schoolId, req.auth.claims.userId, action, entityType, entityId, JSON.stringify(details)]
   );
 }
+function canAccessFamilyOffice(account) {
+  return account.roles.some(role => ['SCHOOL_ADMIN', 'PRINCIPAL', 'CAMPUS_ADMIN'].includes(role));
+}
+async function needsFamilyOffice(req, res, next) {
+  if (!canAccessFamilyOffice(req.auth.account)) {
+    await close(req, false); return res.status(403).json({ error: 'School office access is required for guardian conversations.' });
+  }
+  next();
+}
 function needsPermission(code) {
   return async (req, res, next) => {
     if (!req.auth.account.permissions.includes(code)) {
@@ -194,10 +219,30 @@ async function createAndSendInvitation(client, { schoolId, userId, email, fullNa
   await sendInvitation({ email, fullName, role, token });
 }
 
-export function createOperationsRouter({ authenticate, sendInvitation = sendAccountInvitation, pool = null, momoClient = createMomoClient() }) {
+async function linkOrCreateStaffRecord(client,{schoolId,userId,employeeNumber,fullName,email,jobTitle}) {
+  const existing=await client.query('SELECT id,user_id,employee_number,email,employment_status FROM staff_records WHERE school_id=$1 AND (employee_number=$2 OR lower(email)=$3) FOR UPDATE',[schoolId,employeeNumber,email]);
+  if(existing.rowCount){
+    const staff=existing.rows[0];
+    if(existing.rowCount!==1||staff.user_id||staff.employee_number!==employeeNumber||String(staff.email).toLowerCase()!==email||staff.employment_status!=='ACTIVE'){
+      throw Object.assign(new Error('Review the existing employee record before linking an account.'),{code:'23505'});
+    }
+    const linked=await client.query('UPDATE staff_records SET user_id=$3,updated_at=now() WHERE school_id=$1 AND id=$2 AND user_id IS NULL RETURNING id',[schoolId,staff.id,userId]);
+    if(!linked.rowCount)throw Object.assign(new Error('Employee account link changed.'),{code:'23505'});
+    return linked.rows[0];
+  }
+  const names=fullName.split(/\s+/);
+  const created=await client.query(`INSERT INTO staff_records(school_id,user_id,employee_number,first_name,last_name,email,job_title)
+    VALUES($1,$2,$3,$4,$5,$6,$7) RETURNING id`,[schoolId,userId,employeeNumber,names[0],names.slice(1).join(' ')||names[0],email,jobTitle]);
+  return created.rows[0];
+}
+
+export function createOperationsRouter({ authenticate, sendExaminationEmail=sendExamEmail, sendInvitation = sendAccountInvitation, pool = null, momoClient = createMomoClient(), sendSms=sendSchoolSms }) {
   const router = express.Router();
   router.use(authenticate);
   router.use((_req, res, next) => { res.setHeader('Cache-Control', 'no-store'); next(); });
+  registerHrRecruitmentRoutes(router,{csrf,close,done,fail,audit});
+  registerStaffWorkflowRoutes(router,{csrf,close,done,fail,audit});
+  registerIntegrationReadiness(router,{close,done});
 
   async function pushToUser(schoolId, userId, payload) {
     if (!pool || !process.env.VAPID_PUBLIC_KEY || !process.env.VAPID_PRIVATE_KEY || !process.env.VAPID_SUBJECT) return;
@@ -1056,7 +1101,7 @@ export function createOperationsRouter({ authenticate, sendInvitation = sendAcco
       await close(req, false);
       const result = await momoClient.requestToPay({
         referenceId, externalId: `RIA-SANDBOX-${randomUUID()}`, amount, currency: 'EUR', msisdn,
-        payerMessage: 'Redeemer sandbox integration test', payeeNote: 'Test only; no school invoice',
+        payerMessage: 'School sandbox integration test', payeeNote: 'Test only; no school invoice',
       });
       return res.status(202).json({ referenceId: result.referenceId, status: result.status, message: 'MTN accepted the sandbox request. Check its status below; no student account or invoice was changed.' });
     } catch (error) {
@@ -1131,9 +1176,9 @@ export function createOperationsRouter({ authenticate, sendInvitation = sendAcco
         ON CONFLICT (school_id, provider, environment) DO UPDATE SET enabled = true, updated_at = now(), config = EXCLUDED.config
         RETURNING id`, [schoolId, momoClient.config.environment, JSON.stringify({ currency: momoClient.config.currency, feeRateBps: momoClient.config.feeRateBps })]);
       const inserted = await req.auth.client.query(`INSERT INTO payment_intents
-          (id, school_id, invoice_id, provider_profile_id, payment_id, idempotency_key, provider_reference, amount, currency, payer_msisdn_last4, status, expires_at)
-        VALUES ($1,$2,$3,$4,NULL,$5,$6,$7,$8,$9,'CREATED',now() + interval '15 minutes')
-        RETURNING id`, [intentId, schoolId, invoiceId, profile.rows[0].id, randomUUID(), referenceId, (amountCents / 100).toFixed(2), row.currency, payerPhone.slice(-4)]);
+          (id, school_id, invoice_id, provider_profile_id, payment_id, idempotency_key, provider_reference, amount, currency, payer_msisdn_last4, status, expires_at,fee_rate_bps,fee_agreement_ref)
+        VALUES ($1,$2,$3,$4,NULL,$5,$6,$7,$8,$9,'CREATED',now() + interval '15 minutes',$10,$11)
+        RETURNING id`, [intentId, schoolId, invoiceId, profile.rows[0].id, randomUUID(), referenceId, (amountCents / 100).toFixed(2), row.currency, payerPhone.slice(-4),momoClient.config.feeRateBps,momoClient.config.feeAgreementRef]);
       invoiceNumber = row.invoice_number;
       await audit(req, 'MTN_MOMO_PAYMENT_REQUEST_CREATED', 'PAYMENT_INTENT', inserted.rows[0].id,
         { invoiceId, invoiceNumber, amount: (amountCents / 100).toFixed(2), currency: row.currency, msisdnLast4: payerPhone.slice(-4) });
@@ -1143,7 +1188,7 @@ export function createOperationsRouter({ authenticate, sendInvitation = sendAcco
     let providerAccepted = false;
     try {
       await momoClient.requestToPay({ referenceId, externalId: intentId, amount: (amountCents / 100).toFixed(2), currency: momoClient.config.currency, msisdn: payerPhone,
-        payerMessage: `Redeemer fees ${invoiceNumber}`, payeeNote: `Invoice ${invoiceNumber}` });
+        payerMessage: `School fees ${invoiceNumber}`, payeeNote: `Invoice ${invoiceNumber}` });
       providerAccepted = true;
       await withTenantTransaction(pool, schoolId, async client => {
         await client.query(`UPDATE payment_intents SET status = 'PENDING', provider_status = 'ACCEPTED' WHERE school_id = $1 AND id = $2 AND status = 'CREATED'`, [schoolId, intentId]);
@@ -1209,7 +1254,7 @@ export function createOperationsRouter({ authenticate, sendInvitation = sendAcco
       const amountMatches = provider.amount !== null && Math.round(Number(provider.amount) * 100) === Math.round(Number(intent.amount) * 100);
       const detailsMatch = amountMatches && provider.currency === intent.currency && provider.externalId === intent.id;
       const saved = await withTenantTransaction(pool, schoolId, async client => {
-        const locked = await client.query(`SELECT pi.id, pi.invoice_id, pi.payment_id, pi.provider_reference, pi.amount::text, pi.currency, pi.status,
+        const locked = await client.query(`SELECT pi.id, pi.invoice_id, pi.payment_id, pi.provider_reference, pi.amount::text, pi.currency, pi.status,pi.fee_rate_bps,pi.fee_agreement_ref,
             fi.invoice_number, fi.status AS invoice_status, fi.student_id,
             COALESCE(lines.total,0) AS total, COALESCE(alloc.paid,0) AS paid
           FROM payment_intents pi JOIN fee_invoices fi ON fi.school_id = pi.school_id AND fi.id = pi.invoice_id
@@ -1227,17 +1272,22 @@ export function createOperationsRouter({ authenticate, sendInvitation = sendAcco
             JSON.stringify({ providerReference: row.provider_reference, requestedAmount: row.amount, providerAmount: provider.amount, requestedCurrency: row.currency, providerCurrency: provider.currency, externalIdMatches: provider.externalId === intentId })]);
           return { status: 'REVIEW', receipt: null, fee: null };
         }
+        if(!Number.isInteger(row.fee_rate_bps)||row.fee_rate_bps<0||row.fee_rate_bps>10000||!row.fee_agreement_ref){
+          await client.query("UPDATE payment_intents SET status='REVIEW',provider_status='SUCCESSFUL_FEE_AGREEMENT_MISSING',completed_at=now() WHERE school_id=$1 AND id=$2",[schoolId,intentId]);
+          await client.query("INSERT INTO audit_events(school_id,actor_user_id,action,entity_type,entity_id,details) VALUES($1,$2,'MTN_MOMO_FEE_REVIEW_REQUIRED','PAYMENT_INTENT',$3,$4::jsonb)",[schoolId,userId,intentId,JSON.stringify({providerReference:row.provider_reference})]);
+          return {status:'REVIEW',receipt:null,fee:null};
+        }
         const receivedCents = Math.round(Number(row.amount) * 100);
         const balanceCents = Math.max(0, Math.round((Number(row.total) - Number(row.paid)) * 100));
         const canAllocate = receivedCents <= balanceCents;
         const receipt = `RIA-${new Date().toISOString().slice(0,10).replaceAll('-','')}-${randomBytes(3).toString('hex').toUpperCase()}`;
-        const feeCents = Math.round(receivedCents * momoClient.config.feeRateBps / 10_000);
+        const feeCents = Math.round(receivedCents * row.fee_rate_bps / 10_000);
         const payment = await client.query(`INSERT INTO payments
             (school_id, student_id, currency, amount, channel, status, provider_transaction_id, receipt_number, cashier_user_id, received_at, note, provider_fee_amount, provider_fee_rate_bps)
           VALUES ($1,$2,$3,$4,'MTN_MOMO','SUCCEEDED',$5,$6,$7,now(),$8,$9,$10)
           RETURNING id, receipt_number, amount::text, currency, channel, status, provider_fee_amount::text`,
         [schoolId, row.student_id, row.currency, (receivedCents / 100).toFixed(2), provider.financialTransactionId || row.provider_reference, receipt, userId,
-          `MTN Collections payment · ${row.invoice_number}`, (feeCents / 100).toFixed(2), momoClient.config.feeRateBps]);
+          `MTN Collections payment · ${row.invoice_number}`, (feeCents / 100).toFixed(2), row.fee_rate_bps]);
         if (canAllocate) {
           await client.query(`INSERT INTO payment_allocations (school_id, payment_id, invoice_id, amount) VALUES ($1,$2,$3,$4)`, [schoolId, payment.rows[0].id, row.invoice_id, (receivedCents / 100).toFixed(2)]);
           const nextStatus = receivedCents === balanceCents ? 'PAID' : 'PARTIALLY_PAID';
@@ -1249,11 +1299,12 @@ export function createOperationsRouter({ authenticate, sendInvitation = sendAcco
           [schoolId, intentId, nextIntentStatus, canAllocate ? 'SUCCESSFUL' : `SUCCESSFUL_${reviewCode}`, payment.rows[0].id]);
         await client.query(`INSERT INTO audit_events (school_id, actor_user_id, action, entity_type, entity_id, details)
           VALUES ($1,$2,$3,'PAYMENT',$4,$5::jsonb)`, [schoolId, userId, canAllocate ? 'MTN_MOMO_PAYMENT_ALLOCATED' : 'MTN_MOMO_PAYMENT_REQUIRES_REVIEW', payment.rows[0].id,
-          JSON.stringify({ intentId, invoiceId: row.invoice_id, providerReference: row.provider_reference, receipt, grossAmount: (receivedCents / 100).toFixed(2), feeAmount: (feeCents / 100).toFixed(2), feeRateBps: momoClient.config.feeRateBps })]);
+          JSON.stringify({ intentId, invoiceId: row.invoice_id, providerReference: row.provider_reference, receipt, grossAmount: (receivedCents / 100).toFixed(2), feeAmount: (feeCents / 100).toFixed(2), feeRateBps: row.fee_rate_bps,feeAgreementRef:row.fee_agreement_ref })]);
         return { status: nextIntentStatus, receipt: payment.rows[0].receipt_number, fee: payment.rows[0].provider_fee_amount };
       });
       const message = saved.status === 'SUCCEEDED' ? `Payment confirmed and allocated. Receipt ${saved.receipt}; MTN fee LRD ${saved.fee}.`
-        : 'MTN confirmed the transfer, but its details or the invoice balance changed. The payment was recorded as unallocated for finance review.';
+        : saved.receipt ? 'MTN confirmed the transfer, but the invoice balance changed. The payment was recorded as unallocated for Finance review.'
+          : 'MTN confirmed the transfer, but its details or recorded fee agreement require Finance review before a receipt can be issued. Do not start another collection for this transfer.';
       return res.json({ status: saved.status, receipt: saved.receipt, providerFee: saved.fee, message });
     } catch (error) {
       if (error instanceof MomoProviderError) return res.status(502).json({ error: error.message });
@@ -1666,10 +1717,10 @@ export function createOperationsRouter({ authenticate, sendInvitation = sendAcco
       if (current.rowCount !== 1) { await close(req, false); return res.status(409).json({ error: 'Multiple active class enrollments were found. A school administrator must resolve this inconsistency before transfer.' }); }
       const from = current.rows[0];
       if (String(from.class_group_id) === classGroupId) { await close(req, false); return res.status(400).json({ error: 'Choose a different destination class.' }); }
-      if (effectiveOn < String(from.enrolled_on).slice(0, 10)) { await close(req, false); return res.status(400).json({ error: 'The transfer date cannot be before the current class enrollment date.' }); }
+      if (effectiveOn < databaseDate(from.enrolled_on)) { await close(req, false); return res.status(400).json({ error: 'The transfer date cannot be before the current class enrollment date.' }); }
       const openHistory = await req.auth.client.query(`SELECT effective_on FROM student_enrollment_history
         WHERE school_id=$1 AND student_id=$2 AND class_group_id=$3 AND ended_on IS NULL ORDER BY effective_on DESC LIMIT 1 FOR UPDATE`, [schoolId, req.params.studentId, from.class_group_id]);
-      if (openHistory.rowCount && effectiveOn < String(openHistory.rows[0].effective_on).slice(0, 10)) { await close(req, false); return res.status(400).json({ error: 'The transfer date cannot be before the recorded start of this class enrollment.' }); }
+      if (openHistory.rowCount && effectiveOn < databaseDate(openHistory.rows[0].effective_on)) { await close(req, false); return res.status(400).json({ error: 'The transfer date cannot be before the recorded start of this class enrollment.' }); }
       const target = await req.auth.client.query(`SELECT id, name, academic_year_id, campus_id FROM class_groups
         WHERE school_id=$1 AND id=$2 FOR UPDATE`, [schoolId, classGroupId]);
       if (!target.rowCount) { await close(req, false); return res.status(400).json({ error: 'Choose a destination class belonging to this school.' }); }
@@ -1685,7 +1736,7 @@ export function createOperationsRouter({ authenticate, sendInvitation = sendAcco
         await req.auth.client.query(`INSERT INTO student_enrollment_history
           (school_id,student_id,academic_year_id,campus_id,class_group_id,status,effective_on,ended_on,reason,recorded_by)
           VALUES($1,$2,$3,$4,$5,'TRANSFERRED_OUT',$6,$7,$8,$9)`,
-        [schoolId, req.params.studentId, from.academic_year_id, from.campus_id, from.class_group_id, String(from.enrolled_on).slice(0, 10), effectiveOn, reason, req.auth.claims.userId]);
+        [schoolId, req.params.studentId, from.academic_year_id, from.campus_id, from.class_group_id, databaseDate(from.enrolled_on), effectiveOn, reason, req.auth.claims.userId]);
       }
       await req.auth.client.query(`INSERT INTO student_enrollment_history
         (school_id,student_id,academic_year_id,campus_id,class_group_id,status,effective_on,reason,recorded_by)
@@ -1775,6 +1826,13 @@ export function createOperationsRouter({ authenticate, sendInvitation = sendAcco
     try{
       if(!await requireEntranceExamSchema(req,res)) return;
       const schoolId=req.auth.claims.schoolId;
+      if(process.env.ENABLE_CANDIDATE_EXAM_PREVIEW==='true'){
+        const draft=await req.auth.client.query('SELECT mode FROM admission_entrance_exams WHERE school_id=$1 AND id=$2 FOR UPDATE',[schoolId,examId]);
+        if(draft.rows[0]?.mode==='ONLINE'){
+          const approved=await req.auth.client.query('SELECT id FROM admission_exam_question_sets WHERE school_id=$1 AND exam_id=$2',[schoolId,examId]);
+          if(!approved.rowCount){await close(req,false);return res.status(409).json({error:'Leadership must approve the online examination questions before scheduling.'});}
+        }
+      }
       const updated=await req.auth.client.query(`UPDATE admission_entrance_exams e
         SET status='SCHEDULED'
         WHERE e.school_id=$1 AND e.id=$2 AND e.status='DRAFT' AND e.starts_at>now()
@@ -1835,6 +1893,146 @@ export function createOperationsRouter({ authenticate, sendInvitation = sendAcco
         ORDER BY app.application_number LIMIT 500`,[schoolId,examId]);
       return done(req,res,200,{exam:exam.rows[0],candidates:candidates.rows,
         note:'Staff-only eligibility preview; examination sitting is not yet enabled.'});
+    }catch(error){return fail(req,res,error);}
+  });
+
+  router.post('/admissions/applications/:applicationId/guardian-email-verification',needsPermission('admissions.write'),csrf,async(req,res)=>{
+    if(process.env.ENABLE_CANDIDATE_EXAM_PREVIEW!=='true'){await close(req,false);return res.status(503).json({error:'Candidate examination preview is not enabled.'});}
+    try{
+      const schoolId=req.auth.claims.schoolId,applicationId=text(req.params.applicationId,50);
+      const challenge=await createGuardianEmailChallenge(req.auth.client,{schoolId,applicationId,
+        firstName:text(req.body?.firstName,200),lastName:text(req.body?.lastName,200),relationship:text(req.body?.relationship,100),requestedBy:req.auth.claims.userId});
+      if(!challenge.ok){await close(req,false);return res.status(409).json({error:'No matching guardian email is recorded, or the verification request limit was reached.'});}
+      await sendExaminationEmail({email:challenge.email,token:challenge.token,kind:'verify',reference:applicationId,
+        publicUrl:process.env.APP_PUBLIC_URL,apiKey:process.env.RESEND_API_KEY,from:process.env.RESEND_FROM_EMAIL,
+        staging:process.env.EMAIL_MODE!=='production',idempotencyKey:'guardian-verify-'+challenge.id});
+      await audit(req,'GUARDIAN_EMAIL_VERIFICATION_REQUESTED','ADMISSION_APPLICATION',applicationId,{verificationId:challenge.id});
+      return done(req,res,202,{notice:'Verification code sent to the recorded guardian email.'});
+    }catch(error){return fail(req,res,error);}
+  });
+
+  // Registrar/Admin issues a single-use credential only after server-verified eligibility.
+  // Deliver only to the verified guardian; never return or log the plaintext code.
+  router.post('/admissions/entrance-exams/:examId/applicants/:applicationId/credential',
+    needsPermission('admissions.write'),csrf,async(req,res)=>{
+    if(process.env.ENABLE_CANDIDATE_EXAM_PREVIEW!=='true'){await close(req,false);return res.status(503).json({error:'Candidate examination preview is not enabled.'});}
+    const examId=text(req.params.examId,50),applicationId=text(req.params.applicationId,50);
+    const uuid=/^[0-9a-f]{8}(-[0-9a-f]{4}){3}-[0-9a-f]{12}$/i;
+    if(!uuid.test(examId)||!uuid.test(applicationId)){
+      await close(req,false);return res.status(400).json({error:'Select a valid examination and applicant.'});
+    }
+    try{
+      const schema=await req.auth.client.query("SELECT to_regclass('public.admission_exam_candidate_credentials') IS NOT NULL AND to_regclass('public.admission_exam_fee_settlements') IS NOT NULL AND to_regclass('public.admission_guardian_email_verifications') IS NOT NULL AS ready");
+      if(schema.rows[0]?.ready!==true){await close(req,false);return res.status(503).json({error:'Candidate credential storage requires reviewed migrations 103–107.'});}
+      const schoolId=req.auth.claims.schoolId;
+      const recipient=await findVerifiedGuardianEmail(req.auth.client,{schoolId,applicationId,email:req.body?.guardianEmail});
+      if(!recipient){await close(req,false);return res.status(409).json({error:'Verify the applicant guardian email before sending an examination code.'});}
+      const {token,tokenHash}=issueCandidateSecret();
+      // Atomic eligibility check and insert; no credential can bypass an unpaid or invalid assignment.
+      // Issuance is only permitted ahead of exam start; the token expires 15 minutes after the exam begins
+      // or after 24 hours (whichever comes first). Candidate login independently checks
+      // guardian proof, identity scope, Finance eligibility and the sitting window.
+      const issued=await req.auth.client.query(`INSERT INTO admission_exam_candidate_credentials
+        (school_id,exam_id,application_id,token_hash,issued_by,guardian_verification_id,expires_at)
+        SELECT $1,e.id,a.application_id,$4,$5,$6,LEAST(e.starts_at+interval '15 minutes',now()+interval '24 hours')
+        FROM admission_entrance_exams e
+        JOIN admission_exam_assignments a ON a.school_id=e.school_id AND a.exam_id=e.id AND a.application_id=$3
+        JOIN admission_applications app ON app.school_id=a.school_id AND app.id=a.application_id
+        JOIN admission_exam_fee_schedules f ON f.school_id=e.school_id AND f.exam_id=e.id
+        LEFT JOIN admission_exam_fee_settlements settled ON settled.school_id=a.school_id AND settled.exam_id=a.exam_id AND settled.application_id=a.application_id
+        WHERE e.school_id=$1 AND e.id=$2 AND e.status='SCHEDULED' AND e.mode='ONLINE' AND e.starts_at>now()+interval '5 minutes'
+          AND a.status='INVITED' AND app.status NOT IN ('REJECTED','WITHDRAWN','ENROLLED')
+          AND NOT EXISTS(SELECT 1 FROM admission_exam_attempts t WHERE t.school_id=a.school_id AND t.exam_id=a.exam_id AND t.application_id=a.application_id)
+          AND (f.amount=0 OR
+            (settled.kind='WAIVER' AND settled.channel='WAIVER' AND settled.amount=0
+              AND settled.currency=f.currency AND settled.verified_at IS NOT NULL AND char_length(trim(settled.reason))>=10)
+            OR (settled.kind='PAYMENT' AND settled.amount=f.amount AND settled.currency=f.currency
+                AND settled.verified_at IS NOT NULL AND settled.channel IN ('CASH','BANK_TRANSFER','MTN_MOMO_VERIFIED')))
+          AND NOT EXISTS(SELECT 1 FROM admission_exam_candidate_credentials existing
+            WHERE existing.school_id=a.school_id AND existing.exam_id=a.exam_id AND existing.application_id=a.application_id
+            AND existing.revoked_at IS NULL AND existing.redeemed_at IS NULL)
+        RETURNING id,expires_at`,
+        [schoolId,examId,applicationId,tokenHash,req.auth.claims.userId,recipient.id]);
+      if(!issued.rowCount){await close(req,false);return res.status(409).json({error:'Applicant not eligible, examination too close, or an active credential already exists.'});}
+      await audit(req,'ENTRANCE_EXAM_CREDENTIAL_ISSUED','ADMISSION_APPLICATION',applicationId,{examId,credentialId:issued.rows[0].id});
+      await sendExaminationEmail({email:recipient.email,token,kind:'access',reference:examId,
+        publicUrl:process.env.APP_PUBLIC_URL,apiKey:process.env.RESEND_API_KEY,from:process.env.RESEND_FROM_EMAIL,
+        staging:process.env.EMAIL_MODE!=='production',idempotencyKey:'exam-access-'+issued.rows[0].id});
+      return done(req,res,201,{credential:{id:issued.rows[0].id,expiresAt:issued.rows[0].expires_at},
+        notice:'Examination code sent to the verified guardian email.'});
+    }catch(error){return fail(req,res,error);}
+  });
+
+  registerWebsiteRequestStaffRoutes(router,{csrf,close,done,fail,audit});
+  registerExamMarkingRoutes(router,{needsPermission,csrf,close,done,fail,audit,sendExamMessage:sendExaminationEmail});
+
+  router.get('/admissions/entrance-exams/:examId/questions',needsPermission('admissions.read'),async(req,res)=>{
+    if(process.env.ENABLE_CANDIDATE_EXAM_PREVIEW!=='true'){await close(req,false);return res.status(503).json({error:'Candidate examination preview is not enabled.'});}
+    try{
+      const schoolId=req.auth.claims.schoolId,examId=text(req.params.examId,50);
+      const exam=await req.auth.client.query('SELECT id FROM admission_entrance_exams WHERE school_id=$1 AND id=$2',[schoolId,examId]);
+      if(!exam.rowCount){await close(req,false);return res.status(404).json({error:'Examination not found.'});}
+      const questions=await req.auth.client.query('SELECT id,prompt,question_type,options,points,sort_order,answer_key FROM admission_exam_questions WHERE school_id=$1 AND exam_id=$2 ORDER BY sort_order',[schoolId,examId]);
+      const published=await req.auth.client.query('SELECT id FROM admission_exam_question_sets WHERE school_id=$1 AND exam_id=$2',[schoolId,examId]);
+      return done(req,res,200,{questions:questions.rows,approved:published.rowCount>0});
+    }catch(error){return fail(req,res,error);}
+  });
+
+  router.post('/admissions/entrance-exams/:examId/publish-questions',needsPermission('admissions.read'),csrf,async(req,res)=>{
+    if(process.env.ENABLE_CANDIDATE_EXAM_PREVIEW!=='true'){await close(req,false);return res.status(503).json({error:'Candidate examination preview is not enabled.'});}
+    if(!req.auth.account.roles.some(role=>['SCHOOL_ADMIN','PRINCIPAL'].includes(role))){await close(req,false);return res.status(403).json({error:'Only the Principal or School Administrator may approve examination questions.'});}
+    try{
+      const schoolId=req.auth.claims.schoolId,examId=text(req.params.examId,50);
+      const exam=await req.auth.client.query("SELECT id FROM admission_entrance_exams WHERE school_id=$1 AND id=$2 AND mode='ONLINE' AND status='DRAFT' AND starts_at>clock_timestamp() FOR UPDATE",[schoolId,examId]);
+      if(!exam.rowCount){await close(req,false);return res.status(409).json({error:'Approve questions while the online examination is still a future draft.'});}
+      const questions=await req.auth.client.query('SELECT id,prompt,question_type,options,points,sort_order,answer_key FROM admission_exam_questions WHERE school_id=$1 AND exam_id=$2 ORDER BY sort_order',[schoolId,examId]);
+      if(questions.rowCount<1||questions.rowCount>100){await close(req,false);return res.status(409).json({error:'An examination needs between 1 and 100 reviewed questions.'});}
+      const keys=Object.fromEntries(questions.rows.map(q=>[q.id,q.answer_key]));
+      const snapshot=questions.rows.map(({id,prompt,question_type,options,points,sort_order})=>({id,prompt,question_type,options,points,sort_order}));
+      const published=await req.auth.client.query('INSERT INTO admission_exam_question_sets(school_id,exam_id,questions,answer_keys,published_by) VALUES($1,$2,$3::jsonb,$4::jsonb,$5) ON CONFLICT(school_id,exam_id) DO NOTHING RETURNING id',[schoolId,examId,JSON.stringify(snapshot),JSON.stringify(keys),req.auth.claims.userId]);
+      if(!published.rowCount){await close(req,false);return res.status(409).json({error:'Questions have already been approved and frozen.'});}
+      await audit(req,'ENTRANCE_EXAM_QUESTIONS_APPROVED','ADMISSION_ENTRANCE_EXAM',examId,{questionSetId:published.rows[0].id,questionCount:questions.rowCount});
+      return done(req,res,201,{approved:true,questionCount:questions.rowCount});
+    }catch(error){return fail(req,res,error);}
+  });
+
+  // Staff-only question authoring. No applicant question delivery or answer-key exposure.
+  // Migration 104 is required and must be independently reviewed before applying in staging.
+  router.post('/admissions/entrance-exams/:examId/questions',needsPermission('admissions.write'),csrf,async(req,res)=>{
+    if(process.env.ENABLE_CANDIDATE_EXAM_PREVIEW!=='true'){await close(req,false);return res.status(503).json({error:'Candidate examination preview is not enabled.'});}
+    const examId=text(req.params.examId,50);
+    const prompt=text(req.body?.prompt,5000);
+    const kind=text(req.body?.questionType,20).toUpperCase();
+    const points=req.body?.points;
+    const order=req.body?.sortOrder;
+    const options=req.body?.options;
+    const key=req.body?.answerKey;
+    const validUUID=/^[0-9a-f]{8}(-[0-9a-f]{4}){3}-[0-9a-f]{12}$/i.test(examId);
+    const validChoice=kind==='SINGLE_CHOICE' && Array.isArray(options) && options.length>=2 && options.length<=8
+      && options.every(x=>typeof x==='string' && x.trim().length>=1 && x.length<=500)
+      && Number.isInteger(key) && key>=0 && key<options.length;
+    const validShort=kind==='SHORT_ANSWER' && (options===null || options===undefined)
+      && typeof key==='string' && key.trim().length>0 && key.length<=1000;
+    if(!validUUID || prompt.length<3 || !Number.isFinite(points) || points<=0 || points>100 ||
+       !Number.isInteger(order) || order<1 || order>10000 || !(validChoice||validShort)){
+      await close(req,false);return res.status(400).json({error:'Enter a valid question, answer key, points and sequence.'});
+    }
+    try{
+      const exists=await req.auth.client.query("SELECT to_regclass('public.admission_exam_questions') IS NOT NULL AS ready");
+      if(!exists.rows[0]?.ready){await close(req,false);return res.status(503).json({error:'Question bank requires reviewed migration 104.'});}
+      const schoolId=req.auth.claims.schoolId;
+      await req.auth.client.query('SELECT id FROM admission_entrance_exams WHERE school_id=$1 AND id=$2 FOR UPDATE',[schoolId,examId]);
+      const created=await req.auth.client.query(`INSERT INTO admission_exam_questions
+        (school_id,exam_id,prompt,question_type,options,answer_key,points,sort_order,created_by)
+        SELECT $1,e.id,$3,$4,$5::jsonb,$6::jsonb,$7,$8,$9
+        FROM admission_entrance_exams e WHERE e.school_id=$1 AND e.id=$2 AND e.status='DRAFT'
+          AND NOT EXISTS (SELECT 1 FROM admission_exam_question_sets p WHERE p.school_id=e.school_id AND p.exam_id=e.id)
+          AND NOT EXISTS (SELECT 1 FROM admission_exam_attempts t WHERE t.school_id=e.school_id AND t.exam_id=e.id)
+        RETURNING id,exam_id,prompt,question_type,options,points,sort_order`,
+      [schoolId,examId,prompt,kind,validChoice?JSON.stringify(options):null,JSON.stringify(key),points,order,req.auth.claims.userId]);
+      if(!created.rowCount){await close(req,false);return res.status(409).json({error:'Questions can only be added to draft exams before attempts exist.'});}
+      await audit(req,'ENTRANCE_EXAM_QUESTION_CREATED','ADMISSION_ENTRANCE_EXAM',examId,{questionId:created.rows[0].id,kind,points,order});
+      return done(req,res,201,{question:created.rows[0]});
     }catch(error){return fail(req,res,error);}
   });
 
@@ -1919,7 +2117,8 @@ export function createOperationsRouter({ authenticate, sendInvitation = sendAcco
     }catch(error){return fail(req,res,error);}
   });
 
-  // Allow authorized staff to correct mistaken timezone entry before the session begins.
+  // Unpublished drafts can be moved to a future window even after their old date.
+  // Published sessions remain protected once they begin.
   // Existing applicant assignments and payment references remain unchanged.
   router.post('/admissions/entrance-exams/:examId/reschedule',needsPermission('admissions.write'),csrf,async(req,res)=>{
     const examId=req.params.examId;
@@ -1937,13 +2136,14 @@ export function createOperationsRouter({ authenticate, sendInvitation = sendAcco
       const updated=await req.auth.client.query(`UPDATE admission_entrance_exams e
         SET starts_at=$3,ends_at=$4
         WHERE e.school_id=$1 AND e.id=$2 AND e.status IN ('DRAFT','SCHEDULED')
-          AND e.starts_at>now()
+          AND (e.status='DRAFT' OR e.starts_at>clock_timestamp())
+          AND $3::timestamptz>clock_timestamp()
           AND NOT EXISTS(SELECT 1 FROM admission_exam_assignments a
             WHERE a.school_id=e.school_id AND a.exam_id=e.id
               AND (a.status IN ('ATTENDED','COMPLETED') OR a.score IS NOT NULL))
         RETURNING id,title,starts_at,ends_at,status`,
         [schoolId,examId,start.toISOString(),end.toISOString()]);
-      if(!updated.rowCount){await close(req,false);return res.status(409).json({error:'Only future drafts or scheduled sessions with no attendance or grades can be corrected.'});}
+      if(!updated.rowCount){await close(req,false);return res.status(409).json({error:'Choose a future time for an unpublished draft or a session that has not started. Attended or graded sessions cannot be corrected.'});}
       await audit(req,'ENTRANCE_EXAM_TIME_CORRECTED','ADMISSION_ENTRANCE_EXAM',examId,{startsAt:start.toISOString(),endsAt:end.toISOString()});
       return done(req,res,200,{exam:updated.rows[0]});
     }catch(error){return fail(req,res,error);}
@@ -2370,9 +2570,9 @@ export function createOperationsRouter({ authenticate, sendInvitation = sendAcco
     if(!['APPROVE','REJECT'].includes(decision)||(decision==='REJECT'&&!reason)){await close(req,false);return res.status(400).json({error:'Choose approve or reject; a reason is required when rejecting.'});}
     try{
       const status=decision==='APPROVE'?'APPROVED':'REJECTED';
-      const result=await req.auth.client.query(`UPDATE procurement_requests SET status=$3,approved_by=CASE WHEN $3='APPROVED' THEN $4 ELSE NULL END,approved_at=CASE WHEN $3='APPROVED' THEN now() ELSE NULL END,decided_at=now(),decision_reason=NULLIF($5,'')
-        WHERE school_id=$1 AND id=$2 AND status='SUBMITTED' RETURNING id,request_number,status,decision_reason`,[req.auth.claims.schoolId,req.params.requestId,status,req.auth.claims.userId,reason]);
-      if(!result.rowCount){await close(req,false);return res.status(409).json({error:'This request is no longer waiting for approval.'});}
+      const result=await req.auth.client.query(`UPDATE procurement_requests SET status=$3,approved_by=CASE WHEN $3='APPROVED' THEN $4::uuid ELSE NULL END,approved_at=CASE WHEN $3='APPROVED' THEN now() ELSE NULL END,decided_at=now(),decision_reason=$5
+        WHERE school_id=$1 AND id=$2 AND status='SUBMITTED' AND requested_by<>$4::uuid RETURNING id,request_number,status,decision_reason`,[req.auth.claims.schoolId,req.params.requestId,status,req.auth.claims.userId,reason]);
+      if(!result.rowCount){await close(req,false);return res.status(409).json({error:'This request is unavailable for review. Another authorized staff member must review a request you submitted.'});}
       await audit(req,`PROCUREMENT_REQUEST_${status}`,'PROCUREMENT_REQUEST',result.rows[0].id,{requestNumber:result.rows[0].request_number,reason});
       return done(req,res,200,{request:result.rows[0]});
     }catch(error){return fail(req,res,error);}
@@ -2401,8 +2601,8 @@ export function createOperationsRouter({ authenticate, sendInvitation = sendAcco
   router.post('/inventory/orders/:orderId/approve', needsPermission('inventory.approve'), csrf, async(req,res)=>{
     try{
       const result=await req.auth.client.query(`UPDATE purchase_orders SET status='APPROVED',approved_by=$3,approved_at=now(),ordered_at=now()
-        WHERE school_id=$1 AND id=$2 AND status='SUBMITTED' RETURNING id,purchase_order_number,status,ordered_at`,[req.auth.claims.schoolId,req.params.orderId,req.auth.claims.userId]);
-      if(!result.rowCount){await close(req,false);return res.status(409).json({error:'This purchase order is no longer waiting for approval.'});}
+        WHERE school_id=$1 AND id=$2 AND status='SUBMITTED' AND requested_by<>$3 RETURNING id,purchase_order_number,status,ordered_at`,[req.auth.claims.schoolId,req.params.orderId,req.auth.claims.userId]);
+      if(!result.rowCount){await close(req,false);return res.status(409).json({error:'This order is unavailable for approval. Another authorized staff member must approve an order you submitted.'});}
       await req.auth.client.query(`UPDATE procurement_requests SET status='ORDERED' WHERE school_id=$1 AND id=(SELECT procurement_request_id FROM purchase_orders WHERE school_id=$1 AND id=$2) AND status='APPROVED'`,[req.auth.claims.schoolId,req.params.orderId]);
       await audit(req,'PURCHASE_ORDER_APPROVED','PURCHASE_ORDER',result.rows[0].id,{purchaseOrderNumber:result.rows[0].purchase_order_number});
       return done(req,res,200,{order:result.rows[0]});
@@ -2437,12 +2637,12 @@ export function createOperationsRouter({ authenticate, sendInvitation = sendAcco
       req.auth.client.query(`SELECT a.id,a.title,a.body,a.audience,a.status,a.created_at,a.published_at,u.full_name AS author FROM announcements a JOIN user_accounts u ON u.school_id=a.school_id AND u.id=a.created_by WHERE a.school_id=$1 ORDER BY a.created_at DESC LIMIT 200`,[schoolId]),
       req.auth.client.query(`SELECT nd.id,nd.announcement_id,a.title,nd.channel,nd.status,count(*) OVER(PARTITION BY nd.announcement_id,nd.channel) AS audience_count,nd.queued_at,nd.sent_at,nd.error_code FROM notification_deliveries nd LEFT JOIN announcements a ON a.school_id=nd.school_id AND a.id=nd.announcement_id WHERE nd.school_id=$1 ORDER BY nd.queued_at DESC LIMIT 100`,[schoolId]),
       req.auth.client.query(`SELECT id,name,grade_level FROM class_groups WHERE school_id=$1 ORDER BY grade_level,name`,[schoolId]),
-      req.auth.client.query(`SELECT t.id,t.student_id,s.first_name,s.last_name,s.student_number,t.subject,t.status,t.updated_at,g.first_name AS guardian_first_name,g.last_name AS guardian_last_name,
+      canAccessFamilyOffice(req.auth.account) ? req.auth.client.query(`SELECT t.id,t.student_id,s.first_name,s.last_name,s.student_number,t.subject,t.status,t.updated_at,g.first_name AS guardian_first_name,g.last_name AS guardian_last_name,
         (SELECT fm.body FROM family_messages fm WHERE fm.school_id=t.school_id AND fm.thread_id=t.id ORDER BY fm.created_at DESC LIMIT 1) AS latest_message,
         (SELECT count(*)::int FROM family_messages fm WHERE fm.school_id=t.school_id AND fm.thread_id=t.id AND fm.sender_user_id=t.guardian_user_id AND fm.read_at IS NULL) AS unread_count
         FROM family_message_threads t JOIN students s ON s.school_id=t.school_id AND s.id=t.student_id JOIN guardians g ON g.school_id=t.school_id AND g.user_id=t.guardian_user_id
-        WHERE t.school_id=$1 ORDER BY t.updated_at DESC LIMIT 200`,[schoolId])
-    ]);await close(req,true);return res.json({announcements:announcements.rows,deliveries:deliveries.rows,classes:classes.rows,familyThreads:familyThreads.rows,canWrite:req.auth.account.permissions.includes('communications.write'),canSendSms:req.auth.account.permissions.includes('communications.sms.send'),smsConfigured:smsReadiness(),smsProvider:smsProviderName()});}catch(error){return fail(req,res,error);}
+        WHERE t.school_id=$1 ORDER BY t.updated_at DESC LIMIT 200`,[schoolId]) : Promise.resolve({rows:[]})
+    ]);await close(req,true);return res.json({announcements:announcements.rows,deliveries:deliveries.rows,classes:classes.rows,familyThreads:familyThreads.rows,canManageFamilyMessages:canAccessFamilyOffice(req.auth.account)&&req.auth.account.permissions.includes('communications.write'),canWrite:req.auth.account.permissions.includes('communications.write'),canSendSms:req.auth.account.permissions.includes('communications.sms.send'),smsConfigured:smsReadiness(),smsProvider:smsProviderName()});}catch(error){return fail(req,res,error);}
   });
 
   router.get('/portal/family-messages', needsPermission('portal.messages.read'), async(req,res)=>{
@@ -2474,7 +2674,7 @@ export function createOperationsRouter({ authenticate, sendInvitation = sendAcco
   });
 
   router.get('/portal/family-messages/:threadId', async(req,res)=>{
-    try{const schoolId=req.auth.claims.schoolId;const userId=req.auth.claims.userId;const isParent=req.auth.account.roles.includes('PARENT');if((isParent&&!req.auth.account.permissions.includes('portal.messages.read'))||(!isParent&&!req.auth.account.permissions.includes('communications.read'))){await close(req,false);return res.status(403).json({error:'You do not have access to this family conversation.'});}
+    try{const schoolId=req.auth.claims.schoolId;const userId=req.auth.claims.userId;const isParent=req.auth.account.roles.includes('PARENT');if((isParent&&!req.auth.account.permissions.includes('portal.messages.read'))||(!isParent&&(!canAccessFamilyOffice(req.auth.account)||!req.auth.account.permissions.includes('communications.read')))){await close(req,false);return res.status(403).json({error:'You do not have access to this family conversation.'});}
       const thread=await req.auth.client.query(`SELECT t.id,t.subject,t.student_id,t.guardian_user_id,s.first_name,s.last_name FROM family_message_threads t JOIN students s ON s.school_id=t.school_id AND s.id=t.student_id WHERE t.school_id=$1 AND t.id=$2 AND ($3::boolean=false OR (t.guardian_user_id=$4 AND EXISTS (SELECT 1 FROM guardians g JOIN student_guardians sg ON sg.school_id=g.school_id AND sg.guardian_id=g.id WHERE g.school_id=t.school_id AND g.user_id=$4 AND g.active AND sg.student_id=t.student_id)))`,[schoolId,req.params.threadId,isParent,userId]);
       if(!thread.rowCount){await close(req,false);return res.status(404).json({error:'Family conversation not found.'});}
       const messages=await req.auth.client.query(`SELECT m.id,m.body,m.sender_user_id,m.created_at,m.read_at,u.full_name AS sender_name FROM family_messages m JOIN user_accounts u ON u.school_id=m.school_id AND u.id=m.sender_user_id WHERE m.school_id=$1 AND m.thread_id=$2 ORDER BY m.created_at`,[schoolId,thread.rows[0].id]);
@@ -2496,7 +2696,7 @@ export function createOperationsRouter({ authenticate, sendInvitation = sendAcco
     }catch(error){return fail(req,res,error);}
   });
 
-  router.post('/communications/family-threads/:threadId/reply', needsPermission('communications.write'), csrf, async(req,res)=>{
+  router.post('/communications/family-threads/:threadId/reply', needsPermission('communications.write'), needsFamilyOffice, csrf, async(req,res)=>{
     const body=text(req.body?.body,5000);if(!body){await close(req,false);return res.status(400).json({error:'Write a reply before sending.'});}
     try{const schoolId=req.auth.claims.schoolId;const userId=req.auth.claims.userId;const thread=await req.auth.client.query(`SELECT id,guardian_user_id,subject FROM family_message_threads WHERE school_id=$1 AND id=$2 AND status='OPEN'`,[schoolId,req.params.threadId]);
       if(!thread.rowCount){await close(req,false);return res.status(404).json({error:'Open family conversation not found.'});}
@@ -2521,13 +2721,18 @@ export function createOperationsRouter({ authenticate, sendInvitation = sendAcco
 
   router.post('/communications/:announcementId/send-sms', needsPermission('communications.sms.send'), csrf, async(req,res)=>{
     if(!smsReadiness()){await close(req,false);return res.status(503).json({error:'SMS delivery is not ready. Check the selected provider’s credentials and live-send setting in the app environment.'});}
-
-    try{const schoolId=req.auth.claims.schoolId;const announcement=await req.auth.client.query(`SELECT id,title,body,status FROM announcements WHERE school_id=$1 AND id=$2`,[schoolId,req.params.announcementId]);if(!announcement.rowCount||announcement.rows[0].status!=='PUBLISHED'){await close(req,false);return res.status(409).json({error:'Publish this school announcement before sending SMS.'});}
+    if(!pool){await close(req,false);return res.status(503).json({error:'SMS dispatch needs its durable database connection before any messages can be sent.'});}
+    try{const schoolId=req.auth.claims.schoolId;
+      const ready=await req.auth.client.query("SELECT EXISTS(SELECT 1 FROM information_schema.columns WHERE table_schema='public' AND table_name='notification_deliveries' AND column_name='dispatch_reference') AS ready");
+      if(!ready.rows[0]?.ready){await close(req,false);return res.status(503).json({error:'SMS dispatch is awaiting the reviewed database update. No messages were sent.'});}
+      const announcement=await req.auth.client.query(`SELECT id,title,body,status FROM announcements WHERE school_id=$1 AND id=$2 FOR UPDATE`,[schoolId,req.params.announcementId]);if(!announcement.rowCount||announcement.rows[0].status!=='PUBLISHED'){await close(req,false);return res.status(409).json({error:'Publish this school announcement before sending SMS.'});}
       await queueAnnouncementSms(req.auth.client,schoolId,announcement.rows[0].id);
-      const queued=await req.auth.client.query(`SELECT id,recipient_ref FROM notification_deliveries WHERE school_id=$1 AND announcement_id=$2 AND channel='SMS' AND status IN ('QUEUED','FAILED') ORDER BY queued_at LIMIT 300`,[schoolId,announcement.rows[0].id]);
-      let sent=0,failed=0;
-      for(const delivery of queued.rows){try{const {providerMessageId}=await sendSchoolSms({to:delivery.recipient_ref,message:`${announcement.rows[0].title}: ${announcement.rows[0].body}`});await req.auth.client.query(`UPDATE notification_deliveries SET status='SENT',provider_message_id=$3,sent_at=now(),error_code=NULL WHERE school_id=$1 AND id=$2`,[schoolId,delivery.id,providerMessageId]);sent++;}catch(error){await req.auth.client.query(`UPDATE notification_deliveries SET status='FAILED',error_code=$3 WHERE school_id=$1 AND id=$2`,[schoolId,delivery.id,(error instanceof Error?error.message:'Delivery failed').slice(0,120)]);failed++;}}
-      await audit(req,'ANNOUNCEMENT_SMS_DISPATCHED','ANNOUNCEMENT',announcement.rows[0].id,{sent,failed});return done(req,res,200,{sent,failed,notice:`SMS delivery finished: ${sent} sent, ${failed} failed.`});
+      const queued=await claimAnnouncementSms(req.auth.client,{schoolId,announcementId:announcement.rows[0].id,userId:req.auth.claims.userId});
+      await audit(req,'ANNOUNCEMENT_SMS_CLAIMED','ANNOUNCEMENT',announcement.rows[0].id,{claimed:queued.rows.length});
+      await close(req,true);
+      const result=await dispatchClaimedSms({deliveries:queued.rows,schoolId,announcementId:announcement.rows[0].id,userId:req.auth.claims.userId,
+        message:`${announcement.rows[0].title}: ${announcement.rows[0].body}`,sendSms,transaction:action=>withTenantTransaction(pool,schoolId,action)});
+      return res.json(result);
     }catch(error){return fail(req,res,error);}
   });
 
@@ -2712,7 +2917,7 @@ export function createOperationsRouter({ authenticate, sendInvitation = sendAcco
           FROM students s LEFT JOIN class_enrollments ce ON ce.school_id = s.school_id AND ce.student_id = s.id AND ce.status = 'ACTIVE'
           LEFT JOIN class_groups c ON c.school_id = ce.school_id AND c.id = ce.class_group_id
           WHERE s.school_id = $1 AND s.status = 'ACTIVE' ${isTeacher ? 'AND EXISTS (SELECT 1 FROM class_enrollments scoped_ce JOIN teacher_subject_assignments scoped_a ON scoped_a.school_id = scoped_ce.school_id AND scoped_a.class_group_id = scoped_ce.class_group_id WHERE scoped_ce.school_id = s.school_id AND scoped_ce.student_id = s.id AND scoped_a.teacher_id = $2)' : ''} ORDER BY s.last_name, s.first_name`, isTeacher ? [schoolId, req.auth.claims.userId] : [schoolId]),
-        req.auth.client.query(`SELECT a.id, a.class_group_id, a.academic_year_id, u.full_name AS teacher_name, s.name AS subject_name, c.name AS class_name, y.name AS academic_year_name
+        req.auth.client.query(`SELECT a.id, a.teacher_id, a.subject_id, a.class_group_id, a.academic_year_id, u.full_name AS teacher_name, s.name AS subject_name, c.name AS class_name, y.name AS academic_year_name
           FROM teacher_subject_assignments a JOIN teacher_profiles tp ON tp.school_id = a.school_id AND tp.user_id = a.teacher_id
           JOIN user_accounts u ON u.school_id = tp.school_id AND u.id = tp.user_id
           JOIN subjects s ON s.school_id = a.school_id AND s.id = a.subject_id
@@ -2890,6 +3095,18 @@ export function createOperationsRouter({ authenticate, sendInvitation = sendAcco
         }
         await close(req, false); return res.status(409).json({ error: 'This learner already has a portal account. Pending accounts can receive a new setup email by entering the same account details.' });
       }
+      // Enrollment may already have created this learner's guardian record.
+      // Link that record only after an authorized invitation request; matching an
+      // email elsewhere in the school must not silently grant family access.
+      const intakeGuardians = type === 'PARENT'
+        ? await req.auth.client.query(`SELECT g.id FROM guardians g
+            JOIN student_guardians sg ON sg.school_id=g.school_id AND sg.guardian_id=g.id
+            WHERE g.school_id=$1 AND sg.student_id=$2 AND lower(g.email)=$3
+              AND g.user_id IS NULL AND g.active FOR UPDATE OF g`, [schoolId, studentId, email])
+        : { rows: [], rowCount: 0 };
+      if (intakeGuardians.rowCount > 1) {
+        await close(req, false); return res.status(409).json({ error: 'More than one guardian record has this email for the learner. Review the guardian relationships before creating portal access.' });
+      }
       const passwordHash = await hashPassword(randomBytes(32).toString('base64url'));
       const account = await req.auth.client.query(`INSERT INTO user_accounts (school_id, email, password_hash, full_name, role, status, must_reset_password) VALUES ($1, $2, $3, $4, $5, 'ACTIVE', true) RETURNING id, email, full_name, role`, [schoolId, email, passwordHash, fullName, type]);
       await req.auth.client.query(`INSERT INTO user_role_assignments (school_id, user_id, role_id, assigned_by) SELECT $1, $2, id, $3 FROM school_roles WHERE school_id = $1 AND code = $4`, [schoolId, account.rows[0].id, req.auth.claims.userId, type]);
@@ -2897,8 +3114,15 @@ export function createOperationsRouter({ authenticate, sendInvitation = sendAcco
         await req.auth.client.query('INSERT INTO student_portal_links (school_id, student_id, user_id, linked_by) VALUES ($1, $2, $3, $4)', [schoolId, studentId, account.rows[0].id, req.auth.claims.userId]);
       } else {
         const parts = fullName.trim().split(/\s+/); const firstName = parts[0]; const lastName = parts.slice(1).join(' ') || parts[0];
-        const guardian = await req.auth.client.query(`INSERT INTO guardians (school_id, user_id, first_name, last_name, email) VALUES ($1, $2, $3, $4, $5) RETURNING id`, [schoolId, account.rows[0].id, firstName, lastName, email]);
-        await req.auth.client.query(`INSERT INTO student_guardians (school_id, student_id, guardian_id, relationship, can_view_results, can_view_finance, communication_consent) VALUES ($1, $2, $3, $4, $5, $6, $7)`, [schoolId, studentId, guardian.rows[0].id, relationship, req.body?.canViewResults !== false, Boolean(req.body?.canViewFinance), Boolean(req.body?.communicationConsent)]);
+        if (intakeGuardians.rowCount) {
+          const guardianId = intakeGuardians.rows[0].id;
+          await req.auth.client.query('UPDATE guardians SET user_id=$3 WHERE school_id=$1 AND id=$2 AND user_id IS NULL', [schoolId, guardianId, account.rows[0].id]);
+          await req.auth.client.query(`UPDATE student_guardians SET relationship=$4,can_view_results=$5,can_view_finance=$6,communication_consent=$7
+            WHERE school_id=$1 AND student_id=$2 AND guardian_id=$3`, [schoolId, studentId, guardianId, relationship, req.body?.canViewResults !== false, Boolean(req.body?.canViewFinance), Boolean(req.body?.communicationConsent)]);
+        } else {
+          const guardian = await req.auth.client.query(`INSERT INTO guardians (school_id, user_id, first_name, last_name, email) VALUES ($1, $2, $3, $4, $5) RETURNING id`, [schoolId, account.rows[0].id, firstName, lastName, email]);
+          await req.auth.client.query(`INSERT INTO student_guardians (school_id, student_id, guardian_id, relationship, can_view_results, can_view_finance, communication_consent) VALUES ($1, $2, $3, $4, $5, $6, $7)`, [schoolId, studentId, guardian.rows[0].id, relationship, req.body?.canViewResults !== false, Boolean(req.body?.canViewFinance), Boolean(req.body?.communicationConsent)]);
+        }
       }
       await createAndSendInvitation(req.auth.client, { schoolId, userId: account.rows[0].id, email, fullName, role: type, createdBy: req.auth.claims.userId }, sendInvitation);
       await audit(req, 'PORTAL_ACCOUNT_CREATED', `${type}_PORTAL`, account.rows[0].id, { studentId });
@@ -2942,9 +3166,7 @@ export function createOperationsRouter({ authenticate, sendInvitation = sendAcco
       const assigned = await req.auth.client.query(`INSERT INTO user_role_assignments (school_id, user_id, role_id, assigned_by)
         SELECT $1, $2, id, $3 FROM school_roles WHERE school_id = $1 AND code = $4 AND active RETURNING id`, [schoolId, userId, req.auth.claims.userId, role]);
       if (!assigned.rowCount) throw new Error('Configured school role could not be assigned.');
-      const nameParts = fullName.split(/\s+/);
-      await req.auth.client.query(`INSERT INTO staff_records (school_id, user_id, employee_number, first_name, last_name, email, job_title)
-        VALUES ($1, $2, $3, $4, $5, $6, $7)`, [schoolId, userId, employeeNumber, nameParts[0], nameParts.slice(1).join(' ') || nameParts[0], email, jobTitle]);
+      await linkOrCreateStaffRecord(req.auth.client,{schoolId,userId,employeeNumber,fullName,email,jobTitle});
       await createAndSendInvitation(req.auth.client, { schoolId, userId, email, fullName, role, createdBy: req.auth.claims.userId }, sendInvitation);
       await audit(req, 'STAFF_ACCOUNT_CREATED', 'STAFF_ACCOUNT', userId, { role, employeeNumber, jobTitle });
       return done(req, res, 201, { account: account.rows[0], notice: `Staff account created and password setup email sent to ${email}. The setup link expires in 48 hours.` });
@@ -2977,11 +3199,9 @@ export function createOperationsRouter({ authenticate, sendInvitation = sendAcco
       const teacherId = account.rows[0].id;
       await req.auth.client.query(`INSERT INTO user_role_assignments (school_id, user_id, role_id, assigned_by)
         SELECT $1, $2, id, $3 FROM school_roles WHERE school_id = $1 AND code = 'TEACHER'`, [schoolId, teacherId, req.auth.claims.userId]);
-      const staff = await req.auth.client.query(`INSERT INTO staff_records (school_id, user_id, employee_number, first_name, last_name, email, job_title)
-        VALUES ($1, $2, $3, $4, $5, $6, 'Teacher') RETURNING id`,
-      [schoolId, teacherId, employeeNumber, fullName.split(/\s+/)[0], fullName.split(/\s+/).slice(1).join(' ') || fullName, email]);
+      const staffRecord=await linkOrCreateStaffRecord(req.auth.client,{schoolId,userId:teacherId,employeeNumber,fullName,email,jobTitle:'Teacher'});
       await req.auth.client.query(`INSERT INTO teacher_profiles (school_id, user_id, employee_number, employment_type, active, staff_record_id)
-        VALUES ($1, $2, $3, 'FULL_TIME', true, $4)`, [schoolId, teacherId, employeeNumber, staff.rows[0].id]);
+        VALUES ($1, $2, $3, 'FULL_TIME', true, $4)`, [schoolId, teacherId, employeeNumber, staffRecord.id]);
       await createAndSendInvitation(req.auth.client, { schoolId, userId: teacherId, email, fullName, role: 'TEACHER', createdBy: req.auth.claims.userId }, sendInvitation);
       await audit(req, 'TEACHER_CREATED', 'TEACHER', teacherId, { employeeNumber });
       return done(req, res, 201, { teacher: { ...account.rows[0], employee_number: employeeNumber }, notice: `Teacher account created and password setup email sent to ${email}. The setup link expires in 48 hours.` });
@@ -3466,7 +3686,7 @@ export function createOperationsRouter({ authenticate, sendInvitation = sendAcco
   router.post('/teaching/submissions/:submissionId/review', needsPermission('assignments.review'), csrf, async(req,res)=>{
     const feedback=text(req.body?.feedback,2000);const score=req.body?.score===''||req.body?.score==null?null:Number(req.body.score);const status=text(req.body?.status,20).toUpperCase();
     if(!['RETURNED','REVIEWED'].includes(status)||(score!==null&&(!Number.isFinite(score)||score<0))){await close(req,false);return res.status(400).json({error:'Choose Return for revision or Mark reviewed, and enter a valid optional score.'});}
-    try{const isTeacher=req.auth.account.roles.includes('TEACHER');const updated=await req.auth.client.query(`UPDATE assessment_submissions sub SET status=$4,feedback=NULLIF($5,''),score=$6,reviewed_by=$3,reviewed_at=now(),updated_at=now() FROM assessments a JOIN teacher_subject_assignments ta ON ta.school_id=a.school_id AND ta.id=a.teacher_assignment_id WHERE sub.school_id=$1 AND sub.id=$2 AND a.school_id=sub.school_id AND a.id=sub.assessment_id AND ($7::boolean=false OR ta.teacher_id=$3) AND (a.status='OPEN' OR $6 IS NULL) RETURNING sub.id,sub.assessment_id,sub.student_id,sub.status,sub.score`,[req.auth.claims.schoolId,req.params.submissionId,req.auth.claims.userId,status,feedback,score,isTeacher]);
+    try{const isTeacher=req.auth.account.roles.includes('TEACHER');const updated=await req.auth.client.query(`UPDATE assessment_submissions sub SET status=$4,feedback=NULLIF($5,''),score=$6::numeric,reviewed_by=$3,reviewed_at=now(),updated_at=now() FROM assessments a JOIN teacher_subject_assignments ta ON ta.school_id=a.school_id AND ta.id=a.teacher_assignment_id WHERE sub.school_id=$1 AND sub.id=$2 AND a.school_id=sub.school_id AND a.id=sub.assessment_id AND ($7::boolean=false OR ta.teacher_id=$3) AND (a.status='OPEN' OR $6::numeric IS NULL) RETURNING sub.id,sub.assessment_id,sub.student_id,sub.status,sub.score`,[req.auth.claims.schoolId,req.params.submissionId,req.auth.claims.userId,status,feedback,score,isTeacher]);
       if(!updated.rowCount){await close(req,false);return res.status(404).json({error:'Submission not found, or you are not assigned to its class.'});}
       const item=updated.rows[0];if(score!==null){const saved=await req.auth.client.query(`INSERT INTO assessment_scores(school_id,assessment_id,student_id,score,feedback,entered_by) SELECT $1,$2,$3,$4,NULLIF($5,''),$6 WHERE $4<=(SELECT max_score FROM assessments WHERE school_id=$1 AND id=$2) ON CONFLICT(school_id,assessment_id,student_id) DO UPDATE SET score=EXCLUDED.score,feedback=EXCLUDED.feedback,entered_by=EXCLUDED.entered_by,moderated_by=NULL,moderated_at=NULL,published_at=NULL RETURNING id`,[req.auth.claims.schoolId,item.assessment_id,item.student_id,score,feedback,req.auth.claims.userId]);if(!saved.rowCount){await close(req,false);return res.status(400).json({error:'The score exceeds the assignment maximum.'});}}
       await req.auth.client.query(`INSERT INTO portal_notifications(school_id,user_id,kind,title,body,target_url) SELECT $1,spl.user_id,'ASSIGNMENT','Assignment feedback is ready',$3,'/portal' FROM student_portal_links spl WHERE spl.school_id=$1 AND spl.student_id=$2`,[req.auth.claims.schoolId,item.student_id,status==='RETURNED'?'Your teacher returned work for revision.':'Your teacher reviewed your submitted work.']);

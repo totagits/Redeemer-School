@@ -1,6 +1,13 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import {readFileSync} from 'node:fs';
+import React from 'react';
+import {renderToStaticMarkup} from 'react-dom/server';
+import {PublicSchoolPages,publicSchoolNavigation} from '../src/components/PublicSchoolPages.tsx';
+import {HomeLandingPage} from '../src/components/HomeLandingPage.tsx';
+import {SignInPage} from '../src/components/SignInPage.tsx';
+import {Header} from '../src/components/Header.tsx';
+import {isOperationsPath} from '../src/logic/publicSchoolRoutes.ts';
 const pages=readFileSync(new URL('../src/components/PublicSchoolPages.tsx',import.meta.url),'utf8');
 const header=readFileSync(new URL('../src/components/Header.tsx',import.meta.url),'utf8');
 const app=readFileSync(new URL('../src/App.tsx',import.meta.url),'utf8');
@@ -13,7 +20,29 @@ test('public navigation preserves both student and guardian portals and school a
  for(const slug of ['student-portal','guardian-portal','apply-online','school-calendar','photo-albums','principal-message','school-uniform','parent-handbook']){
   assert.ok(pages.includes(`slug:'${slug}'`),slug);
  }
- assert.match(header,/\/apply/);assert.match(header,/\/portal/);
+ const html=renderToStaticMarkup(React.createElement(PublicSchoolPages,{slug:'news-events',onApply(){},onPortalSignIn(){}}));
+ assert.match(html,/href="\/apply"[^>]*>Apply Online/);
+ assert.match(html,/href="\/portal"[^>]*>Student Portal/);
+ assert.match(html,/href="\/portal"[^>]*>Guardian Portal/);
+ assert.doesNotMatch(html,/href="\/school\/(apply-online|student-portal|guardian-portal)"/);
+ assert.match(header,/schoolNavigationHref\(item.slug\)/);
+});
+
+test('only staff and family workspace routes select authenticated operations',()=>{
+ for(const route of ['/staff','/portal'])assert.equal(isOperationsPath(route),true);
+ for(const route of ['/','/apply','/school/news-events','/school/about-us','/examination','/examination/results','/set-password','/reset-password'])assert.equal(isOperationsPath(route),false,route);
+ assert.match(app,/authAccount && isOperationsPath\(pathname\)/);
+});
+
+test('desktop menu renders canonical destinations for every submenu',()=>{
+ const html=renderToStaticMarkup(React.createElement(Header,{currentView:'home',lowStockCount:0,onSelectView(){},onPortalSignIn(){}}));
+ const links=Array.from(html.matchAll(/<a\b[^>]*href="([^"]+)"/g),match=>match[1]);
+ assert.equal(publicSchoolNavigation.flatMap(group=>group.items).length,37);
+ for(const item of publicSchoolNavigation.flatMap(group=>group.items)){
+  const expected=item.slug==='apply-online'?'/apply':['student-portal','guardian-portal'].includes(item.slug)?'/portal':'/school/'+item.slug;
+  assert.ok(links.filter(link=>link===expected).length>=1,item.label+' must be reachable in the desktop menu');
+ }
+ assert.ok(!links.some(link=>/^\/school\/(apply-online|student-portal|guardian-portal)$/.test(link)));
 });
 test('public menu pages remain distinct from protected staff operations',()=>{
  assert.match(app,/pathname\.startsWith\('\/school\/'\)/);
@@ -21,3 +50,10 @@ test('public menu pages remain distinct from protected staff operations',()=>{
  assert.doesNotMatch(pages,/Staff sign in|School Operations ERP|Finance workspace/);
  assert.doesNotMatch(header,/Staff sign in|School Operations ERP|ERP workspace setup in progress/);
 });
+
+ test('public school surfaces and family login never advertise administrative sign-in',()=>{
+ const props={onPortalSignIn(){},onApply(){}};
+ const surfaces=[React.createElement(Header,{currentView:'home',lowStockCount:0,onSelectView(){},onPortalSignIn(){}}),React.createElement(HomeLandingPage,props),React.createElement(SignInPage,{audience:'PORTAL',onCancel(){},onSignedIn(){}}),...publicSchoolNavigation.flatMap(group=>group.items).filter(item=>!['apply-online','student-portal','guardian-portal'].includes(item.slug)).map(item=>React.createElement(PublicSchoolPages,{slug:item.slug,...props}))];
+ for(const surface of surfaces){const html=renderToStaticMarkup(surface);assert.doesNotMatch(html,/(?:href|action)="[^"#]*\/staff(?:[?"/]|$)/);assert.doesNotMatch(html,/School staff sign-in|Sign in to Redeemer ERP|Staff login|ERP login/i);}
+ const family=renderToStaticMarkup(React.createElement(SignInPage,{audience:'PORTAL',onCancel(){},onSignedIn(){}}));assert.match(family,/Student &amp; family portal/);
+ });

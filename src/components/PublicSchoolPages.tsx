@@ -1,4 +1,9 @@
+import {INSTITUTION,IS_CONFIGURED_INSTITUTION} from '../data/institution.ts';
+import {WEBSITE_DEFAULTS} from './PublishedWebsiteContent.tsx';
+import {PublishedPageAssets,usePublishedPage,useWebsiteProfile,type WebsiteImage,type WebsiteDocument} from './PublishedWebsiteContent.tsx';
+import { PublicWebsiteRequestForm } from './PublicWebsiteRequestForm.tsx';
 import React from 'react';
+import { schoolNavigationHref } from '../logic/publicSchoolRoutes.ts';
 import { PublicSchoolUpdates } from './PublicSchoolUpdates.tsx';
 import { LiveAdmissionsGuide, SchoolFAQ, PublicSchoolSupport } from './SchoolPublicUtilities.tsx';
 import { ArrowRight, BookOpen, CalendarDays, Camera, GraduationCap, HeartHandshake, MapPin, Phone, Users } from 'lucide-react';
@@ -34,8 +39,8 @@ export const publicSchoolNavigation:{label:string;items:SchoolNavItem[]}[]=[
   {label:'Guardian Portal',slug:'guardian-portal'},{label:'News & Events',slug:'news-events'}]}
 ];
 
-type PageData={eyebrow:string;heading:string;intro:string;sections:{title:string;body:string}[]};
-const pages:Record<string,PageData>={
+type PageData={eyebrow:string;heading:string;intro:string;sections:{title:string;body:string}[];images?:WebsiteImage[];documents?:WebsiteDocument[]};
+export const pages:Record<string,PageData>={
  'about-us':{eyebrow:'School Info',heading:'About Redeemer’s International Academy',intro:'Redeemer’s International Academy, established in 2022, serves its school community in Thinker’s Village, Paynesville, Liberia.',sections:[{title:'Our school community',body:'The school brings learners, families, educators and community members together around academic and moral excellence.'},{title:'Visit our campus',body:'Families who wish to learn more about our school can contact the school office to arrange a visit.'}]},
  'mission-values':{eyebrow:'School Info',heading:'Our Mission & Values',intro:'Academic and Moral Excellence is the guiding motto of Redeemer’s International Academy.',sections:[{title:'Learning',body:'We seek to support curiosity, discipline and strong foundational learning.'},{title:'Character',body:'Respect, responsibility and service are central to our school community.'},{title:'Family partnership',body:'Parents and guardians are essential partners in each child’s education.'}]},
  'faculty-staff':{eyebrow:'School Info',heading:'Faculty & Staff',intro:'Meet the teachers and staff who support learning and school life at Redeemer.',sections:[{title:'Staff directory',body:'An approved staff directory with names, roles and photographs will appear here once authorized by the school administration.'},{title:'Contact a teacher',body:'Enrolled families can communicate using their secure Student and Guardian portals.'}]},
@@ -49,7 +54,7 @@ const pages:Record<string,PageData>={
  'enrollment-process':{eyebrow:'Enroll',heading:'Enrollment Process',intro:'Learn how to begin an application to Redeemer’s International Academy.',sections:[{title:'Step 1 — Inquiry',body:'Contact the school to confirm grade availability, requirements and important dates.'},{title:'Step 2 — Apply online',body:'Complete the official online admission application and provide the requested guardian contact information.'},{title:'Step 3 — School review',body:'The Registrar reviews each application and contacts the family about the next steps.'}]},
  'admission-requirements':{eyebrow:'Enroll',heading:'Admission Requirements',intro:'Admission requirements vary according to the learner’s grade and educational history.',sections:[{title:'Before applying',body:'Contact the Registrar for current eligibility, documents, admission assessment requirements and available places.'},{title:'Official application',body:'The online application provides the current fields requested by the school.'}]},
  'admissions-fees':{eyebrow:'Enroll',heading:'Admissions & Fees',intro:'Tuition schedules and school fees are maintained by the authorized Finance team.',sections:[{title:'Fee information',body:'Request the current approved fee schedule from the school. No unapproved rates are advertised on this website.'},{title:'Existing families',body:'Students and guardians can review their authorized invoices and balances in the secure portal.'}]},
- 'school-visits':{eyebrow:'Enroll',heading:'School Visits & Inquiries',intro:'Families are welcome to contact the school to ask questions about the learning environment.',sections:[{title:'Schedule a visit',body:'Call the school office to confirm available visiting times and arrangements.'},{title:'Explore online',body:'Browse the school information and photo gallery for an introduction to the campus.'}]},
+ 'school-visits':{eyebrow:'Enroll',heading:'School Visits & Inquiries',intro:'Families are welcome to contact the school to ask questions about the learning environment.',sections:[{title:'Schedule a visit',body:'Request a preferred date using the form below or call the school office. Staff must confirm visiting arrangements before you travel.'},{title:'Explore online',body:'Browse the school information and photo gallery for an introduction to the campus.'}]},
  'academic-programs':{eyebrow:'Academics',heading:'Academic Programs',intro:'Redeemer’s academic experience focuses on knowledge, confidence and character.',sections:[{title:'Grade offerings',body:'Contact the school office for the current approved grade levels and enrollment availability.'},{title:'Learning support',body:'Teachers and families work together to monitor and support learner progress.'}]},
  'curriculum':{eyebrow:'Academics',heading:'Curriculum & Learning',intro:'The school’s teaching and learning programs are coordinated through the academic administration.',sections:[{title:'Subjects and schedules',body:'Specific subjects and class timetables are available to authorized enrolled learners and guardians through their respective portals.'},{title:'Curriculum information',body:'The school office can provide current curriculum and instructional details.'}]},
  'assessment-progress':{eyebrow:'Academics',heading:'Assessment & Progress',intro:'Assessment supports teaching decisions and keeps families informed about learning.',sections:[{title:'Grades and reports',body:'Published individual grades and reports are only available to authorized users within secure student and guardian portals.'},{title:'School performance',body:'Approved, aggregated achievements may be shared publicly when authorized.'}]},
@@ -68,7 +73,7 @@ const pages:Record<string,PageData>={
  'family-involvement':{eyebrow:'Parents',heading:'Family Involvement',intro:'A connected school community starts with engaged families.',sections:[{title:'Participate',body:'Contact the school to learn about officially organized meetings, volunteering and family involvement opportunities.'}]},
  'contact-us':{eyebrow:'Contact',heading:'Contact the School',intro:'We welcome inquiries about admissions, school life and family services.',sections:[{title:'Campus location',body:SCHOOL_CONTACT.address},{title:'Phone',body:SCHOOL_CONTACT.phones.join(' / ')}]},
  'directions':{eyebrow:'Contact',heading:'Directions & Location',intro:'Find Redeemer’s International Academy in Thinker’s Village, Paynesville.',sections:[{title:'School address',body:SCHOOL_CONTACT.address},{title:'Visiting guidance',body:'Call the school office before traveling for an appointment.'}]},
- 'request-information':{eyebrow:'Contact',heading:'Request Information',intro:'Interested in learning more about Redeemer’s International Academy?',sections:[{title:'Contact admissions',body:'Call the school using the numbers below for current admissions and school information.'}]},
+ 'request-information':{eyebrow:'Contact',heading:'Request Information',intro:'Interested in learning more about Redeemer’s International Academy?',sections:[{title:'Contact admissions',body:'Use the online request form below or call the school for current admissions and school information.'}]},
  'news-events':{eyebrow:'Quick Links',heading:'News & School Events',intro:'Find news and events officially published by the school administration.',sections:[{title:'Official announcements',body:'Publicly approved news and events are displayed on the school homepage. Private classroom notices remain available only through the secure portals.'}]}
 };
 
@@ -79,6 +84,7 @@ const schoolPhotos=[
 ];
 function PhotoAlbumPreview(){
  const [available,setAvailable]=React.useState<Record<string,boolean>>({});
+ if(IS_CONFIGURED_INSTITUTION)return null;
  return <section className="rounded-2xl border border-slate-200 bg-white p-6">
   <h2 className="text-xl font-bold">Redeemer school photographs</h2>
   <p className="mt-2 text-sm text-slate-600">Campus photographs from the school's collection. These are low-resolution previews; original photographs will replace them when reviewed and approved.</p>
@@ -89,16 +95,18 @@ function PhotoAlbumPreview(){
  </section>;
 }
 export function PublicSchoolPages({slug,onApply,onPortalSignIn}:{slug:string;onApply:()=>void;onPortalSignIn:()=>void}){
- const data=pages[slug];
+ const content=usePublishedPage(slug);const profile=useWebsiteProfile();
+ const fallback=IS_CONFIGURED_INSTITUTION?WEBSITE_DEFAULTS[slug]:pages[slug];
+ const data=content===undefined?fallback:content===null?(fallback?{...fallback,intro:'This page is being updated. Please contact the school office for current information.',sections:[],images:[],documents:[]}:undefined):content;
  if(!data)return <div className="mx-auto max-w-5xl px-5 py-20"><h1 className="text-3xl font-bold">Page not found</h1><a className="mt-4 inline-block text-blue-800 underline" href="/">Return to school homepage</a></div>;
  const group=publicSchoolNavigation.find(g=>g.items.some(item=>item.slug===slug));
  return <div className="min-h-[65vh] bg-slate-50 text-slate-900">
-  <div className="bg-[#081b3c] px-5 py-12 text-white sm:py-16">
+  <div style={IS_CONFIGURED_INSTITUTION?{backgroundColor:INSTITUTION.primaryColor}:undefined} className="bg-[#081b3c] px-5 py-12 text-white sm:py-16">
    <div className="mx-auto max-w-6xl"><p className="text-xs font-bold uppercase tracking-[.18em] text-sky-300">{data.eyebrow}</p>
     <h1 className="mt-3 max-w-4xl text-3xl font-extrabold sm:text-5xl">{data.heading}</h1><p className="mt-4 max-w-3xl text-base leading-7 text-slate-200">{data.intro}</p></div>
   </div>
   <div className="mx-auto grid max-w-6xl gap-8 px-5 py-9 md:grid-cols-[minmax(0,1fr)_250px]">
-   <main className="space-y-5">{data.sections.map(section=><section key={section.title} className="rounded-2xl border border-slate-200 bg-white p-6 shadow-sm">
+   <main className="space-y-5">{['contact-us','directions'].includes(slug)&&<section className="rounded-2xl border bg-white p-6"><h2 className="text-xl font-bold">School office</h2><p className="mt-3 leading-7">{profile.address}</p><div className="mt-3 flex flex-wrap gap-3">{profile.phones.map(phone=><a key={phone} href={`tel:${phone}`} className="text-blue-800 underline">{phone}</a>)}</div></section>}{data.sections.map(section=><section key={section.title} className="rounded-2xl border border-slate-200 bg-white p-6 shadow-sm">
      <h2 className="text-xl font-bold">{section.title}</h2><p className="mt-3 whitespace-pre-wrap leading-7 text-slate-600">{section.body}</p>
    </section>)}
    {['enrollment-process','admission-requirements','admissions-fees','school-visits'].includes(slug)&&<button onClick={onApply} className="inline-flex items-center gap-2 rounded-lg bg-blue-700 px-5 py-3 text-sm font-bold text-white">Apply for admission <ArrowRight className="h-4 w-4"/></button>}
@@ -106,14 +114,16 @@ export function PublicSchoolPages({slug,onApply,onPortalSignIn}:{slug:string;onA
    {['enrollment-process','admission-requirements','admissions-fees'].includes(slug)&&<LiveAdmissionsGuide onApply={onApply}/>}
    {slug==='parent-faq'&&<SchoolFAQ/>}
    {['contact-us','school-visits','request-information','records-requests'].includes(slug)&&<PublicSchoolSupport/>}
+   {['request-information','school-visits','records-requests'].includes(slug)&&<PublicWebsiteRequestForm category={slug==='school-visits'?'VISIT':slug==='records-requests'?'RECORDS':'ENQUIRY'}/>}
    {slug==='school-calendar'&&<PublicSchoolUpdates kind="EVENT" limit={30}/>}
    {slug==='news-events'&&<PublicSchoolUpdates kind="ALL" limit={30}/>}
    {slug==='school-events'&&<PublicSchoolUpdates kind="EVENT" limit={30}/>}
-   {slug==='photo-albums'&&<PhotoAlbumPreview/>}
+   {slug==='photo-albums'&&content!==null&&!data.images?.length&&<PhotoAlbumPreview/>}
+   <PublishedPageAssets page={data}/>
    </main>
-   <aside className="self-start rounded-2xl border border-slate-200 bg-white p-5 shadow-sm"><h2 className="font-bold">{group?.label||'Explore Redeemer'}</h2>
-    <nav aria-label="Related pages" className="mt-3 space-y-1">{group?.items.map(item=><a key={item.slug} href={`/school/${item.slug}`} aria-current={slug===item.slug?'page':undefined} className={`block rounded-lg px-3 py-2 text-sm ${slug===item.slug?'bg-blue-50 font-bold text-blue-800':'text-slate-600 hover:bg-slate-50'}`}>{item.label}</a>)}</nav>
-    <div className="mt-5 border-t pt-4"><p className="text-xs font-semibold text-slate-500">CONTACT THE SCHOOL</p>{SCHOOL_CONTACT.phones.map(phone=><a className="mt-2 flex items-center gap-2 text-sm text-blue-800" key={phone} href={`tel:${phone}`}><Phone className="h-4 w-4"/>{phone}</a>)}</div>
+   <aside className="self-start rounded-2xl border border-slate-200 bg-white p-5 shadow-sm"><h2 className="font-bold">{group?.label||'Explore our school'}</h2>
+    <nav aria-label="Related pages" className="mt-3 space-y-1">{group?.items.map(item=><a key={item.slug} href={schoolNavigationHref(item.slug)} aria-current={slug===item.slug?'page':undefined} className={`block rounded-lg px-3 py-2 text-sm ${slug===item.slug?'bg-blue-50 font-bold text-blue-800':'text-slate-600 hover:bg-slate-50'}`}>{item.label}</a>)}</nav>
+    <div className="mt-5 border-t pt-4"><p className="text-xs font-semibold text-slate-500">CONTACT THE SCHOOL</p>{profile.phones.map(phone=><a className="mt-2 flex items-center gap-2 text-sm text-blue-800" key={phone} href={`tel:${phone}`}><Phone className="h-4 w-4"/>{phone}</a>)}</div>
    </aside>
   </div>
  </div>;

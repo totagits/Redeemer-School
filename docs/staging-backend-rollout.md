@@ -1,3 +1,5 @@
+> Historical snapshot: this document predates later completed work. Use [the whole-site release checklist](whole-site-release-checklist.md) for current cross-product scope and verify current code/staging evidence before repeating setup.
+
 # Staging backend rollout
 
 This rollout adds a real sign-in/session API and the least-privilege PostgreSQL

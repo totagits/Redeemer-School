@@ -1,9 +1,15 @@
+import {INSTITUTION} from './data/institution.ts';
+import {SchoolReviewPage} from './components/SchoolReviewPage.tsx';
+import {SchoolPolicyWorksheet} from './components/SchoolPolicyWorksheet.tsx';
+import { CandidateExamResult } from './components/CandidateExamResult.tsx';
+import { isOperationsPath } from './logic/publicSchoolRoutes.ts';
 /**
  * @license
  * SPDX-License-Identifier: Apache-2.0
  */
 
 import React, { useEffect, useState } from 'react';
+import { CandidateExamSignIn } from './components/CandidateExamSignIn.tsx';
 import { Header, ERPView } from './components/Header.tsx';
 import { DashboardView } from './components/DashboardView.tsx';
 import { FinanceModule } from './components/FinanceModule.tsx';
@@ -20,27 +26,27 @@ import { OperationsWorkspace } from './components/OperationsWorkspace.tsx';
 import { PublicAdmissionsPage } from './components/PublicAdmissionsPage.tsx';
 import { THE_REDEEMER_SCHOOL_INFO } from './data/schoolProfile.ts';
 
-import { 
-  Account, 
-  JournalEntry, 
-  CustomerInvoice, 
-  VendorBill 
+import {
+  Account,
+  JournalEntry,
+  CustomerInvoice,
+  VendorBill
 } from './logic/erpFinance.ts';
 import { Employee, LeaveRequest, PayrollRun } from './logic/erpHr.ts';
 import { InventoryItem, StockMovement, processStockMovement } from './logic/erpInventory.ts';
-import { 
-  StudentProfile, 
-  AdmissionApplicant, 
-  AdmissionStatus, 
+import {
+  StudentProfile,
+  AdmissionApplicant,
+  AdmissionStatus,
   StudentDocument,
-  convertApplicantToStudent 
+  convertApplicantToStudent
 } from './logic/students.ts';
 import { StudentAttendanceRecord } from './logic/attendance.ts';
-import { 
-  ErpUser, 
-  ErpSystemRole, 
-  SecurityAuditRecord, 
-  createAuditLog 
+import {
+  ErpUser,
+  ErpSystemRole,
+  SecurityAuditRecord,
+  createAuditLog
 } from './logic/erpAuth.ts';
 
 export default function App() {
@@ -209,7 +215,7 @@ export default function App() {
       const newPaid = inv.paidAmount + amount;
       const newBal = Math.max(0, inv.totalAmount - newPaid);
       const newStatus = newBal === 0 ? 'PAID' : 'PARTIALLY_PAID';
-      
+
       handleAddJournalEntry({
         date: new Date().toISOString().split('T')[0],
         description: `Customer payment received for ${inv.invoiceNumber} (${inv.customerName})`,
@@ -332,26 +338,26 @@ export default function App() {
       date: new Date().toISOString().split('T')[0],
       description: `Monthly Payroll Run Disbursed (${payrollRun.payPeriod}) for ${payrollRun.payslips.length} Employees`,
       lines: [
-        { 
-          accountId: '5020', 
-          accountName: 'Salaries and Employee Wages', 
-          debit: payrollRun.totalGross, 
-          credit: 0, 
-          memo: `Gross Wages (${payrollRun.payPeriod})` 
+        {
+          accountId: '5020',
+          accountName: 'Salaries and Employee Wages',
+          debit: payrollRun.totalGross,
+          credit: 0,
+          memo: `Gross Wages (${payrollRun.payPeriod})`
         },
-        { 
-          accountId: '2030', 
-          accountName: 'Statutory Taxes Payable', 
-          debit: 0, 
-          credit: payrollRun.totalDeductions, 
-          memo: 'Withheld Income Tax & Pension' 
+        {
+          accountId: '2030',
+          accountName: 'Statutory Taxes Payable',
+          debit: 0,
+          credit: payrollRun.totalDeductions,
+          memo: 'Withheld Income Tax & Pension'
         },
-        { 
-          accountId: '1010', 
-          accountName: 'Cash and Operating Bank', 
-          debit: 0, 
-          credit: payrollRun.totalNetPay, 
-          memo: 'Direct Deposit Net Payroll' 
+        {
+          accountId: '1010',
+          accountName: 'Cash and Operating Bank',
+          debit: 0,
+          credit: payrollRun.totalNetPay,
+          memo: 'Direct Deposit Net Payroll'
         }
       ],
       sourceModule: 'PAYROLL',
@@ -458,7 +464,7 @@ export default function App() {
   const handleIssueTuitionInvoice = (student: StudentProfile) => {
     const primaryGuardian = student.guardians.find(g => g.isPrimary) || student.guardians[0];
     const tuitionAmount = 450.00; // Standard term tuition & lab fee
-    
+
     handleAddInvoice({
       customerId: student.studentId,
       customerName: `${student.firstName} ${student.lastName} (Guardian: ${primaryGuardian?.name || 'Self'})`,
@@ -517,10 +523,13 @@ export default function App() {
 
   const isPortalAccount = Boolean(authAccount?.roles.some(role => ['STUDENT', 'PARENT'].includes(role)));
   useEffect(() => {
-    if (!authAccount) return;
+    if (!authAccount || !isOperationsPath(pathname)) return;
     const destination = isPortalAccount ? '/portal' : '/staff';
     if (pathname !== destination && pathname !== '/set-password' && pathname !== '/reset-password') navigate(destination, true);
-  }, [authAccount, isPortalAccount]);
+  }, [authAccount, isPortalAccount, pathname]);
+
+  if (pathname === '/examination/results') return <CandidateExamResult/>;
+  if (pathname === '/examination' || pathname === '/examination/verify-email') return <CandidateExamSignIn verifyEmail={pathname.endsWith('/verify-email')} />;
 
   if (pathname === '/set-password' || pathname === '/reset-password') {
     return <InvitationPasswordSetupPage onContinue={() => {
@@ -531,15 +540,15 @@ export default function App() {
 
   if (authLoading) return <div className="grid min-h-screen place-items-center bg-slate-50 text-sm font-medium text-slate-600">Checking secure school access…</div>;
 
-  if (authAccount) return <div className="min-h-screen bg-slate-50 font-sans">
-    {isPortalAccount ? <div className="border-b border-blue-100 bg-blue-50 px-4 py-2 text-center text-xs font-semibold text-blue-900">Redeemer Student & Family Portal · Installable on your phone · Your view is limited to linked learners</div> : null}
+  if (authAccount && isOperationsPath(pathname)) return <div className="min-h-screen bg-slate-50 font-sans">
+    {isPortalAccount ? <div className="border-b border-blue-100 bg-blue-50 px-4 py-2 text-center text-xs font-semibold text-blue-900">{INSTITUTION.name} Student & Family Portal · Installable on your phone · Your view is limited to linked learners</div> : null}
     <OperationsWorkspace account={authAccount} csrfToken={csrfToken} busy={signOutBusy} error={authError} initialWorkspace={requestedWorkspace} onSignOut={handleSignOut} onPasswordChanged={() => setAuthAccount(current => current ? { ...current, mustResetPassword: false } : current)} />
   </div>;
 
   return <div className="min-h-screen bg-white font-sans">
-    <Header currentView="home" onSelectView={() => { setRequestedWorkspace(undefined); setShowSignIn(false); navigate('/'); }} lowStockCount={0} onSignIn={() => openSignIn()} onPortalSignIn={openPortalSignIn} />
+    <Header currentView="home" onSelectView={() => { setRequestedWorkspace(undefined); setShowSignIn(false); navigate('/'); }} lowStockCount={0} onPortalSignIn={openPortalSignIn} />
     <main>
-      {pathname === '/staff' || (showSignIn && pathname !== '/portal') ? <SignInPage audience="STAFF" onCancel={() => { setRequestedWorkspace(undefined); setShowSignIn(false); navigate('/'); }} onSignedIn={(account, token) => { setAuthAccount(account); setCsrfToken(token); setAuthError(''); navigate(account.roles.some(role => ['STUDENT', 'PARENT'].includes(role)) ? '/portal' : '/staff', true); }} /> : pathname === '/portal' ? <SignInPage audience="PORTAL" onCancel={() => { setShowSignIn(false); navigate('/'); }} onSignedIn={(account, token) => { setAuthAccount(account); setCsrfToken(token); setAuthError(''); navigate('/portal', true); }} /> : pathname === '/apply' ? <PublicAdmissionsPage schoolCode={THE_REDEEMER_SCHOOL_INFO.schoolCode} onBack={() => navigate('/')} /> : pathname.startsWith('/school/') ? <PublicSchoolPages slug={pathname.slice('/school/'.length)} onApply={() => navigate('/apply')} onPortalSignIn={openPortalSignIn} /> : <HomeLandingPage onSignIn={openSignIn} onPortalSignIn={openPortalSignIn} onApply={() => navigate('/apply')} />}
+      {pathname === '/staff' || (showSignIn && pathname !== '/portal') ? <SignInPage audience="STAFF" onCancel={() => { setRequestedWorkspace(undefined); setShowSignIn(false); navigate('/'); }} onSignedIn={(account, token) => { setAuthAccount(account); setCsrfToken(token); setAuthError(''); navigate(account.roles.some(role => ['STUDENT', 'PARENT'].includes(role)) ? '/portal' : '/staff', true); }} /> : pathname === '/portal' ? <SignInPage audience="PORTAL" onCancel={() => { setShowSignIn(false); navigate('/'); }} onSignedIn={(account, token) => { setAuthAccount(account); setCsrfToken(token); setAuthError(''); navigate('/portal', true); }} /> : pathname === '/review/payroll' ? <SchoolPolicyWorksheet/> : pathname === '/review' ? <SchoolReviewPage/> : pathname === '/apply' ? <PublicAdmissionsPage schoolCode={THE_REDEEMER_SCHOOL_INFO.schoolCode} onBack={() => navigate('/')} /> : pathname.startsWith('/school/') ? <PublicSchoolPages slug={pathname.slice('/school/'.length)} onApply={() => navigate('/apply')} onPortalSignIn={openPortalSignIn} /> : <HomeLandingPage onPortalSignIn={openPortalSignIn} onApply={() => navigate('/apply')} />}
     </main>
   </div>;
 
@@ -550,7 +559,7 @@ export default function App() {
           currentView="home"
           onSelectView={() => { setRequestedWorkspace(undefined); setShowSignIn(false); }}
           lowStockCount={0}
-          onSignIn={() => openSignIn()}
+
         />}
         <main className="flex-1">
           {authLoading ? (
@@ -588,12 +597,12 @@ export default function App() {
         currentView={currentView}
         onSelectView={setCurrentView}
         lowStockCount={lowStockCount}
-        onSignIn={() => openSignIn()}
+
       />
 
       {/* Main Content Area */}
       <main className={`flex-1 ${currentView === 'home' ? 'w-full' : 'max-w-7xl w-full mx-auto px-4 sm:px-6 lg:px-8 py-6'}`}>
-        {currentView === 'home' && <HomeLandingPage onSignIn={openSignIn} onPortalSignIn={openPortalSignIn} onApply={() => navigate('/apply')} />}
+        {currentView === 'home' && <HomeLandingPage onPortalSignIn={openPortalSignIn} onApply={() => navigate('/apply')} />}
         {currentView === 'dashboard' && (
           <DashboardView
             onNavigate={setCurrentView}
@@ -697,7 +706,7 @@ export default function App() {
       {currentView !== 'home' && <footer className="border-t border-slate-200 bg-white py-4 mt-auto">
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 flex flex-col sm:flex-row items-center justify-between gap-3 text-xs text-slate-500">
           <div className="flex items-center gap-2">
-            <span className="font-bold text-slate-900">Redeemer's International Academy ERP</span>
+            <span className="font-bold text-slate-900">{INSTITUTION.name} ERP</span>
             <span>·</span>
             <span>Paynesville, Liberia · MoE EMIS integration not connected</span>
             <span className="hidden md:inline">·</span>

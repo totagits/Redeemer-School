@@ -1,3 +1,4 @@
+import {schoolPublicUrl} from '../data/institution.ts';
 import React, { useEffect, useState } from 'react';
 type PublicPost={id:string;kind:'NEWS'|'EVENT';title:string;summary:string;body:string;event_starts_at:string|null;published_at:string;has_featured_image?:boolean;image_caption?:string;image_alt?:string};
 export function PublicSchoolUpdates({kind='ALL',limit=10}:{kind?:'ALL'|'NEWS'|'EVENT';limit?:number}){
@@ -6,7 +7,7 @@ export function PublicSchoolUpdates({kind='ALL',limit=10}:{kind?:'ALL'|'NEWS'|'E
  const [loading,setLoading]=useState(true);
  useEffect(()=>{
   let alive=true;const controller=new AbortController();
-  fetch('/api/school-content/public?schoolCode=RIA',{signal:controller.signal,cache:'no-store'})
+  fetch(schoolPublicUrl('/api/school-content/public'),{signal:controller.signal,cache:'no-store'})
    .then(async response=>{if(!response.ok)throw new Error('unavailable');return response.json();})
    .then(result=>{if(alive){setPosts(Array.isArray(result.posts)?result.posts:[]);setUnavailable(false);setLoading(false);}})
    .catch(error=>{if(alive&&error.name!=='AbortError'){setUnavailable(true);setLoading(false);}});
@@ -20,7 +21,7 @@ export function PublicSchoolUpdates({kind='ALL',limit=10}:{kind?:'ALL'|'NEWS'|'E
   {loading?<p className="rounded-lg bg-slate-50 p-4 text-sm text-slate-600">Loading school updates…</p>:
   filtered.length?filtered.map(post=><article key={post.id} className="rounded-lg border border-slate-200 bg-slate-50 p-5">
     {post.has_featured_image&&<figure className="mb-4 overflow-hidden rounded-xl">
-      <img loading="lazy" src={`/api/school-content/public/${encodeURIComponent(post.id)}/image?schoolCode=RIA`} alt={post.image_alt||post.title} className="aspect-video w-full object-cover" />
+      <img loading="lazy" src={schoolPublicUrl(`/api/school-content/public/${encodeURIComponent(post.id)}/image`)} alt={post.image_alt||post.title} className="aspect-video w-full object-cover" />
       {post.image_caption&&<figcaption className="bg-white px-3 py-2 text-xs text-slate-600">{post.image_caption}</figcaption>}
     </figure>}
     <p className="text-xs font-extrabold uppercase tracking-wider text-[#173b67]">{post.kind==='EVENT'?'School event':'School news'}</p>

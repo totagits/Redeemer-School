@@ -7,35 +7,35 @@ const LIBERIA_SENDER_ADDRESS = 'tel:+2310000';
 let orangeToken = null;
 let mtnToken = null;
 
-function orangeConfigured() {
-  return Boolean(process.env.ORANGE_SMS_CLIENT_ID && process.env.ORANGE_SMS_CLIENT_SECRET);
+function orangeConfigured(env=process.env) {
+  return Boolean(env.ORANGE_SMS_CLIENT_ID && env.ORANGE_SMS_CLIENT_SECRET);
 }
 
-function gatewayConfigured() {
-  return Boolean(process.env.SMS_GATEWAY_URL && process.env.SMS_GATEWAY_TOKEN && process.env.SMS_GATEWAY_SENDER);
+function gatewayConfigured(env=process.env) {
+  return Boolean(env.SMS_GATEWAY_URL && env.SMS_GATEWAY_TOKEN && env.SMS_GATEWAY_SENDER);
 }
 
-function mtnConfigured() {
-  return Boolean(process.env.MTN_SMS_CLIENT_ID && process.env.MTN_SMS_CLIENT_SECRET && process.env.MTN_SMS_SENDER_ADDRESS);
+function mtnConfigured(env=process.env) {
+  return Boolean(env.MTN_SMS_CLIENT_ID && env.MTN_SMS_CLIENT_SECRET && env.MTN_SMS_SENDER_ADDRESS);
 }
 
-function selectedProvider() {
-  const configured = String(process.env.SMS_PROVIDER || '').trim().toUpperCase();
+function selectedProvider(env=process.env) {
+  const configured = String(env.SMS_PROVIDER || '').trim().toUpperCase();
   if (configured) return configured;
   // Preserve existing Orange/gateway installations. MTN must be explicitly
   // selected because its SMS endpoint is production and may be chargeable.
-  if (orangeConfigured()) return 'ORANGE';
-  if (gatewayConfigured()) return 'GATEWAY';
+  if (orangeConfigured(env)) return 'ORANGE';
+  if (gatewayConfigured(env)) return 'GATEWAY';
   return 'NONE';
 }
 
-export function smsReadiness() {
-  const provider = selectedProvider();
-  return provider === 'MTN' ? mtnConfigured() && process.env.MTN_SMS_ENABLE_LIVE === 'true' : provider === 'ORANGE' ? orangeConfigured() : provider === 'GATEWAY' ? gatewayConfigured() : false;
+export function smsReadiness(env=process.env) {
+  const provider = selectedProvider(env);
+  return provider === 'MTN' ? mtnConfigured(env) && env.MTN_SMS_ENABLE_LIVE === 'true' : provider === 'ORANGE' ? orangeConfigured(env) : provider === 'GATEWAY' ? gatewayConfigured(env) : false;
 }
 
-export function smsProviderName() {
-  const provider = selectedProvider();
+export function smsProviderName(env=process.env) {
+  const provider = selectedProvider(env);
   return provider === 'MTN' ? 'MTN SMS V2' : provider === 'ORANGE' ? 'Orange SMS' : provider === 'GATEWAY' ? 'SMS gateway' : 'SMS provider';
 }
 
@@ -126,14 +126,14 @@ async function getMtnToken() {
   return mtnToken.value;
 }
 
-async function sendWithMtn({ to, message }) {
+async function sendWithMtn({ to, message, dispatchReference }) {
   const recipient = normalizeLiberiaNumber(to);
   const senderAddress = String(process.env.MTN_SMS_SENDER_ADDRESS || '').trim();
   if (!senderAddress) throw new Error('MTN SMS sender address is not configured.');
   const text = String(message || '');
   if (!text) throw new Error('MTN SMS message cannot be empty.');
-  const clientCorrelator = randomUUID();
-  const transactionId = randomUUID();
+  const clientCorrelator = dispatchReference || randomUUID();
+  const transactionId = dispatchReference || randomUUID();
   const send = async token => fetch(`${MTN_API}/messages/sms/outbound`, {
     method: 'POST',
     headers: {
@@ -162,12 +162,12 @@ async function sendWithMtn({ to, message }) {
 
 // Orange Liberia's SMS API reaches all local operators. Keep provider-specific
 // secrets server-side; generic gateway support remains available as a fallback.
-export async function sendSchoolSms({ to, message }) {
+export async function sendSchoolSms({ to, message, dispatchReference }) {
   const provider = selectedProvider();
   if (provider === 'MTN') {
     if (!mtnConfigured()) throw new Error('MTN SMS production credentials and approved sender address are not configured.');
     if (process.env.MTN_SMS_ENABLE_LIVE !== 'true') throw new Error('MTN SMS live sending is disabled. Set MTN_SMS_ENABLE_LIVE=true only after confirming production charges and sender approval.');
-    return sendWithMtn({ to, message });
+    return sendWithMtn({ to, message, dispatchReference });
   }
   if (provider === 'ORANGE') {
     if (!orangeConfigured()) throw new Error('Orange SMS credentials are not configured.');

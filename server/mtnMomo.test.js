@@ -22,7 +22,15 @@ test('production collections stay locked unless explicitly enabled', () => {
   const config = readMomoConfig({ ...configuredEnv, MTN_MOMO_ENVIRONMENT: 'PRODUCTION', MTN_MOMO_CURRENCY: 'LRD' });
   assert.equal(config.enabled, false);
   assert.match(config.reason, /Live MTN collections are disabled/i);
-  assert.equal(readMomoConfig({ ...configuredEnv, MTN_MOMO_ENVIRONMENT: 'PRODUCTION', MTN_MOMO_CURRENCY: 'LRD', MTN_MOMO_ENABLE_LIVE_COLLECTIONS: 'true' }).enabled, true);
+  assert.equal(readMomoConfig({ ...configuredEnv, MTN_MOMO_ENVIRONMENT: 'PRODUCTION', MTN_MOMO_CURRENCY: 'LRD', MTN_MOMO_ENABLE_LIVE_COLLECTIONS: 'true',MTN_MOMO_FEE_RATE_BPS:'250',MTN_MOMO_FEE_AGREEMENT_REF:'TEST-CONTRACT' }).enabled, true);
+});
+
+test('production requires an explicit contract fee and does not silently assume 2.5 percent',()=>{
+ const env={...configuredEnv,MTN_MOMO_ENVIRONMENT:'PRODUCTION',MTN_MOMO_CURRENCY:'LRD',MTN_MOMO_ENABLE_LIVE_COLLECTIONS:'true'};
+ assert.equal(readMomoConfig(env).enabled,false);assert.equal(readMomoConfig(env).feeRateBps,null);
+ assert.equal(readMomoConfig({...env,MTN_MOMO_FEE_RATE_BPS:'125',MTN_MOMO_FEE_AGREEMENT_REF:'TEST-AGREEMENT'}).feeRateBps,125);
+ assert.equal(readMomoConfig({...env,MTN_MOMO_FEE_RATE_BPS:'0',MTN_MOMO_FEE_AGREEMENT_REF:'TEST-AGREEMENT'}).enabled,true);
+ for(const rate of ['','-1','1.5','10001','NaN'])assert.equal(readMomoConfig({...env,MTN_MOMO_FEE_RATE_BPS:rate,MTN_MOMO_FEE_AGREEMENT_REF:'TEST-AGREEMENT'}).enabled,false);
 });
 
 test('sandbox credentials use MTN test currency EUR, not Liberia production currency', () => {
@@ -65,7 +73,7 @@ test('sandbox request-to-pay uses the MTN test currency EUR and treats 202 as pe
   assert.deepEqual(JSON.parse(calls[1].options.body), {
     amount: '1250.00', currency: 'EUR', externalId: '507455c0-7ed6-4302-a2c8-84bf5e50debf',
     payer: { partyIdType: 'MSISDN', partyId: '231770123456' },
-    payerMessage: 'Redeemer school fee payment', payeeNote: 'Redeemer school fee payment',
+    payerMessage: 'School fee payment', payeeNote: 'School fee payment',
   });
 });
 
@@ -76,7 +84,7 @@ test('sandbox accepts a synthetic MTN test number but production only accepts Li
   const sandbox = createMomoClient({ env: configuredEnv, fetchImpl });
   const result = await sandbox.requestToPay({ amount: 1, currency: 'EUR', msisdn: '123456789012' });
   assert.equal(result.accepted, true);
-  const production = createMomoClient({ env: { ...configuredEnv, MTN_MOMO_ENVIRONMENT: 'PRODUCTION', MTN_MOMO_CURRENCY: 'LRD', MTN_MOMO_ENABLE_LIVE_COLLECTIONS: 'true' }, fetchImpl: async () => { throw new Error('Should not call provider'); } });
+  const production = createMomoClient({ env: { ...configuredEnv, MTN_MOMO_ENVIRONMENT: 'PRODUCTION', MTN_MOMO_CURRENCY: 'LRD', MTN_MOMO_ENABLE_LIVE_COLLECTIONS: 'true',MTN_MOMO_FEE_RATE_BPS:'250',MTN_MOMO_FEE_AGREEMENT_REF:'TEST-AGREEMENT' }, fetchImpl: async () => { throw new Error('Should not call provider'); } });
   await assert.rejects(() => production.requestToPay({ amount: 1, currency: 'LRD', msisdn: '123456789012' }), /Liberia mobile number/i);
 });
 

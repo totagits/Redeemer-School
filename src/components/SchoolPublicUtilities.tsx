@@ -1,3 +1,5 @@
+import {schoolPublicUrl} from '../data/institution.ts';
+import {useWebsiteProfile} from './PublishedWebsiteContent.tsx';
 import React, { useEffect, useMemo, useState } from 'react';
 import { ArrowRight, BookOpen, CalendarDays, CheckCircle2, CircleHelp, GraduationCap, LoaderCircle, Phone, Search, ShieldCheck } from 'lucide-react';
 import { SCHOOL_CONTACT } from '../data/schoolContact.ts';
@@ -49,7 +51,7 @@ export function LiveAdmissionsGuide({onApply}:{onApply:()=>void}){
    let active=true;
    const controller=new AbortController();
    setState('loading');
-   fetch('/api/public/admissions/options?schoolCode=RIA',{credentials:'same-origin',cache:'no-store',signal:controller.signal})
+   fetch(schoolPublicUrl('/api/public/admissions/options'),{credentials:'same-origin',cache:'no-store',signal:controller.signal})
     .then(async response=>{if(!response.ok)throw new Error('School admission options unavailable');return response.json() as Promise<AdmissionsOptions>;})
     .then(result=>{if(active){setOptions(result);setState('ready');}})
     .catch(error=>{if(active&&error.name!=='AbortError')setState('error');});
@@ -70,10 +72,11 @@ export function LiveAdmissionsGuide({onApply}:{onApply:()=>void}){
  </section>;
 }
 export function PublicSchoolSupport(){
+ const profile=useWebsiteProfile();
  return <section aria-label="School office support" className="rounded-2xl border border-slate-200 bg-white p-6 shadow-sm">
   <div className="flex items-center gap-2 text-[#071d3e]"><Phone className="h-5 w-5"/><h2 className="text-xl font-extrabold">Contact the school office</h2></div>
   <p className="mt-2 text-sm leading-7 text-slate-600">For enrollment inquiries, visits and records support, call the school directly.</p>
-  <div className="mt-4 flex flex-wrap gap-2">{SCHOOL_CONTACT.phones.map(phone=><a key={phone} href={`tel:${phone}`} className="rounded-lg border border-blue-200 bg-blue-50 px-4 py-2.5 text-sm font-bold text-[#071d3e] hover:bg-blue-100">{phone}</a>)}</div>
+  <div className="mt-4 flex flex-wrap gap-2">{profile.phones.map(phone=><a key={phone} href={`tel:${phone}`} className="rounded-lg border border-blue-200 bg-blue-50 px-4 py-2.5 text-sm font-bold text-[#071d3e] hover:bg-blue-100">{phone}</a>)}</div>
   <p className="mt-4 text-xs leading-6 text-slate-500">Please do not send student identification, transcripts or account passwords through public messages. The Registrar will explain how to submit records securely.</p>
  </section>;
 }

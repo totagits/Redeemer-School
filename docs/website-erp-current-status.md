@@ -1,0 +1,41 @@
+# Current website and ERP completion status
+
+Updated 8 November 2026. Production is paused. This summary distinguishes implementation, staging verification and school acceptance.
+
+## Public navigation and content
+
+All seven public menu families and their submenu destinations exist. The homepage and 34 menu pages use the school-managed editor. Public staff-login links are absent. Desktop/mobile navigation was rehearsed in the whole-site audit; the approved editorial pages and photo publication workflow were verified on staging on 1 November.
+
+| Menu family | Working content/workspace | Workflow status |
+|---|---|---|
+| School Info | About, Mission, Faculty, Leadership, Principal, records, hours, calendar, careers, albums; page/photo/PDF editor | Editorial publication verified; records-request follow-up verified. Unspecified official names/hours/calendar details remain for school administration to supply. |
+| Enroll | Process, requirements, fees, visits; public application and admissions workspace | Visit requests verified. Full isolated admissions/exam/enrollment/account-activation chain passed; live intake, review, enrollment, owner activation and correct student/guardian portal linkage verified. See admissions-enrollment-verification.md. |
+| Academics | Programs, curriculum, assessment, resources; teacher/academic workspaces | Live written assignment passed through learner submission, revision, teacher scoring, separate Principal approval and publication. Final portal grade displays, attachments, attendance, timetable and year-end work have separate checks. |
+| Student Life | Events, activities, sports, supplies, uniform, achievements; editorial publishing | Pages editable; news/event publication and withdrawal verified. No invented school schedules or service claims. |
+| Parents | Resources, handbook, FAQs, attendance, services, involvement; family portals | Public content and handbook outline verified; portal read checks and isolated writes passed. Remaining live family workflows open. |
+| Contact | Contact, location, request information; private follow-up queue | Three request types and staff assignment/waiting/resolution/history staging-verified. Visits require staff confirmation; records require identity checks. |
+| Quick Links | Public news plus separate application/family entry points | News/calendar publishing verified; staff access remains separately distributed. |
+
+## Staff and portal processes
+
+Entrance examination workflow and staff layout have owner staging acceptance. Website content editing and request follow-up are staging-verified. Other staff/portal workspaces exist and have varying isolated-test/browser evidence, but the entire ERP is not marked complete.
+
+The fictional Mathematics assignment is published at 8/10. The authenticated database tests confirm that the learner receives the published mark and a guardian without results permission receives no grades. Check the existing result in both staging portal views during the next relevant sign-ins. See [the teaching rehearsal](teaching-staging-rehearsal.md).
+
+Still open:
+
+- Academic and portal: assignment attachment/deadline cases, live timetable and roll call, year-end report cards and promotion, encrypted student documents/photo/Digital ID, recovery and device/session lifecycle. Test student and guardian invitation and activation are already verified.
+- Staff and operations: HR recruitment through onboarding passed isolated authenticated SQL tests and the live staging rehearsal on 5 November. Migration 114 is applied. Leave request/review/independent decision/cancellation and manually entered payroll through independent approval and simulated payment recording also passed staging; migration 115 is applied. Automated statutory payroll, leave entitlements/accruals, paid-payroll corrections, expense review/posting, stock transfers/reporting, detailed Finance reconciliation/reversals, exports/EMIS and cross-campus scope remain open. See [HR verification](hr-recruitment-verification.md) and [leave/payroll evidence](leave-payroll-verification.md).
+- Release readiness: stronger private staff entry, monitoring/rollback, migration ledger reconciliation and isolated backup restore rehearsal. School administration still needs to supply outstanding official facts and policies listed in the content review.
+- Provider acceptance: Finance remains Partial for MTN MoMo and Communications remains Partial for MTN SMS. The owner confirmed no MTN live approval has been received. Duplicate-send safeguards and recorded Collections fee agreements are deployed on staging with migrations 116/117; 388 GitHub tests passed. Live collections, settlement and SMS delivery remain untested and disabled. See [MTN acceptance preparation](mtn-live-acceptance.md).
+- Automated payroll: the [school rules template](payroll-rules-for-school-approval.md) is drafted for HR/Finance completion and school approval. No statutory rates or calculation policies have been assumed or activated. Existing manual payroll remains separate.
+
+See whole-site-release-checklist.md for the full workspace list and erp-portal-workflow-verification.md for dated evidence. Owner release approval follows completion and acceptance of launch workflows; no production deployment is authorized by this report.
+
+## TOTAG school-platform direction
+
+The owner approved separate deployments and databases for Redeemer and the first schools, using one maintained codebase, with shared SaaS developed separately. The operator configuration registry is implemented with branding/contact fields, requested domains, department/TVET catalogs, dedicated resource reservations and retained audit history. It is not connected to school runtime routing, branding publication or live infrastructure. Operational TVET, complete configurable branding, the TOTAG console, subscriptions and shared-school isolation remain outstanding. See [the platform implementation and delivery plan](totag-school-platform.md). This work does not change Redeemer's production pause or mark its remaining ERP workflows complete.
+
+Dedicated branding update, 8 November: school-specific builds now connect identity, logo, primary/secondary/accent palette, public selectors and main portal/document branding defaults. Runtime package/host/session binding and a fictional Edge desktop/phone preview are verified. This is review-branch work, not a live deployment. See [branding verification](institution-branding-verification.md). The TOTAG console and shared runtime remain outstanding.
+
+Authority review preparation, 8 November: staging release `95f7859` now publishes `/review` and `/review/payroll`, using the existing private Website requests queue for feedback. All 423 GitHub tests passed. Live briefing, editable worksheet, roster download, fictional feedback receipt/receiving queue and staff/family sign-in links are verified. Following explicit owner approval, the designated School Administrator account and one personal setup invitation were created; active permissions and pending invitation were verified, and the provider accepted the email. Recipient activation and the subsequent reviewer accounts/TEST cohort remain pending. See [administrator handoff](redeemer-authority-review-admin.md). Production remains paused; further SaaS development is deferred during this preparation.

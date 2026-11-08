@@ -1,3 +1,5 @@
+> Historical snapshot: this document predates later completed work. Use [the whole-site release checklist](whole-site-release-checklist.md) for current cross-product scope and verify current code/staging evidence before repeating setup.
+
 # Master prompt implementation review
 
 **Reviewed:** 2026-10-21  

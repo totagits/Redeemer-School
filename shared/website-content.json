@@ -1,0 +1,560 @@
+{
+  "home": {
+    "eyebrow": "Home",
+    "heading": "Growing minds. Building character. Inspiring tomorrow.",
+    "intro": "Discover Redeemer’s International Academy, a learning community rooted in academic and moral excellence in Thinker’s Village, Paynesville.",
+    "sections": [],
+    "images": [],
+    "documents": [],
+    "profile": {
+      "name": "Redeemer's International Academy",
+      "motto": "Academic and Moral Excellence",
+      "founded": "2022",
+      "address": "RIA Highway, Thinker's Village, Guest House Road, Paynesville, Montserrado, Liberia",
+      "phones": [
+        "0778786116",
+        "0555664239"
+      ]
+    },
+    "blocks": {
+      "about": {
+        "title": "A community where every learner matters",
+        "body": "Welcome to Redeemer's International Academy in Paynesville, Liberia. Our motto, “Academic and Moral Excellence,” expresses the standard we aim to uphold in learning, conduct and school life.\n\nThis website helps families explore the school, ask questions, request a visit and begin an admission application. The school office can explain current admission requirements and the next steps for your family."
+      },
+      "academics": {
+        "title": "Learning beyond the classroom",
+        "body": "Our approach combines classroom teaching, consistent assessment, family participation and opportunities for students to develop personal responsibility. For grade availability, curriculum details, and enrollment requirements, contact the school office."
+      },
+      "admissions": {
+        "title": "Begin your child's journey",
+        "body": "Interested families can start an official application online. The school’s admissions team will review submitted information and communicate the next steps."
+      },
+      "families": {
+        "title": "Student & family resources",
+        "body": "Students and guardians can use their secure accounts to view school notices, learning resources, attendance, grades and authorized tuition information."
+      }
+    }
+  },
+  "about-us": {
+    "eyebrow": "School Info",
+    "heading": "About Redeemer’s International Academy",
+    "intro": "Redeemer’s International Academy, established in 2022, serves its school community in Thinker’s Village, Paynesville, Liberia.",
+    "sections": [
+      {
+        "title": "Welcome to Redeemer",
+        "body": "Welcome to Redeemer's International Academy in Paynesville, Liberia. Our motto, “Academic and Moral Excellence,” expresses the standard we aim to uphold in learning, conduct and school life.\n\nThis website helps families explore the school, ask questions, request a visit and begin an admission application. The school office can explain current admission requirements and the next steps for your family."
+      }
+    ],
+    "images": [],
+    "documents": []
+  },
+  "mission-values": {
+    "eyebrow": "School Info",
+    "heading": "Our Mission & Values",
+    "intro": "Academic and Moral Excellence is the guiding motto of Redeemer’s International Academy.",
+    "sections": [
+      {
+        "title": "Our mission",
+        "body": "Our mission is to help learners grow in knowledge, character and responsibility through purposeful learning and cooperation between school and home."
+      },
+      {
+        "title": "Our values",
+        "body": "Learning: ask questions, practise skills and keep improving.\nIntegrity: speak honestly and take responsibility for actions.\nRespect: treat people and shared spaces with care.\nService: contribute positively to the school and wider community.\nPartnership: work together as learners, families and staff."
+      }
+    ],
+    "images": [],
+    "documents": []
+  },
+  "faculty-staff": {
+    "eyebrow": "School Info",
+    "heading": "Faculty & Staff",
+    "intro": "Meet the teachers and staff who support learning and school life at Redeemer.",
+    "sections": [
+      {
+        "title": "Staff directory",
+        "body": "An approved staff directory with names, roles and photographs will appear here once authorized by the school administration."
+      },
+      {
+        "title": "Contact a teacher",
+        "body": "Enrolled families can communicate using their secure Student and Guardian portals."
+      }
+    ],
+    "images": [],
+    "documents": []
+  },
+  "leadership": {
+    "eyebrow": "School Info",
+    "heading": "School Leadership",
+    "intro": "School leadership guides educational quality, student welfare and responsible school operations.",
+    "sections": [
+      {
+        "title": "Leadership profiles",
+        "body": "Approved names, photographs and official messages will appear here once supplied by the school."
+      }
+    ],
+    "images": [],
+    "documents": []
+  },
+  "principal-message": {
+    "eyebrow": "School Info",
+    "heading": "A Message from the Principal",
+    "intro": "Welcome to Redeemer’s International Academy.",
+    "sections": [
+      {
+        "title": "Welcome from the Principal",
+        "body": "Welcome to Redeemer's International Academy.\n\nChoosing a school is an important decision for every family. We want our website to give you a clear introduction to our school and a practical way to contact us, arrange a visit or begin an application.\n\n“Academic and Moral Excellence” asks us to value both what learners achieve and how they learn, treat others and contribute to their community. We look forward to working with families as partners in that journey.\n\nPlease contact the school office with your questions. We welcome the opportunity to explain our programmes and help you understand the next steps.\n\nPrincipal, Redeemer's International Academy"
+      }
+    ],
+    "images": [],
+    "documents": []
+  },
+  "records-requests": {
+    "eyebrow": "School Info",
+    "heading": "Student Records Requests",
+    "intro": "Parents, guardians and former students can contact the school about official records and academic documents.",
+    "sections": [
+      {
+        "title": "Privacy first",
+        "body": "To protect students, records are only released after identity and authorization checks by the school office."
+      },
+      {
+        "title": "Request a record",
+        "body": "Contact the Registrar through the school office. Do not send sensitive identification documents through a public website inquiry."
+      }
+    ],
+    "images": [],
+    "documents": []
+  },
+  "school-hours": {
+    "eyebrow": "School Info",
+    "heading": "School & Office Hours",
+    "intro": "For current teaching schedules, visiting times and office opening hours, contact the school directly.",
+    "sections": [
+      {
+        "title": "Visiting",
+        "body": "Appointments help ensure that staff are available to assist families."
+      },
+      {
+        "title": "Confirmed hours",
+        "body": "Official hours will be listed here once verified by the administration."
+      }
+    ],
+    "images": [],
+    "documents": []
+  },
+  "school-calendar": {
+    "eyebrow": "School Info",
+    "heading": "School Calendar",
+    "intro": "School terms, breaks, examinations and special events will be published on the approved school calendar.",
+    "sections": [
+      {
+        "title": "Upcoming dates",
+        "body": "Only administration-approved dates will be displayed. Contact the school office for the current academic calendar."
+      }
+    ],
+    "images": [],
+    "documents": []
+  },
+  "careers": {
+    "eyebrow": "School Info",
+    "heading": "Careers at Redeemer",
+    "intro": "Help shape a positive learning environment at Redeemer’s International Academy.",
+    "sections": [
+      {
+        "title": "Open positions",
+        "body": "Current vacancies and application instructions will appear here when officially announced."
+      },
+      {
+        "title": "Recruitment",
+        "body": "The school reviews applications through its authorized recruitment process. Unsolicited sensitive documents should not be sent through a public form."
+      }
+    ],
+    "images": [],
+    "documents": []
+  },
+  "photo-albums": {
+    "eyebrow": "School Info",
+    "heading": "School Photo Albums",
+    "intro": "A visual record of learning, celebrations and achievements across the Redeemer school community.",
+    "sections": [
+      {
+        "title": "School photographs",
+        "body": "Campus, classroom, student life and achievement photographs selected from the school’s own collection will be organized here once approved for publication."
+      },
+      {
+        "title": "Student privacy",
+        "body": "Images of identifiable students will be published only after the school verifies appropriate permissions."
+      }
+    ],
+    "images": [],
+    "documents": []
+  },
+  "enrollment-process": {
+    "eyebrow": "Enroll",
+    "heading": "Enrollment Process",
+    "intro": "Learn how to begin an application to Redeemer’s International Academy.",
+    "sections": [
+      {
+        "title": "Step 1 — Inquiry",
+        "body": "Contact the school to confirm grade availability, requirements and important dates."
+      },
+      {
+        "title": "Step 2 — Apply online",
+        "body": "Complete the official online admission application and provide the requested guardian contact information."
+      },
+      {
+        "title": "Step 3 — School review",
+        "body": "The Registrar reviews each application and contacts the family about the next steps."
+      }
+    ],
+    "images": [],
+    "documents": []
+  },
+  "admission-requirements": {
+    "eyebrow": "Enroll",
+    "heading": "Admission Requirements",
+    "intro": "Admission requirements vary according to the learner’s grade and educational history.",
+    "sections": [
+      {
+        "title": "Before applying",
+        "body": "Contact the Registrar for current eligibility, documents, admission assessment requirements and available places."
+      },
+      {
+        "title": "Official application",
+        "body": "The online application provides the current fields requested by the school."
+      }
+    ],
+    "images": [],
+    "documents": []
+  },
+  "admissions-fees": {
+    "eyebrow": "Enroll",
+    "heading": "Admissions & Fees",
+    "intro": "Tuition schedules and school fees are maintained by the authorized Finance team.",
+    "sections": [
+      {
+        "title": "Fee information",
+        "body": "Request the current approved fee schedule from the school. No unapproved rates are advertised on this website."
+      },
+      {
+        "title": "Existing families",
+        "body": "Students and guardians can review their authorized invoices and balances in the secure portal."
+      }
+    ],
+    "images": [],
+    "documents": []
+  },
+  "school-visits": {
+    "eyebrow": "Enroll",
+    "heading": "School Visits & Inquiries",
+    "intro": "Families are welcome to contact the school to ask questions about the learning environment.",
+    "sections": [
+      {
+        "title": "Schedule a visit",
+        "body": "Request a preferred date using the form below or call the school office. Staff must confirm visiting arrangements before you travel."
+      },
+      {
+        "title": "Explore online",
+        "body": "Browse the school information and photo gallery for an introduction to the campus."
+      }
+    ],
+    "images": [],
+    "documents": []
+  },
+  "academic-programs": {
+    "eyebrow": "Academics",
+    "heading": "Academic Programs",
+    "intro": "Redeemer’s academic experience focuses on knowledge, confidence and character.",
+    "sections": [
+      {
+        "title": "Grade offerings",
+        "body": "Contact the school office for the current approved grade levels and enrollment availability."
+      },
+      {
+        "title": "Learning support",
+        "body": "Teachers and families work together to monitor and support learner progress."
+      }
+    ],
+    "images": [],
+    "documents": []
+  },
+  "curriculum": {
+    "eyebrow": "Academics",
+    "heading": "Curriculum & Learning",
+    "intro": "The school’s teaching and learning programs are coordinated through the academic administration.",
+    "sections": [
+      {
+        "title": "Subjects and schedules",
+        "body": "Specific subjects and class timetables are available to authorized enrolled learners and guardians through their respective portals."
+      },
+      {
+        "title": "Curriculum information",
+        "body": "The school office can provide current curriculum and instructional details."
+      }
+    ],
+    "images": [],
+    "documents": []
+  },
+  "assessment-progress": {
+    "eyebrow": "Academics",
+    "heading": "Assessment & Progress",
+    "intro": "Assessment supports teaching decisions and keeps families informed about learning.",
+    "sections": [
+      {
+        "title": "Grades and reports",
+        "body": "Published individual grades and reports are only available to authorized users within secure student and guardian portals."
+      },
+      {
+        "title": "School performance",
+        "body": "Approved, aggregated achievements may be shared publicly when authorized."
+      }
+    ],
+    "images": [],
+    "documents": []
+  },
+  "learning-resources": {
+    "eyebrow": "Academics",
+    "heading": "Learning Resources",
+    "intro": "Classroom materials support study at school and at home.",
+    "sections": [
+      {
+        "title": "Student materials",
+        "body": "Registered students and guardians can find assigned resources and learning materials inside their secure portal."
+      }
+    ],
+    "images": [],
+    "documents": []
+  },
+  "school-events": {
+    "eyebrow": "Student Life",
+    "heading": "School Events",
+    "intro": "School activities help strengthen relationships, celebrate achievements and build community.",
+    "sections": [
+      {
+        "title": "Upcoming events",
+        "body": "Public event dates are posted in the school news and events section after approval."
+      },
+      {
+        "title": "School memories",
+        "body": "Photos of approved events will be featured in the school gallery."
+      }
+    ],
+    "images": [],
+    "documents": []
+  },
+  "activities": {
+    "eyebrow": "Student Life",
+    "heading": "Activities & Enrichment",
+    "intro": "Learning beyond the classroom can develop creativity, teamwork and confidence.",
+    "sections": [
+      {
+        "title": "Programs",
+        "body": "Information about current clubs, community activities and enrichment opportunities will be published when confirmed by the school."
+      }
+    ],
+    "images": [],
+    "documents": []
+  },
+  "sports": {
+    "eyebrow": "Student Life",
+    "heading": "Sports & Wellness",
+    "intro": "Physical activity and wellbeing contribute to a balanced student experience.",
+    "sections": [
+      {
+        "title": "Activities",
+        "body": "Details about approved school sports, physical education and wellness opportunities will be shared as they become available."
+      }
+    ],
+    "images": [],
+    "documents": []
+  },
+  "school-supplies": {
+    "eyebrow": "Student Life",
+    "heading": "School Supplies",
+    "intro": "Prepare for the school year with the supplies recommended for your learner’s grade.",
+    "sections": [
+      {
+        "title": "Supply lists",
+        "body": "Approved grade-specific supply lists will be provided by the school before the academic year begins."
+      }
+    ],
+    "images": [],
+    "documents": []
+  },
+  "school-uniform": {
+    "eyebrow": "Student Life",
+    "heading": "School Uniform",
+    "intro": "School uniforms help create a shared school identity.",
+    "sections": [
+      {
+        "title": "Official guidance",
+        "body": "Contact the administration for the latest authorized uniform requirements, approved colors and purchase guidance."
+      }
+    ],
+    "images": [],
+    "documents": []
+  },
+  "achievements": {
+    "eyebrow": "Student Life",
+    "heading": "Student Achievements",
+    "intro": "We celebrate the effort, growth and achievements of the Redeemer school community.",
+    "sections": [
+      {
+        "title": "Recognition and awards",
+        "body": "School-approved achievements and award presentations will be featured here with appropriate publication permission."
+      }
+    ],
+    "images": [],
+    "documents": []
+  },
+  "parent-resources": {
+    "eyebrow": "Parents",
+    "heading": "Resources for Parents & Guardians",
+    "intro": "Families are vital partners in helping children succeed at school.",
+    "sections": [
+      {
+        "title": "Stay informed",
+        "body": "Use the secure guardian portal for learner-specific notices, attendance, published results, fees and messages."
+      },
+      {
+        "title": "Need assistance?",
+        "body": "Contact the school office for help with family account access."
+      }
+    ],
+    "images": [],
+    "documents": []
+  },
+  "parent-handbook": {
+    "eyebrow": "Parents",
+    "heading": "Parent Handbook",
+    "intro": "Information for families about the topics covered by the school handbook.",
+    "sections": [
+      {
+        "title": "Handbook contents",
+        "body": "1. Welcome, purpose, version date and approval authority.\n2. School contacts, hours and calendar.\n3. Arrival, attendance, late arrival, absence and collection arrangements.\n4. Learning, homework, assessment and reporting.\n5. Conduct, behaviour review and school-family concerns process.\n6. Learner wellbeing, safeguarding and the school's named reporting contact.\n7. Health, illness, medication, allergies and emergency arrangements.\n8. Uniform, supplies, meals and transport/services actually offered.\n9. Fees, approved payment channels and financial queries.\n10. Privacy, photographs, school records and portal use.\n11. Visits, events and communication expectations.\n12. Acknowledgment and review date."
+      },
+      {
+        "title": "School guidance",
+        "body": "Contact the school office for the current detailed policies and guidance. The administration will keep this page and its approved documents up to date."
+      }
+    ],
+    "images": [],
+    "documents": []
+  },
+  "parent-faq": {
+    "eyebrow": "Parents",
+    "heading": "Parent Questions & Answers",
+    "intro": "Answers to frequently asked questions about school life and family access.",
+    "sections": [
+      {
+        "title": "How do I apply?",
+        "body": "Use the Apply Online link or contact the Registrar."
+      },
+      {
+        "title": "How do I check grades and fees?",
+        "body": "Sign in to the appropriate authorized student or guardian portal."
+      },
+      {
+        "title": "How do I request a school visit?",
+        "body": "Call the school office to arrange a suitable time."
+      }
+    ],
+    "images": [],
+    "documents": []
+  },
+  "attendance-absence": {
+    "eyebrow": "Parents",
+    "heading": "Attendance & Absences",
+    "intro": "Regular school attendance supports learning and student wellbeing.",
+    "sections": [
+      {
+        "title": "Report an absence",
+        "body": "Contact the school office to follow the approved absence notification process."
+      },
+      {
+        "title": "Review attendance",
+        "body": "Authorized students and guardians may view recorded attendance through their portal."
+      }
+    ],
+    "images": [],
+    "documents": []
+  },
+  "school-services": {
+    "eyebrow": "Parents",
+    "heading": "Meals & School Services",
+    "intro": "Contact the administration for confirmed information about school meals and additional services.",
+    "sections": [
+      {
+        "title": "Current availability",
+        "body": "Details about meals, transport and any additional services will only be shown here after confirmation by school management."
+      }
+    ],
+    "images": [],
+    "documents": []
+  },
+  "family-involvement": {
+    "eyebrow": "Parents",
+    "heading": "Family Involvement",
+    "intro": "A connected school community starts with engaged families.",
+    "sections": [
+      {
+        "title": "Participate",
+        "body": "Contact the school to learn about officially organized meetings, volunteering and family involvement opportunities."
+      }
+    ],
+    "images": [],
+    "documents": []
+  },
+  "contact-us": {
+    "eyebrow": "Contact",
+    "heading": "Contact the School",
+    "intro": "We welcome inquiries about admissions, school life and family services.",
+    "sections": [
+      {
+        "title": "Speak with the school office",
+        "body": "Contact the school office for admissions, school information and family support."
+      }
+    ],
+    "images": [],
+    "documents": []
+  },
+  "directions": {
+    "eyebrow": "Contact",
+    "heading": "Directions & Location",
+    "intro": "Find Redeemer’s International Academy in Thinker’s Village, Paynesville.",
+    "sections": [
+      {
+        "title": "Visiting guidance",
+        "body": "Call the school office before travelling for an appointment. A visit request must be confirmed by staff."
+      }
+    ],
+    "images": [],
+    "documents": []
+  },
+  "request-information": {
+    "eyebrow": "Contact",
+    "heading": "Request Information",
+    "intro": "Interested in learning more about Redeemer’s International Academy?",
+    "sections": [
+      {
+        "title": "Contact admissions",
+        "body": "Use the online request form below or call the school for current admissions and school information."
+      }
+    ],
+    "images": [],
+    "documents": []
+  },
+  "news-events": {
+    "eyebrow": "Quick Links",
+    "heading": "News & School Events",
+    "intro": "Find news and events officially published by the school administration.",
+    "sections": [
+      {
+        "title": "Official announcements",
+        "body": "Publicly approved news and events are displayed on the school homepage. Private classroom notices remain available only through the secure portals."
+      }
+    ],
+    "images": [],
+    "documents": []
+  }
+}
