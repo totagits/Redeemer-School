@@ -1,6 +1,6 @@
 # Institution branding and dedicated deployment binding
 
-8 November 2026. Implemented on the review branch; not deployed to Redeemer. Production remains paused.
+8 November 2026. Initially verified on the review branch. The supporting code is now included in Redeemer's staging review release `95f7859`, using the existing Redeemer defaults. No custom-school manifest or shared SaaS was activated. Production remains paused.
 
 ## Identity and colour palette
 

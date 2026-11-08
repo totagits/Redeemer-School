@@ -50,4 +50,13 @@ Payroll worksheet entries stay in that browser page until the reviewer prints/sa
 
 ## Release record
 
-The review pages and worksheet are an additive staging preparation. They reuse the existing private enquiry queue; no database migration is required. Deployment, browser evidence and feedback receipt will be added after verification. No production deployment is authorized.
+The review pages and worksheet are an additive staging preparation. They reuse the existing private enquiry queue; no database migration is required. No production deployment is authorized.
+
+- Reviewed release: `95f7859822297addaab135e4af4f5ec226827278`, GitHub run [42486239063](https://github.com/totagits/Redeemer-School/actions/runs/42486239063). All 423 tests passed without failures/skips; type checking and build passed. Local checks passed 422 with one existing platform-specific skip.
+- Coolify staging deployment `aqqsxz0wqiatgj2xioshf3i5` finished successfully. It began 8 November at 13:44:34 UTC (07:44:34 America/Chicago). The staging commit pin was saved and reloaded before deployment. Keep this reviewed revision pinned during school review sessions.
+- The review briefing loaded on staging with the role tasks, family link, feedback form and explicit unfinished-work notices. No public staff-entry URL was added.
+- One fictional preparation entry committed with receipt `WEB-2026-5F7FFA9CAB61`, subject `STAGING REVIEW — Review briefing preparation`. It is a test observation, not a school policy/acceptance decision. No automatic message or payment was triggered.
+- The live payroll worksheet loaded, accepted a clearly labelled temporary TEST edit, and was cleared again. Entries were not submitted as school policy. The blank roster download completed successfully. Printing/saving a PDF remains a reviewer-controlled action.
+- Private staff and family links both loaded the correct sign-in page with school code RIA. No new authority account, privilege grant, password or invitation has been created.
+- Evidence in workspace outputs: `authority-review-briefing.jpg`, `authority-review-feedback-receipt.jpg`, `authority-review-policy-edit.jpg`. The local administrator instructions include the privately distributed staff URL; that URL is not added to this public repository briefing.
+- Designated administrator name/email and existing-account status remain pending. Their account activation, individual reviewer invitations, isolated TEST class/learners and final reviewer access checks must follow that appointment. Existing test records have not been repurposed.
