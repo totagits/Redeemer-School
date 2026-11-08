@@ -46,7 +46,7 @@ Payroll worksheet entries stay in that browser page until the reviewer prints/sa
 - Keep live Collections and SMS disabled. Do not purchase a bundle, send chargeable messages or change provider credentials for this review.
 - Preserve prior test evidence and history. Give each reviewer their own fictional records rather than overwriting previously accepted cases.
 - Track findings as Confirmed / Needs change / Awaiting school policy / Awaiting provider / Retest / Accepted. Feedback alone is not production approval.
-- Account provisioning and the end-to-end reviewer activation check remain pending until the designated administrator's identity and authority are confirmed.
+- The designated administrator was appointed and provisioned after the owner's explicit confirmation. Their personal password setup/first sign-in and subsequent reviewer activation checks remain pending; no password is shared or chosen on their behalf.
 
 ## Release record
 
@@ -57,6 +57,8 @@ The review pages and worksheet are an additive staging preparation. They reuse t
 - The review briefing loaded on staging with the role tasks, family link, feedback form and explicit unfinished-work notices. No public staff-entry URL was added.
 - One fictional preparation entry committed with receipt `WEB-2026-5F7FFA9CAB61`, subject `STAGING REVIEW — Review briefing preparation`. It is a test observation, not a school policy/acceptance decision. No automatic message or payment was triggered.
 - The live payroll worksheet loaded, accepted a clearly labelled temporary TEST edit, and was cleared again. Entries were not submitted as school policy. The blank roster download completed successfully. Printing/saving a PDF remains a reviewer-controlled action.
-- Private staff and family links both loaded the correct sign-in page with school code RIA. No new authority account, privilege grant, password or invitation has been created.
+- Private staff and family links both loaded the correct sign-in page with school code RIA. At publication, no authority account or invitation had yet been created; the separately approved appointment is recorded below.
 - Evidence in workspace outputs: `authority-review-briefing.jpg`, `authority-review-feedback-receipt.jpg`, `authority-review-policy-edit.jpg`. The local administrator instructions include the privately distributed staff URL; that URL is not added to this public repository briefing.
-- Designated administrator name/email and existing-account status remain pending. Their account activation, individual reviewer invitations, isolated TEST class/learners and final reviewer access checks must follow that appointment. Existing test records have not been repurposed.
+- The owner subsequently confirmed the designated administrator and explicitly approved a staging School Administrator account and one setup invitation. A read-only check found no existing matching account. The guarded staging operation created the individual account, active School Administrator assignment, 48-hour invitation and audit event. The email provider accepted the invitation. A separate read-only verification confirmed active status, required personal password setup, users.manage and school.configure permissions, and a pending unredeemed invitation. Recipient details are kept in the private local handoff, not this public repository.
+- Recipient activation, individual reviewer invitations, isolated TEST class/learners and final reviewer access checks remain the next administrator actions. Existing test records have not been repurposed. Recipient inbox delivery and first sign-in are not claimed as verified.
+- The preparation feedback was also read back from the receiving queue as NEW, confirming its database handoff.
