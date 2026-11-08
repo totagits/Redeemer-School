@@ -6,7 +6,7 @@ Updated 7 November 2026. Production remains paused. Live collections and SMS mus
 
 - The signed-in MoMo developer account shows an active School Fees Collection subscription and an active Collection Widget subscription. Active subscriptions do not, by themselves, establish production merchant approval.
 - The owner confirmed on 7 November that no separate live-approval letter or email has been received.
-- The Go Live page loads its heading, but its embedded onboarding content is blank in the observed browser session. The account Profile remains accessible. The Go Live page was left open in Edge. No onboarding form, agreement or application was submitted.
+- The Go Live page loads its heading, but its embedded onboarding content is blank in the observed browser session. The account Profile remains accessible. No onboarding form, agreement or application was submitted.
 - Last verified staging service state: MoMo SANDBOX configured; MTN SMS incomplete or disabled; email configured. No live-send or live-collections flag was enabled. No real money or SMS test was initiated.
 
 ## Provider approval record
@@ -77,13 +77,24 @@ The audit found that the previous announcement dispatch route selected QUEUED an
 
 The prepared fix persists a SENDING claim and correlation reference before any provider request. It claims only never-attempted QUEUED rows with row locks, serializes announcement queue preparation, and rechecks guardian consent, current phone and audience eligibility. Provider acceptance becomes SENT, which is not delivery confirmation. Any exception becomes UNKNOWN conservatively. A result-save failure leaves the committed SENDING claim in place. Neither UNKNOWN, SENDING nor FAILED is automatically resent. A manual provider investigation is required; this update provides no automatic requeue or provider delivery-receipt callback.
 
-Migration 116 adds the claim fields and states without changing school RLS. Isolated real-SQL tests cover repeat claims, accepted sends, timeouts after acceptance, interrupted result saves, rolled-back claims and withdrawn consent. Provider calls are mocked; no live test or charge was used to investigate or verify the fix. Staging deployment and migration are recorded below once completed.
+Migration 116 adds the claim fields and states without changing school RLS. Isolated real-SQL tests cover repeat claims, accepted sends, timeouts after acceptance, interrupted result saves, rolled-back claims and withdrawn consent. Provider calls are mocked; no live test or charge was used to investigate or verify the fix. Staging deployment and migration evidence follows below.
 
 Production Collections now also requires MTN_MOMO_FEE_RATE_BPS and MTN_MOMO_FEE_AGREEMENT_REF, in addition to the existing live switch and correct production credentials/environment. Missing or invalid fee configuration keeps production collections disabled. Migration 117 records the agreement and rate on each new payment intent. Reconciliation uses that retained rate, not a later configuration value. Successful legacy intents without recorded fee terms require Finance review; no historical agreement is invented. Targeted API tests cover rate changes and missing legacy terms.
 
 Payroll rules and payroll payments are separate from school fee Collections; the Collections adapter is not an employee-payroll disbursement integration.
 
 Local verification completed: 388 tests discovered, 387 passed, no failures and one existing platform-specific skip. Type checking and frontend build passed. These results establish non-chargeable technical preparation, not live provider acceptance. Production approval, agreed fees, authorized test details, actual Collections reconciliation and SMS delivery evidence remain pending.
+
+## Completed staging verification
+
+- Revision `9b95c80f65a4023ce25867de9271d3b21f1581c5` passed [GitHub run 42450263315](https://github.com/totagits/Redeemer-School/actions/runs/42450263315): 388 tests passed, no failures or skips, with type checking and build successful.
+- A fresh staging database backup succeeded at 2026-11-08 05:19:51 UTC (7 November, 23:19:51 America/Chicago), size 3.02 MB. Archive: `pg-dump-redeemer_school_staging-1794115189-wsfmtvy6gxapncxwa2t89raj.dmp`.
+- Coolify staging deployment `lwyivduhhfj0b8wjhduslz3f` finished successfully for that revision. The application returned to its normal sign-in page after restart.
+- Migrations 116 and 117 committed together under a migration lock after explicitly checking the database name was `redeemer_school_staging`. Both migration ledger entries and the new dispatch and fee-agreement columns were verified.
+- The signed-in Finance browser showed the updated fee disclosure and external-service state: MoMo SANDBOX configured, MTN SMS incomplete or disabled. No credentials or live-enable settings were changed.
+- Screenshots retained in the workspace outputs folder: `mtn-safeguards-staging-backup.jpg`, `mtn-safeguards-migration-verified.jpg`, `mtn-safeguards-service-state.jpg` and `mtn-safeguards-fee-disclosure.jpg`.
+
+These checks complete staging deployment of the safeguards. They do not establish MTN production approval, actual settlement or SMS delivery. Production remains paused. The [payroll rules template](payroll-rules-for-school-approval.md) awaits school completion and approval; automated payroll rules have not been activated.
 
 ## Sources
 

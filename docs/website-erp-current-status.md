@@ -1,6 +1,6 @@
 # Current website and ERP completion status
 
-Updated 5 November 2026. Production is paused. This summary distinguishes implementation, staging verification and school acceptance.
+Updated 7 November 2026. Production is paused. This summary distinguishes implementation, staging verification and school acceptance.
 
 ## Public navigation and content
 
@@ -27,6 +27,7 @@ Still open:
 - Academic and portal: assignment attachment/deadline cases, live timetable and roll call, year-end report cards and promotion, encrypted student documents/photo/Digital ID, recovery and device/session lifecycle. Test student and guardian invitation and activation are already verified.
 - Staff and operations: HR recruitment through onboarding passed isolated authenticated SQL tests and the live staging rehearsal on 5 November. Migration 114 is applied. Leave request/review/independent decision/cancellation and manually entered payroll through independent approval and simulated payment recording also passed staging; migration 115 is applied. Automated statutory payroll, leave entitlements/accruals, paid-payroll corrections, expense review/posting, stock transfers/reporting, detailed Finance reconciliation/reversals, exports/EMIS and cross-campus scope remain open. See [HR verification](hr-recruitment-verification.md) and [leave/payroll evidence](leave-payroll-verification.md).
 - Release readiness: stronger private staff entry, monitoring/rollback, migration ledger reconciliation and isolated backup restore rehearsal. School administration still needs to supply outstanding official facts and policies listed in the content review.
-- Provider acceptance: Finance remains Partial for MTN MoMo and Communications remains Partial for MTN SMS.
+- Provider acceptance: Finance remains Partial for MTN MoMo and Communications remains Partial for MTN SMS. The owner confirmed no MTN live approval has been received. Duplicate-send safeguards and recorded Collections fee agreements are deployed on staging with migrations 116/117; 388 GitHub tests passed. Live collections, settlement and SMS delivery remain untested and disabled. See [MTN acceptance preparation](mtn-live-acceptance.md).
+- Automated payroll: the [school rules template](payroll-rules-for-school-approval.md) is drafted for HR/Finance completion and school approval. No statutory rates or calculation policies have been assumed or activated. Existing manual payroll remains separate.
 
 See whole-site-release-checklist.md for the full workspace list and erp-portal-workflow-verification.md for dated evidence. Owner release approval follows completion and acceptance of launch workflows; no production deployment is authorized by this report.
