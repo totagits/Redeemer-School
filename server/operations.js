@@ -1101,7 +1101,7 @@ export function createOperationsRouter({ authenticate, sendExaminationEmail=send
       await close(req, false);
       const result = await momoClient.requestToPay({
         referenceId, externalId: `RIA-SANDBOX-${randomUUID()}`, amount, currency: 'EUR', msisdn,
-        payerMessage: 'Redeemer sandbox integration test', payeeNote: 'Test only; no school invoice',
+        payerMessage: 'School sandbox integration test', payeeNote: 'Test only; no school invoice',
       });
       return res.status(202).json({ referenceId: result.referenceId, status: result.status, message: 'MTN accepted the sandbox request. Check its status below; no student account or invoice was changed.' });
     } catch (error) {
@@ -1188,7 +1188,7 @@ export function createOperationsRouter({ authenticate, sendExaminationEmail=send
     let providerAccepted = false;
     try {
       await momoClient.requestToPay({ referenceId, externalId: intentId, amount: (amountCents / 100).toFixed(2), currency: momoClient.config.currency, msisdn: payerPhone,
-        payerMessage: `Redeemer fees ${invoiceNumber}`, payeeNote: `Invoice ${invoiceNumber}` });
+        payerMessage: `School fees ${invoiceNumber}`, payeeNote: `Invoice ${invoiceNumber}` });
       providerAccepted = true;
       await withTenantTransaction(pool, schoolId, async client => {
         await client.query(`UPDATE payment_intents SET status = 'PENDING', provider_status = 'ACCEPTED' WHERE school_id = $1 AND id = $2 AND status = 'CREATED'`, [schoolId, intentId]);

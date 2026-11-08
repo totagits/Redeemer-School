@@ -1,3 +1,4 @@
+import {INSTITUTION,SCHOOL_PORTAL_NAME} from '../data/institution.ts';
 import { MousePointer2 } from 'lucide-react';
 import { useLayoutEffect, useRef, useState } from 'react';
 
@@ -89,7 +90,7 @@ export function StudentGuideDemo({ topic, label, step, take }: { topic: string; 
       <MousePointer2 className="relative h-6 w-6 fill-blue-700 text-white drop-shadow"/>
     </span>
     <div className={panel}>
-      <p className="text-xs font-bold text-blue-800">REDEEMER ERP</p>
+      <p className="text-xs font-bold text-blue-800">{SCHOOL_PORTAL_NAME}</p>
       <p className="mb-4 text-xs text-slate-500">Student · Example</p>
       <div data-demo-target={step === 0 ? true : undefined} className={`rounded-lg px-2 py-3 text-sm font-bold ${open ? 'bg-blue-100 text-blue-950' : 'text-slate-700'}`}>{label}</div>
     </div>

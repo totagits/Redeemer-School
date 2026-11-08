@@ -73,7 +73,7 @@ test('sandbox request-to-pay uses the MTN test currency EUR and treats 202 as pe
   assert.deepEqual(JSON.parse(calls[1].options.body), {
     amount: '1250.00', currency: 'EUR', externalId: '507455c0-7ed6-4302-a2c8-84bf5e50debf',
     payer: { partyIdType: 'MSISDN', partyId: '231770123456' },
-    payerMessage: 'Redeemer school fee payment', payeeNote: 'Redeemer school fee payment',
+    payerMessage: 'School fee payment', payeeNote: 'School fee payment',
   });
 });
 

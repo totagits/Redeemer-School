@@ -1,3 +1,4 @@
+import {INSTITUTION,SCHOOL_PORTAL_NAME} from '../data/institution.ts';
 import { useEffect, useLayoutEffect, useRef, useState } from 'react';
 import { MousePointer2, CheckCircle2 } from 'lucide-react';
 import type { DemoScreen, WorkspaceDemo } from './roleGuideDemos';
@@ -60,7 +61,7 @@ export function RoleGuideDemo({ demo, label, step, take }: {
       <MousePointer2 className="relative h-6 w-6 fill-blue-700 text-white drop-shadow"/>
     </span>
     <aside className="rounded-xl border border-slate-200 bg-white p-3">
-      <p className="text-xs font-bold text-blue-800">REDEEMER ERP</p>
+      <p className="text-xs font-bold text-blue-800">{SCHOOL_PORTAL_NAME}</p>
       <p className="mb-4 text-xs text-slate-500">Example workspace</p>
       <div data-demo-target={step === 0 ? true : undefined} className={`rounded-lg p-2 text-sm font-bold ${open ? 'bg-blue-100 text-blue-950' : 'text-slate-600'}`}>{label}</div>
     </aside>

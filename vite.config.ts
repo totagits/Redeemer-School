@@ -1,11 +1,16 @@
 import tailwindcss from '@tailwindcss/vite';
 import react from '@vitejs/plugin-react';
 import path from 'path';
-import {defineConfig} from 'vite';
+import {defineConfig,loadEnv} from 'vite';
+import {loadSchoolBuild,institutionBuildPlugin} from './server/platform/schoolBuild.js';
 
-export default defineConfig(() => {
+export default defineConfig(({mode}) => {
+  const env={...loadEnv(mode,process.cwd(),''),...process.env};
+  const school=loadSchoolBuild(env.SCHOOL_INSTITUTION_MANIFEST,env.SCHOOL_INSTITUTION_ASSETS_DIR);
   return {
-    plugins: [react(), tailwindcss()],
+    plugins: [react(), tailwindcss(),institutionBuildPlugin(school)],
+    ...(school?{publicDir:false}:{}),
+    define:{__SCHOOL_PUBLIC_CONFIG__:JSON.stringify(school?.publicConfig||null)},
     resolve: {
       alias: {
         '@': path.resolve(__dirname, '.'),

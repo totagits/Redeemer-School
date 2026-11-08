@@ -1,3 +1,4 @@
+import {schoolPublicUrl} from '../data/institution.ts';
 import {useWebsiteProfile} from './PublishedWebsiteContent.tsx';
 import React, { useEffect, useMemo, useState } from 'react';
 import { ArrowRight, BookOpen, CalendarDays, CheckCircle2, CircleHelp, GraduationCap, LoaderCircle, Phone, Search, ShieldCheck } from 'lucide-react';
@@ -50,7 +51,7 @@ export function LiveAdmissionsGuide({onApply}:{onApply:()=>void}){
    let active=true;
    const controller=new AbortController();
    setState('loading');
-   fetch('/api/public/admissions/options?schoolCode=RIA',{credentials:'same-origin',cache:'no-store',signal:controller.signal})
+   fetch(schoolPublicUrl('/api/public/admissions/options'),{credentials:'same-origin',cache:'no-store',signal:controller.signal})
     .then(async response=>{if(!response.ok)throw new Error('School admission options unavailable');return response.json() as Promise<AdmissionsOptions>;})
     .then(result=>{if(active){setOptions(result);setState('ready');}})
     .catch(error=>{if(active&&error.name!=='AbortError')setState('error');});

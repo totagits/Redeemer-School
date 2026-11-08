@@ -1,3 +1,4 @@
+import {INSTITUTION} from '../data/institution.ts';
 import { useEffect, useRef, useState } from 'react';
 import { ArrowLeft, ArrowRight, BookOpen, Square, Volume2 } from 'lucide-react';
 import { guideLessons } from './guideLessons';
@@ -122,7 +123,7 @@ export function UserGuide({ workspaces, permissions, roles = [], onOpen }: {
 
   return <section className="space-y-5" aria-label="User guide">
     <div className="rounded-2xl bg-slate-950 p-6 text-white">
-      <p className="flex items-center gap-2 text-sm font-semibold text-blue-200"><BookOpen className="h-4 w-4" aria-hidden="true"/> Redeemer learning center</p>
+      <p className="flex items-center gap-2 text-sm font-semibold text-blue-200"><BookOpen className="h-4 w-4" aria-hidden="true"/> {INSTITUTION.name} learning center</p>
       <h2 className="mt-2 text-2xl font-extrabold">Learn your workspace</h2>
       <p className="mt-2 max-w-2xl text-sm leading-6 text-slate-200">Choose a lesson from your menu and follow the highlighted clicks. These practice screens use examples and never save school records.</p>
       {voiceAvailable && <button type="button" className="mt-4 inline-flex items-center gap-2 rounded-lg bg-white px-4 py-3 text-sm font-bold text-blue-950 hover:bg-blue-50" onClick={() => {

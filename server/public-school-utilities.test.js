@@ -5,7 +5,7 @@ const utilities=readFileSync(new URL('../src/components/SchoolPublicUtilities.ts
 const pages=readFileSync(new URL('../src/components/PublicSchoolPages.tsx',import.meta.url),'utf8');
 const home=readFileSync(new URL('../src/components/HomeLandingPage.tsx',import.meta.url),'utf8');
 test('public admissions guide reads only the existing approved admissions options API',()=>{
- assert.match(utilities,/\/api\/public\/admissions\/options\?schoolCode=RIA/);
+ assert.match(utilities,/schoolPublicUrl\('\/api\/public\/admissions\/options'\)/);
  assert.match(utilities,/no-store/);
  assert.match(utilities,/classes\.map/);
  assert.match(utilities,/Listing a class does not guarantee available seats/);

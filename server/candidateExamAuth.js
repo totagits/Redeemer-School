@@ -7,6 +7,7 @@ import { hashCandidateSecret } from './admissionExamCredential.js';
 import { redeemExamCredential } from './admissionExamRedemption.js';
 import { validateCandidateExamSession } from './admissionExamSession.js';
 import { verifyGuardianEmail } from './admissionGuardianEmail.js';
+import {enforceSchoolSelection} from './dedicatedInstitution.js';
 
 const COOKIE='redeemer_exam_candidate';
 const PATH='/api/candidate-exams';
@@ -22,6 +23,7 @@ const proofValid=`v.verified_at IS NOT NULL AND v.revoked_at IS NULL AND v.verif
 export function createCandidateExamRouter({pool,secret,publicUrl,enabled=false}) {
   const router=express.Router(),attempts=new Map();
   router.use(express.json({limit:'16kb'}));
+  router.use(enforceSchoolSelection);
   let origin;
   try {const u=new URL(publicUrl);if(u.protocol==='https:'&&!u.username&&!u.password)origin=u.origin;}catch{}
   const mac=value=>createHmac('sha256',secret).update('candidate-exam:v1:'+value).digest('base64url');
@@ -33,6 +35,7 @@ export function createCandidateExamRouter({pool,secret,publicUrl,enabled=false})
     const expected=Buffer.from(mac(payload)),actual=Buffer.from(sig);
     if(expected.length!==actual.length||!timingSafeEqual(expected,actual))return null;
     try {const c=JSON.parse(Buffer.from(payload,'base64url').toString());
+      if(req.schoolBinding && c.schoolId!==req.schoolBinding.id)return null;
       const uuid=/^[0-9a-f]{8}(-[0-9a-f]{4}){3}-[0-9a-f]{12}$/i;
       return uuid.test(c.schoolId)&&uuid.test(c.examId)&&hashCandidateSecret(c.token)&&typeof c.csrf==='string'&&c.csrf.length===43&&Number.isSafeInteger(c.expiresAt)&&c.expiresAt+(receiptOnly?600_000:0)>Date.now()?c:null;
     }catch{return null;}

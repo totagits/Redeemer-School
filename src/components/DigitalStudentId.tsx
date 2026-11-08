@@ -1,3 +1,4 @@
+import {SCHOOL_LOGO_URL,SCHOOL_LOGO_ALT,INSTITUTION,IS_CONFIGURED_INSTITUTION,SCHOOL_PORTAL_NAME} from '../data/institution.ts';
 import React, { useEffect, useMemo, useState } from 'react';
 import { CheckCircle2, Download, IdCard, LoaderCircle, ShieldCheck, XCircle } from 'lucide-react';
 import { qrcodegen } from '../logic/qrcodegen.ts';
@@ -105,7 +106,7 @@ export const DigitalStudentId: React.FC<{ studentId?: string; csrfToken?: string
         photo=await new Promise<string>((resolve,reject)=>{const reader=new FileReader();reader.onload=()=>resolve(String(reader.result));reader.onerror=()=>reject(new Error('Unable to prepare the photograph.'));reader.readAsDataURL(blob);});
       }
       const name=escapeHtml(card.fullName),school=escapeHtml(card.schoolName);
-      const schoolLogo=escapeHtml(new URL('/redeemer-seal.svg?v=3',window.location.origin).toString());
+      const schoolLogo=escapeHtml(new URL(SCHOOL_LOGO_URL,window.location.origin).toString());
       const studentNumber=escapeHtml(card.studentNumber),studentClass=escapeHtml(card.className||'Not assigned');
       const year=escapeHtml(card.academicYear||'Not assigned');
       const issued=card.issuedAt?new Date(card.issuedAt).toLocaleDateString():'—';
@@ -161,7 +162,7 @@ html,body { margin:0; padding:0; background:white; font-family:Arial,Helvetica,s
     {notice&&<p role="status" className="mb-3 rounded-lg bg-emerald-50 p-3 text-sm text-emerald-800">{notice}</p>}
     {loading?<div className="flex items-center gap-2 text-sm text-slate-500"><LoaderCircle className="h-4 w-4 animate-spin"/> Loading card…</div>:card&&<>
       <div id="school-digital-id-print" className="mx-auto max-w-xl overflow-hidden rounded-2xl border-2 border-blue-900 bg-white shadow">
-        <header className="flex items-center gap-3 bg-blue-950 px-4 py-3 text-white"><img src="/redeemer-seal.svg?v=3" alt="Redeemer's International Academy seal" className="h-10 w-10 shrink-0 rounded-full bg-white p-0.5 object-contain"/><div className="min-w-0"><p className="text-sm font-extrabold">{card.schoolName}</p><p className="text-[10px] font-semibold uppercase tracking-widest text-blue-200">Official Digital Student ID</p></div></header>
+        <header className="flex items-center gap-3 bg-blue-950 px-4 py-3 text-white"><img src={SCHOOL_LOGO_URL} alt={SCHOOL_LOGO_ALT} className="h-10 w-10 shrink-0 rounded-full bg-white p-0.5 object-contain"/><div className="min-w-0"><p className="text-sm font-extrabold">{card.schoolName}</p><p className="text-[10px] font-semibold uppercase tracking-widest text-blue-200">Official Digital Student ID</p></div></header>
         <div className="flex flex-wrap items-center gap-3 p-4">
           <div className="h-28 w-24 shrink-0 overflow-hidden rounded-lg border bg-slate-100">
             {card.photoAvailable?<img src={photoEndpoint} alt={`School photograph of ${card.fullName}`} className="h-full w-full object-cover"/>:
@@ -244,7 +245,7 @@ export const DigitalStudentIdVerifier: React.FC<{csrfToken:string}> = ({csrfToke
             const {default:jsQR}=await import('../logic/jsQRDecoder.js');
             decoded=jsQR(pixels.data,pixels.width,pixels.height,{inversionAttempts:'attemptBoth'})?.data||'';
           }
-          if(!decoded.startsWith('RIA1.'))throw new Error('No Redeemer student QR credential was found. Upload a clear image of the QR code, not the printed student number.');
+          if(!decoded.startsWith('RIA1.'))throw new Error('No school student QR credential was found. Upload a clear image of the QR code, not the printed student number.');
           setToken(decoded);
         }finally{image.close();}
       }catch(cause){setError(cause instanceof Error?cause.message:'Could not read QR code.');}

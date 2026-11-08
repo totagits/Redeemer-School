@@ -62,7 +62,7 @@ Use the revision returned by `show` for later changes. A stale revision is rejec
 | Stage | Required result | Current status |
 |---|---|---|
 | 1. TOTAG configuration registry | Separate registry, validated configuration, audit and conflict handling | Implemented and tested locally; no live registry provisioned |
-| 2. Dedicated-school onboarding | Reviewed configuration applied consistently to website, portal, documents, logo/assets, email and deployment settings; empty-school setup with named administrator | Outstanding; existing Redeemer editor covers only part of this scope |
+| 2. Dedicated-school onboarding | Reviewed configuration applied consistently to website, portal, documents, logo/assets, email and deployment settings; empty-school setup with named administrator | Dedicated branding/palette builds and runtime binding implemented; fictional browser preview verified. Automated provisioning and live acceptance remain outstanding. See [branding evidence](institution-branding-verification.md). |
 | 3. Departments and TVET | Connected department/program management, instructor assignment, learner pathways, practical assessment, workshop resources and approved qualifications | Registry catalog implemented; operational workflows outstanding |
 | 4. TOTAG management console | Individually authenticated operators, MFA, scoped support grants, approval and audit; no implicit school-record access | Outstanding |
 | 5. Shared SaaS runtime | Verified domain-to-school routing, host-bound sessions and links, cross-school isolation across every API/file/job/cache, school-specific keys and providers | Outstanding; shared deployment model rejected by current registry validation |
@@ -77,7 +77,7 @@ The central registry will be a control plane, not a database proxy with a univer
 
 Public tenant routing must use verified, activated domain mappings from a trusted configuration source, reject unknown hosts, and bind sign-in, invitations, reset links and examination access to the selected institution. A request-supplied school code or forwarded host must never grant access to another school's data. Domain verification and activation are not implemented yet.
 
-Tenant-aware database transactions, composite foreign keys and existing RLS are foundations. Shared runtime acceptance must additionally prove file/object storage separation, scheduled-job scope, caches, exports, result links, provider configuration, encrypted document keys, account recovery and audit access. Current process-wide provider settings and Redeemer-specific client constants must be removed or explicitly scoped before shared hosting is enabled.
+Tenant-aware database transactions, composite foreign keys and existing RLS are foundations. Shared runtime acceptance must additionally prove file/object storage separation, scheduled-job scope, caches, exports, result links, provider configuration, encrypted document keys, account recovery and audit access. Process-wide providers and deployment-level client configuration must become tenant-aware before shared hosting. The dedicated build now replaces the main Redeemer identity constants from a reviewed school package; it does not choose identity dynamically within a shared frontend.
 
 Dedicated school databases need individual restore/upgrade procedures. Shared hosting additionally needs tested single-school export/restore and controlled deletion without exposing or disrupting other schools. No cross-school migration should be automatic or implied by a subscription change.
 

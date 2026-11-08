@@ -1,3 +1,4 @@
+import {SCHOOL_LOGO_URL,SCHOOL_LOGO_ALT,INSTITUTION,IS_CONFIGURED_INSTITUTION,SCHOOL_PORTAL_NAME} from '../data/institution.ts';
 import {useWebsiteProfile} from './PublishedWebsiteContent.tsx';
 import { publicSchoolNavigation } from './PublicSchoolPages.tsx';
 import { schoolNavigationHref } from '../logic/publicSchoolRoutes.ts';
@@ -74,7 +75,7 @@ export const Header: React.FC<HeaderProps> = ({
         {/* Zone 1: Single Brand element */}
         <div className="flex items-center gap-3 shrink-0">
           <div className="w-10 h-10 rounded-xl bg-white ring-1 ring-amber-400/50 shadow-sm overflow-hidden shrink-0">
-            <img src="/redeemer-seal.svg?v=2" alt="Redeemer's International Academy seal" className="w-full h-full object-contain" />
+            <img src={SCHOOL_LOGO_URL} alt={SCHOOL_LOGO_ALT} className="w-full h-full object-contain" />
           </div>
           <a href="/" className="text-left group cursor-pointer focus:outline-hidden">
             <div className="flex items-center gap-2">
@@ -86,7 +87,7 @@ export const Header: React.FC<HeaderProps> = ({
               </span>
             </div>
             <span className="text-[11px] text-slate-500 font-medium whitespace-nowrap block">
-              {profile.motto} · Paynesville
+              {profile.motto}
             </span>
           </a>
         </div>
@@ -122,7 +123,7 @@ export const Header: React.FC<HeaderProps> = ({
               <Building2 className="w-3.5 h-3.5" /> Contact
             </summary>
             <div className="absolute right-0 top-full mt-2 w-80 max-w-[calc(100vw-2rem)] rounded-xl border border-slate-200 bg-white p-4 text-xs text-slate-700 shadow-xl z-50">
-              <p className="font-bold text-slate-900">Redeemer's International Academy</p>
+              <p className="font-bold text-slate-900">{INSTITUTION.name}</p>
               <p className="mt-2 leading-relaxed">{profile.address}</p>
               <div className="mt-3 flex flex-col gap-1.5">
                 {profile.phones.map((phone) => (
@@ -148,7 +149,7 @@ export const Header: React.FC<HeaderProps> = ({
               </button>
               <div id={`school-menu-${index}`} aria-label={`${group.label} submenu`} aria-hidden={openMenu!==group.label}
                 className={`absolute top-full z-[100] w-[min(34rem,90vw)] origin-top rounded-b-xl border-t-4 border-amber-400 bg-amber-400 p-5 shadow-[0_25px_60px_rgba(4,20,52,.25)] ring-1 ring-[#e4aa00] transition-all duration-200 ease-out ${index>3?'right-0':'left-0'} ${openMenu===group.label?'visible translate-y-0 scale-100 opacity-100':'invisible pointer-events-none -translate-y-2 scale-[.98] opacity-0'}`}>
-                <div className="mb-3 flex items-center justify-between border-b border-[#071d3e]/20 pb-3"><span className="text-xs font-extrabold uppercase tracking-[.16em] text-[#071d3e]">{group.label}</span><span className="text-xs text-[#071d3e]/75">Explore Redeemer</span></div>
+                <div className="mb-3 flex items-center justify-between border-b border-[#071d3e]/20 pb-3"><span className="text-xs font-extrabold uppercase tracking-[.16em] text-[#071d3e]">{group.label}</span><span className="text-xs text-[#071d3e]/75">Explore our school</span></div>
                 <div className="grid grid-cols-2 gap-x-4 gap-y-1">
                   {group.items.map(item=><a key={item.slug} tabIndex={openMenu===group.label?0:-1} onClick={()=>setOpenMenu(null)}
                     href={schoolNavigationHref(item.slug)}
@@ -168,7 +169,7 @@ export const Header: React.FC<HeaderProps> = ({
           <button type="button" aria-label={mobileMenuOpen?'Close school menu':'Open school menu'} aria-expanded={mobileMenuOpen}
             onClick={()=>setMobileMenuOpen(current=>!current)}
             className="flex w-full items-center justify-between px-5 py-3 text-sm font-extrabold text-blue-950">
-            Explore Redeemer {mobileMenuOpen?<X className="h-5 w-5"/>:<Menu className="h-5 w-5"/>}
+            Explore our school {mobileMenuOpen?<X className="h-5 w-5"/>:<Menu className="h-5 w-5"/>}
           </button>
           {mobileMenuOpen&&<nav aria-label="Mobile school navigation" className="max-h-[70vh] overflow-y-auto border-t border-slate-100 px-4 pb-4">
             <a href="/" className="block border-b border-slate-100 px-3 py-3 text-sm font-bold">Home</a>
@@ -203,7 +204,7 @@ export const Header: React.FC<HeaderProps> = ({
               <Building2 className="w-3.5 h-3.5" /> Contact
             </summary>
             <div className="absolute right-0 top-full mt-2 w-80 max-w-[calc(100vw-2rem)] rounded-xl border border-slate-200 bg-white p-4 text-xs text-slate-700 shadow-xl z-50">
-              <p className="font-bold text-slate-900">Redeemer's International Academy</p>
+              <p className="font-bold text-slate-900">{INSTITUTION.name}</p>
               <p className="mt-2 leading-relaxed">{profile.address}</p>
               <div className="mt-3 flex flex-col gap-1.5">
                 {profile.phones.map((phone) => (

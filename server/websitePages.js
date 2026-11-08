@@ -2,6 +2,7 @@ import express from 'express';
 import {readFileSync} from 'node:fs';
 import {createHash} from 'node:crypto';
 import {decodeImage} from './publicContent.js';
+import {institutionWebsiteDefaults} from '../shared/institutionDefaults.js';
 export const websitePageCatalog=JSON.parse(readFileSync(new URL('../shared/website-content.json',import.meta.url),'utf8'));
 const uuid=/^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 class ContentError extends Error{constructor(message,status=400){super(message);this.status=status;}}
@@ -52,12 +53,13 @@ export function createWebsitePagesRouter({pool,authenticate}){
   if(req.method!=='GET'&&req.get('x-csrf-token')!==req.auth.claims.csrfToken)return finish(req,res,403,{error:'Refresh your session before saving.'},false);next();
  });
  async function failure(req,res,e){return finish(req,res,e instanceof ContentError?e.status:503,{error:e instanceof ContentError?e.message:'The website change could not be saved.'},false);}
- router.get('/manage',async(req,res)=>{try{const school=req.auth.claims.schoolId;const [pages,assets]=await Promise.all([req.auth.client.query('SELECT slug,revision,published_revision,published_at,updated_at FROM website_pages WHERE school_id=$1 ORDER BY slug',[school]),req.auth.client.query('SELECT id,filename,media_type,alt_text,caption,created_at FROM website_assets WHERE school_id=$1 ORDER BY created_at DESC LIMIT 100',[school])]);return finish(req,res,200,{pages:pages.rows,assets:assets.rows,catalog:Object.entries(websitePageCatalog).map(([slug,page])=>({slug,title:page.heading}))});}catch(e){return failure(req,res,e);}});
+ router.get('/manage',async(req,res)=>{try{const school=req.auth.claims.schoolId;const [pages,assets]=await Promise.all([req.auth.client.query('SELECT slug,revision,published_revision,published_at,updated_at FROM website_pages WHERE school_id=$1 ORDER BY slug',[school]),req.auth.client.query('SELECT id,filename,media_type,alt_text,caption,created_at FROM website_assets WHERE school_id=$1 ORDER BY created_at DESC LIMIT 100',[school])]);return finish(req,res,200,{pages:pages.rows,assets:assets.rows,catalog:Object.entries(req.schoolBinding?institutionWebsiteDefaults(websitePageCatalog,req.schoolBinding.school):websitePageCatalog).map(([slug,page])=>({slug,title:page.heading}))});}catch(e){return failure(req,res,e);}});
  router.get('/manage/:slug',async(req,res)=>{try{
   if(!Object.hasOwn(websitePageCatalog,req.params.slug))throw new ContentError('Page not found.',404);
   const school=req.auth.claims.schoolId;const row=(await req.auth.client.query('SELECT * FROM website_pages WHERE school_id=$1 AND slug=$2',[school,req.params.slug])).rows[0];
   const history=await req.auth.client.query('SELECT h.id,h.action,h.revision,h.snapshot,h.note,h.created_at,u.full_name AS actor_name FROM website_page_history h LEFT JOIN user_accounts u ON u.school_id=h.school_id AND u.id=h.actor_user_id WHERE h.school_id=$1 AND h.slug=$2 ORDER BY h.created_at DESC,h.id DESC LIMIT 50',[school,req.params.slug]);
-  return finish(req,res,200,{page:row||{slug:req.params.slug,revision:0,draft_content:websitePageCatalog[req.params.slug],published_content:null,published_revision:null},history:history.rows});
+  const defaults=req.schoolBinding?institutionWebsiteDefaults(websitePageCatalog,req.schoolBinding.school):websitePageCatalog;
+  return finish(req,res,200,{page:row||{slug:req.params.slug,revision:0,draft_content:defaults[req.params.slug],published_content:null,published_revision:null},history:history.rows});
  }catch(e){return failure(req,res,e);}});
  router.post('/manage/assets',express.json({limit:'8mb'}),async(req,res)=>{try{
   if(req.body?.publicationConsent!==true)throw new ContentError('Confirm school authorization to publish this asset.');

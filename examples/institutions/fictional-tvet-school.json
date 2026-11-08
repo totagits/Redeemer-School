@@ -13,6 +13,7 @@
   "branding": {
     "logoPath": "/institution-assets/test-school.png",
     "primaryColor": "#164E63",
+    "secondaryColor": "#083344",
     "accentColor": "#FDE68A"
   },
   "domains": [

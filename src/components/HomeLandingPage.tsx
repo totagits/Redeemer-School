@@ -1,5 +1,6 @@
+import {SCHOOL_LOGO_URL,SCHOOL_LOGO_ALT,INSTITUTION,IS_CONFIGURED_INSTITUTION,SCHOOL_PORTAL_NAME} from '../data/institution.ts';
 import {PublishedPageAssets,usePublishedPage,useWebsiteProfile} from './PublishedWebsiteContent.tsx';
-import websiteDefaults from '../../shared/website-content.json';
+import {WEBSITE_DEFAULTS as websiteDefaults} from './PublishedWebsiteContent.tsx';
 import React from 'react';
 import { PublicSchoolUpdates } from './PublicSchoolUpdates.tsx';
 import { SchoolFAQ } from './SchoolPublicUtilities.tsx';
@@ -18,7 +19,7 @@ const schoolValues = [
   { title: 'Family partnership', description: 'A shared commitment between educators and families to support every learner.', icon: Users },
 ];
 const guide = [
-  { title: 'Explore our school', description: 'Learn about Redeemer’s International Academy, its mission and school community.', href: '#about' },
+  { title: 'Explore our school', description: `Learn about ${INSTITUTION.name}, its mission and school community.`, href: '#about' },
   { title: 'Discover learning', description: 'Find out about teaching, curriculum, and the school experience.', href: '#academics' },
   { title: 'Apply for admission', description: 'Begin an application through the school’s official admissions process.', href: '#admissions' },
   { title: 'Stay connected', description: 'Access approved school notices and contact the school office.', href: '#community' },
@@ -28,7 +29,7 @@ export const HomeLandingPage: React.FC<HomeLandingPageProps> = ({ onPortalSignIn
  const profile=useWebsiteProfile(),home=usePublishedPage('home')||websiteDefaults.home;
  return (
   <div className="bg-white text-slate-900">
-    <section className="relative overflow-hidden bg-[#071d3e] text-white">
+    <section style={IS_CONFIGURED_INSTITUTION?{backgroundColor:INSTITUTION.primaryColor}:undefined} className="relative overflow-hidden bg-[#071d3e] text-white">
       <div className="absolute inset-0 bg-[radial-gradient(circle_at_8%_15%,rgba(24,91,164,.32),transparent_45%)]"/>
       <div className="relative mx-auto grid max-w-7xl items-center gap-10 px-5 py-12 sm:px-8 md:py-16 lg:grid-cols-[.95fr_1.05fr] lg:px-10">
         <div>
@@ -37,21 +38,21 @@ export const HomeLandingPage: React.FC<HomeLandingPageProps> = ({ onPortalSignIn
           <p className="mt-6 max-w-xl text-base leading-8 text-slate-200 sm:text-lg">{home.intro}</p>
           <div className="mt-7 flex flex-wrap gap-3">
             <button type="button" onClick={onApply} className="inline-flex items-center gap-2 rounded-lg bg-amber-400 px-5 py-3 text-sm font-extrabold text-slate-950 shadow-lg transition hover:-translate-y-0.5 hover:bg-amber-300">Apply for admission <ArrowRight className="h-4 w-4"/></button>
-            <a href="/school/about-us" className="inline-flex items-center gap-2 rounded-lg border border-white/30 bg-white/10 px-5 py-3 text-sm font-bold text-white transition hover:border-white/50 hover:bg-white/20">Discover Redeemer</a>
+            <a href="/school/about-us" className="inline-flex items-center gap-2 rounded-lg border border-white/30 bg-white/10 px-5 py-3 text-sm font-bold text-white transition hover:border-white/50 hover:bg-white/20">Discover our school</a>
           </div>
-          <div className="mt-9 flex flex-wrap gap-3 text-xs font-semibold text-blue-100"><span className="rounded-md border border-white/15 px-3 py-2">Established {profile.founded}</span><span className="rounded-md border border-white/15 px-3 py-2">Paynesville, Liberia</span><span className="rounded-md border border-white/15 px-3 py-2">{profile.motto}</span></div>
+          <div className="mt-9 flex flex-wrap gap-3 text-xs font-semibold text-blue-100"><span className="rounded-md border border-white/15 px-3 py-2">{profile.founded?`Established ${profile.founded}`:INSTITUTION.name}</span><span className="rounded-md border border-white/15 px-3 py-2">{profile.address}</span><span className="rounded-md border border-white/15 px-3 py-2">{profile.motto}</span></div>
         </div>
         <div className="min-w-0 w-full lg:pl-4">
-          {home.images.length?<PublishedPageAssets page={{images:home.images.slice(0,1)}}/>:<CampusHeroCarousel/>}
+          {home.images.length?<PublishedPageAssets page={{images:home.images.slice(0,1)}}/>:IS_CONFIGURED_INSTITUTION?<div className="grid aspect-video place-items-center rounded-2xl border border-white/20 bg-white/5 p-8"><img src={SCHOOL_LOGO_URL} alt={SCHOOL_LOGO_ALT} className="h-40 w-40 object-contain"/></div>:<CampusHeroCarousel/>}
           <div className="mt-4 flex items-center justify-between gap-4">
-            <p className="text-xs text-slate-300">{home.images.length?'School-approved photographs':'Illustrative school-life images · Staging preview'}</p>
+            <p className="text-xs text-slate-300">{home.images.length?'School-approved photographs':IS_CONFIGURED_INSTITUTION?'School photographs will appear after publication':'Illustrative school-life images · Staging preview'}</p>
             <a href="/school/photo-albums" className="inline-flex shrink-0 items-center gap-2 text-sm font-bold text-white hover:text-amber-300">View gallery <ArrowRight className="h-4 w-4"/></a>
           </div>
         </div>
       </div>
     </section>
 
-    {home.images.length?<div className="mx-auto max-w-7xl space-y-5 px-5 py-10"><PublishedPageAssets page={home}/></div>:<section aria-label="Our school in photographs" className="border-b border-slate-200 bg-white py-10">
+    {home.images.length?<div className="mx-auto max-w-7xl space-y-5 px-5 py-10"><PublishedPageAssets page={home}/></div>:IS_CONFIGURED_INSTITUTION?null:<section aria-label="Our school in photographs" className="border-b border-slate-200 bg-white py-10">
       <div className="mx-auto max-w-7xl px-5 sm:px-8 lg:px-10">
         <div className="mb-5 flex flex-wrap items-center justify-between gap-3"><div><p className="text-xs font-bold uppercase tracking-widest text-blue-700">Our campus</p><h2 className="mt-1 text-2xl font-extrabold">A vision of the school experience</h2></div><a href="/school/photo-albums" className="text-sm font-bold text-blue-800 hover:underline">Explore the photo gallery →</a></div>
         <div className="grid gap-4 sm:grid-cols-2">
@@ -88,8 +89,8 @@ export const HomeLandingPage: React.FC<HomeLandingPageProps> = ({ onPortalSignIn
       <div className="mx-auto max-w-7xl px-5 sm:px-8 lg:px-10"><SchoolFAQ compact/></div>
     </section>
 
-    <section id="contact" className="scroll-mt-24 bg-slate-50 py-16"><div className="mx-auto max-w-7xl px-5 sm:px-8 lg:px-10"><p className="text-xs font-bold uppercase tracking-widest text-blue-700">Get in touch</p><h2 className="mt-3 text-3xl font-extrabold">Visit Redeemer’s International Academy</h2><div className="mt-7 grid gap-4 md:grid-cols-2"><div className="rounded-xl border border-slate-200 bg-white p-6"><MapPin className="h-6 w-6 text-blue-800"/><h3 className="mt-3 font-bold">School address</h3><p className="mt-2 leading-7 text-slate-600">{profile.address}</p></div><div className="rounded-xl border border-slate-200 bg-white p-6"><Phone className="h-6 w-6 text-blue-800"/><h3 className="mt-3 font-bold">Call the school</h3>{profile.phones.map(phone=><p key={phone} className="mt-2"><a className="text-blue-800 underline hover:text-blue-950" href={`tel:${phone}`}>{phone}</a></p>)}</div></div></div></section>
-    <footer className="bg-[#081b3c] px-5 py-9 text-sm text-slate-300"><div className="mx-auto flex max-w-7xl flex-col items-start justify-between gap-4 sm:flex-row sm:items-center"><div className="flex items-center gap-3"><img className="h-10 w-10 rounded-full bg-white object-contain p-1" src="/redeemer-seal.svg?v=3" alt="School seal"/><span>© {new Date().getFullYear()} {profile.name}</span></div><p>{profile.motto} · Paynesville, Liberia</p></div></footer>
+    <section id="contact" className="scroll-mt-24 bg-slate-50 py-16"><div className="mx-auto max-w-7xl px-5 sm:px-8 lg:px-10"><p className="text-xs font-bold uppercase tracking-widest text-blue-700">Get in touch</p><h2 className="mt-3 text-3xl font-extrabold">Visit {profile.name}</h2><div className="mt-7 grid gap-4 md:grid-cols-2"><div className="rounded-xl border border-slate-200 bg-white p-6"><MapPin className="h-6 w-6 text-blue-800"/><h3 className="mt-3 font-bold">School address</h3><p className="mt-2 leading-7 text-slate-600">{profile.address}</p></div><div className="rounded-xl border border-slate-200 bg-white p-6"><Phone className="h-6 w-6 text-blue-800"/><h3 className="mt-3 font-bold">Call the school</h3>{profile.phones.map(phone=><p key={phone} className="mt-2"><a className="text-blue-800 underline hover:text-blue-950" href={`tel:${phone}`}>{phone}</a></p>)}</div></div></div></section>
+    <footer style={IS_CONFIGURED_INSTITUTION?{backgroundColor:INSTITUTION.primaryColor}:undefined} className="bg-[#081b3c] px-5 py-9 text-sm text-slate-300"><div className="mx-auto flex max-w-7xl flex-col items-start justify-between gap-4 sm:flex-row sm:items-center"><div className="flex items-center gap-3"><img className="h-10 w-10 rounded-full bg-white object-contain p-1" src={SCHOOL_LOGO_URL} alt="School seal"/><span>© {new Date().getFullYear()} {profile.name}</span></div><p>{profile.motto}</p></div></footer>
   </div>
 );
 };

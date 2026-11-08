@@ -16,6 +16,7 @@ import { createPortalPhotoRouter } from './portalPhotos.js';
 import { isStrongSessionSecret } from './authCrypto.js';
 import { applyAdmissionsMigrationIfRequested } from './applyAdmissionsMigration.js';
 import { assertSchoolRuntimeMode } from './hostingMode.js';
+import { initializeDedicatedInstitution,createDedicatedSchoolGuard,enforceSchoolSelection,setServerInstitution } from './dedicatedInstitution.js';
 
 assertSchoolRuntimeMode();
 
@@ -50,6 +51,8 @@ const runtimePool = process.env.RUNTIME_DATABASE_URL
   : null;
 const sessionSecret = process.env.APP_SESSION_SECRET || '';
 const authConfigured = Boolean(runtimePool && isStrongSessionSecret(sessionSecret));
+const institutionBinding=await initializeDedicatedInstitution({pool:runtimePool,distDir});
+setServerInstitution(institutionBinding);
 
 app.disable('x-powered-by');
 // Coolify routes requests through one trusted reverse proxy. This lets IP-based
@@ -60,11 +63,13 @@ app.use((_req, res, next) => {
   res.setHeader('X-Content-Type-Options', 'nosniff');
   next();
 });
+app.use(createDedicatedSchoolGuard(institutionBinding));
 app.use('/api/candidate-exams',createCandidateExamRouter({pool:runtimePool,secret:sessionSecret,publicUrl:process.env.APP_PUBLIC_URL,enabled:process.env.ENABLE_CANDIDATE_EXAM_PREVIEW==='true'}));
 
 // Assignment submissions may contain one small school document (encoded in
 // JSON). The endpoint enforces a strict per-file limit before writing to DB.
 app.use(express.json({ limit: '9mb' }));
+app.use(enforceSchoolSelection);
 
 app.get('/api/health/live', (_req, res) => {
   res.status(200).json({ status: 'ok', release: 'family-fee-invoice-v7' });
@@ -148,7 +153,7 @@ const server = app.listen(port, '0.0.0.0', () => {
 });
 const stopExamTimeoutWorker=startExamTimeoutWorker({pool:runtimePool,
  enabled:process.env.ENABLE_CANDIDATE_EXAM_PREVIEW==='true',
- schoolCodes:(process.env.EXAM_TIMEOUT_SCHOOL_CODES||'RIA').split(',').map(code=>code.trim().toUpperCase()).filter(Boolean)});
+ schoolCodes:(process.env.EXAM_TIMEOUT_SCHOOL_CODES||institutionBinding?.code||'RIA').split(',').map(code=>code.trim().toUpperCase()).filter(Boolean)});
 
 async function shutdown(signal) {
   stopExamTimeoutWorker();

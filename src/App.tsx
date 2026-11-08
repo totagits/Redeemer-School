@@ -1,3 +1,4 @@
+import {INSTITUTION} from './data/institution.ts';
 import { CandidateExamResult } from './components/CandidateExamResult.tsx';
 import { isOperationsPath } from './logic/publicSchoolRoutes.ts';
 /**
@@ -538,7 +539,7 @@ export default function App() {
   if (authLoading) return <div className="grid min-h-screen place-items-center bg-slate-50 text-sm font-medium text-slate-600">Checking secure school access…</div>;
 
   if (authAccount && isOperationsPath(pathname)) return <div className="min-h-screen bg-slate-50 font-sans">
-    {isPortalAccount ? <div className="border-b border-blue-100 bg-blue-50 px-4 py-2 text-center text-xs font-semibold text-blue-900">Redeemer Student & Family Portal · Installable on your phone · Your view is limited to linked learners</div> : null}
+    {isPortalAccount ? <div className="border-b border-blue-100 bg-blue-50 px-4 py-2 text-center text-xs font-semibold text-blue-900">{INSTITUTION.name} Student & Family Portal · Installable on your phone · Your view is limited to linked learners</div> : null}
     <OperationsWorkspace account={authAccount} csrfToken={csrfToken} busy={signOutBusy} error={authError} initialWorkspace={requestedWorkspace} onSignOut={handleSignOut} onPasswordChanged={() => setAuthAccount(current => current ? { ...current, mustResetPassword: false } : current)} />
   </div>;
 
@@ -703,7 +704,7 @@ export default function App() {
       {currentView !== 'home' && <footer className="border-t border-slate-200 bg-white py-4 mt-auto">
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 flex flex-col sm:flex-row items-center justify-between gap-3 text-xs text-slate-500">
           <div className="flex items-center gap-2">
-            <span className="font-bold text-slate-900">Redeemer's International Academy ERP</span>
+            <span className="font-bold text-slate-900">{INSTITUTION.name} ERP</span>
             <span>·</span>
             <span>Paynesville, Liberia · MoE EMIS integration not connected</span>
             <span className="hidden md:inline">·</span>

@@ -41,7 +41,7 @@ function assetPath(value) {
 export function validateInstitutionManifest(input) {
   object(input,['schemaVersion','school','branding','domains','academics','deployment','approvalReference'],'manifest');
   if (input.schemaVersion !== 1) throw new ManifestError('Use manifest schemaVersion 1.');
-  const s=object(input.school,['code','name','motto','timezone','currency','address','phones','email'],'school');
+  const s=object(input.school,['code','name','motto','founded','timezone','currency','address','phones','email'],'school');
   const timezone=text(s.timezone,80,'school timezone');
   try { new Intl.DateTimeFormat('en',{timeZone:timezone}); } catch { throw new ManifestError('Use a valid school timezone.'); }
   if (!['LRD','USD'].includes(s.currency)) throw new ManifestError('Currently supported school currencies are LRD and USD.');
@@ -50,9 +50,11 @@ export function validateInstitutionManifest(input) {
   const email=text(s.email,254,'public office email').toLowerCase();
   if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) throw new ManifestError('Use a public office email.');
   const school={code:code(s.code,'school code'),name:text(s.name,160,'school name'),motto:text(s.motto,160,'school motto'),timezone,currency:s.currency,address:text(s.address,500,'school address'),phones,email};
-  const b=object(input.branding,['logoPath','primaryColor','accentColor'],'branding');
+  if(s.founded!==undefined){if(typeof s.founded!=='string'||!/^(18|19|20)\d{2}$/.test(s.founded))throw new ManifestError('Use a four-digit establishment year.');school.founded=s.founded;}
+  const b=object(input.branding,['logoPath','primaryColor','secondaryColor','accentColor'],'branding');
   const branding={logoPath:assetPath(b.logoPath),primaryColor:text(b.primaryColor,7,'primary colour'),accentColor:text(b.accentColor,7,'accent colour')};
   if (![branding.primaryColor,branding.accentColor].every(c=>/^#[0-9a-f]{6}$/i.test(c))) throw new ManifestError('Use six-digit hex colours.');
+  if(b.secondaryColor!==undefined){branding.secondaryColor=text(b.secondaryColor,7,'secondary colour');if(!/^#[0-9a-f]{6}$/i.test(branding.secondaryColor))throw new ManifestError('Use a six-digit secondary colour.');}
   const domains=array(input.domains,10,'domains').map(d=>{
     object(d,['hostname','purpose'],'domain');
     if (!['PUBLIC','STAFF','PORTAL'].includes(d.purpose)) throw new ManifestError('Choose PUBLIC, STAFF or PORTAL domain purpose.');

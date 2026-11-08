@@ -1,3 +1,5 @@
+import {INSTITUTION,IS_CONFIGURED_INSTITUTION} from '../data/institution.ts';
+import {WEBSITE_DEFAULTS} from './PublishedWebsiteContent.tsx';
 import {PublishedPageAssets,usePublishedPage,useWebsiteProfile,type WebsiteImage,type WebsiteDocument} from './PublishedWebsiteContent.tsx';
 import { PublicWebsiteRequestForm } from './PublicWebsiteRequestForm.tsx';
 import React from 'react';
@@ -82,6 +84,7 @@ const schoolPhotos=[
 ];
 function PhotoAlbumPreview(){
  const [available,setAvailable]=React.useState<Record<string,boolean>>({});
+ if(IS_CONFIGURED_INSTITUTION)return null;
  return <section className="rounded-2xl border border-slate-200 bg-white p-6">
   <h2 className="text-xl font-bold">Redeemer school photographs</h2>
   <p className="mt-2 text-sm text-slate-600">Campus photographs from the school's collection. These are low-resolution previews; original photographs will replace them when reviewed and approved.</p>
@@ -93,11 +96,12 @@ function PhotoAlbumPreview(){
 }
 export function PublicSchoolPages({slug,onApply,onPortalSignIn}:{slug:string;onApply:()=>void;onPortalSignIn:()=>void}){
  const content=usePublishedPage(slug);const profile=useWebsiteProfile();
- const data=content===undefined?pages[slug]:content===null?(pages[slug]?{...pages[slug],intro:'This page is being updated. Please contact the school office for current information.',sections:[],images:[],documents:[]}:undefined):content;
+ const fallback=IS_CONFIGURED_INSTITUTION?WEBSITE_DEFAULTS[slug]:pages[slug];
+ const data=content===undefined?fallback:content===null?(fallback?{...fallback,intro:'This page is being updated. Please contact the school office for current information.',sections:[],images:[],documents:[]}:undefined):content;
  if(!data)return <div className="mx-auto max-w-5xl px-5 py-20"><h1 className="text-3xl font-bold">Page not found</h1><a className="mt-4 inline-block text-blue-800 underline" href="/">Return to school homepage</a></div>;
  const group=publicSchoolNavigation.find(g=>g.items.some(item=>item.slug===slug));
  return <div className="min-h-[65vh] bg-slate-50 text-slate-900">
-  <div className="bg-[#081b3c] px-5 py-12 text-white sm:py-16">
+  <div style={IS_CONFIGURED_INSTITUTION?{backgroundColor:INSTITUTION.primaryColor}:undefined} className="bg-[#081b3c] px-5 py-12 text-white sm:py-16">
    <div className="mx-auto max-w-6xl"><p className="text-xs font-bold uppercase tracking-[.18em] text-sky-300">{data.eyebrow}</p>
     <h1 className="mt-3 max-w-4xl text-3xl font-extrabold sm:text-5xl">{data.heading}</h1><p className="mt-4 max-w-3xl text-base leading-7 text-slate-200">{data.intro}</p></div>
   </div>
@@ -117,7 +121,7 @@ export function PublicSchoolPages({slug,onApply,onPortalSignIn}:{slug:string;onA
    {slug==='photo-albums'&&content!==null&&!data.images?.length&&<PhotoAlbumPreview/>}
    <PublishedPageAssets page={data}/>
    </main>
-   <aside className="self-start rounded-2xl border border-slate-200 bg-white p-5 shadow-sm"><h2 className="font-bold">{group?.label||'Explore Redeemer'}</h2>
+   <aside className="self-start rounded-2xl border border-slate-200 bg-white p-5 shadow-sm"><h2 className="font-bold">{group?.label||'Explore our school'}</h2>
     <nav aria-label="Related pages" className="mt-3 space-y-1">{group?.items.map(item=><a key={item.slug} href={schoolNavigationHref(item.slug)} aria-current={slug===item.slug?'page':undefined} className={`block rounded-lg px-3 py-2 text-sm ${slug===item.slug?'bg-blue-50 font-bold text-blue-800':'text-slate-600 hover:bg-slate-50'}`}>{item.label}</a>)}</nav>
     <div className="mt-5 border-t pt-4"><p className="text-xs font-semibold text-slate-500">CONTACT THE SCHOOL</p>{profile.phones.map(phone=><a className="mt-2 flex items-center gap-2 text-sm text-blue-800" key={phone} href={`tel:${phone}`}><Phone className="h-4 w-4"/>{phone}</a>)}</div>
    </aside>

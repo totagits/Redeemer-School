@@ -114,8 +114,8 @@ export function createMomoClient({ env = process.env, fetchImpl = fetch } = {}) 
         body: JSON.stringify({
           amount: Number(amount).toFixed(2), currency, externalId,
           payer: { partyIdType: 'MSISDN', partyId: msisdn },
-          payerMessage: String(payerMessage || 'Redeemer school fee payment').slice(0, 160),
-          payeeNote: String(payeeNote || 'Redeemer school fee payment').slice(0, 160),
+          payerMessage: String(payerMessage || 'School fee payment').slice(0, 160),
+          payeeNote: String(payeeNote || 'School fee payment').slice(0, 160),
         }),
       }, { outcomeUnknown: true });
     } catch (error) {
