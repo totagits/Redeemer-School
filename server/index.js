@@ -17,6 +17,7 @@ import { isStrongSessionSecret } from './authCrypto.js';
 import { applyAdmissionsMigrationIfRequested } from './applyAdmissionsMigration.js';
 import { assertSchoolRuntimeMode } from './hostingMode.js';
 import { initializeDedicatedInstitution,createDedicatedSchoolGuard,enforceSchoolSelection,setServerInstitution } from './dedicatedInstitution.js';
+import {createStagingReviewRouter} from './stagingReview.js';
 
 assertSchoolRuntimeMode();
 
@@ -125,6 +126,7 @@ app.use('/api/public/website-requests',createPublicWebsiteRequestsRouter({pool:r
 app.use('/api/public/admissions', createPublicAdmissionsRouter({ pool: runtimePool }));
 app.use('/api/website-pages', createWebsitePagesRouter({pool:runtimePool,authenticate:authRouter.requireAuth}));
 app.use('/api/school-content', createPublicContentRouter({ pool: runtimePool, authenticate: authRouter.requireAuth }));
+app.use('/api/staging-review',createStagingReviewRouter());
 
 app.use('/api', (_req, res) => {
   res.status(404).json({ error: 'API route not found' });
