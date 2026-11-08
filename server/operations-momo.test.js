@@ -32,7 +32,7 @@ class AuthClient {
 }
 
 class RuntimePool {
-  constructor() { this.statements = []; }
+  constructor() { this.statements = []; this.feeRate=250; }
   async connect() { return this; }
   async query(sql, params = []) {
     const normalized = sql.replace(/\s+/g, ' ').trim();
@@ -40,7 +40,7 @@ class RuntimePool {
     if (['BEGIN', 'COMMIT', 'ROLLBACK'].includes(normalized) || normalized.startsWith('SELECT set_config')) return { rows: [], rowCount: 0 };
     if (normalized.startsWith('UPDATE payment_intents')) return { rows: [], rowCount: 1 };
     if (normalized.startsWith('INSERT INTO audit_events')) return { rows: [], rowCount: 1 };
-    if (normalized.includes('FOR UPDATE OF pi, fi')) return { rows: [{ id: intentId, invoice_id: invoiceId, payment_id: null, provider_reference: referenceId, amount: '1000.00', currency: 'LRD', status: 'PENDING', invoice_number: 'RIA-2026-1', invoice_status: 'ISSUED', student_id: 'student-id', total: '1000.00', paid: '0.00' }], rowCount: 1 };
+    if (normalized.includes('FOR UPDATE OF pi, fi')) return { rows: [{ id: intentId, invoice_id: invoiceId, payment_id: null, provider_reference: referenceId, amount: '1000.00', currency: 'LRD', status: 'PENDING', invoice_number: 'RIA-2026-1', invoice_status: 'ISSUED', student_id: 'student-id', total: '1000.00', paid: '0.00',fee_rate_bps:this.feeRate,fee_agreement_ref:'TEST-ORIGINAL-AGREEMENT' }], rowCount: 1 };
     if (normalized.startsWith('INSERT INTO payments')) return { rows: [{ id: 'payment-id', receipt_number: 'RIA-20261023-ABC123', amount: '1000.00', currency: 'LRD', channel: 'MTN_MOMO', status: 'SUCCEEDED', provider_fee_amount: '25.00' }], rowCount: 1 };
     if (normalized.startsWith('INSERT INTO payment_allocations')) return { rows: [], rowCount: 1 };
     if (normalized.startsWith('UPDATE fee_invoices')) return { rows: [], rowCount: 1 };
@@ -55,7 +55,7 @@ async function start(t, environment = 'PRODUCTION') {
   const providerCalls = [];
   const currency = environment === 'SANDBOX' ? 'EUR' : 'LRD';
   const momoClient = {
-    config: { enabled: true, environment, currency, feeRateBps: 250, reason: '' },
+    config: { enabled: true, environment, currency, feeRateBps: 250,feeAgreementRef:'TEST-ORIGINAL-AGREEMENT', reason: '' },
     async requestToPay(input) { providerCalls.push({ method: 'requestToPay', input }); return { accepted: true, status: 'PENDING', referenceId: input.referenceId || referenceId }; },
     async getRequestStatus(input) { providerCalls.push({ method: 'getRequestStatus', input }); return { status: 'SUCCESSFUL', amount: environment === 'SANDBOX' ? '1.00' : '1000.00', currency, externalId: intentId, financialTransactionId: 'MTN-TRANSACTION-123', referenceId: input }; },
   };
@@ -69,10 +69,24 @@ async function start(t, environment = 'PRODUCTION') {
   }));
   const server = createServer(app).listen(0, '127.0.0.1'); await once(server, 'listening');
   t.after(() => new Promise(resolve => server.close(resolve)));
-  return { url: `http://127.0.0.1:${server.address().port}`, authClient, pool, providerCalls };
+  return { url: `http://127.0.0.1:${server.address().port}`, authClient, pool, providerCalls,momoClient };
 }
 
 const headers = { 'Content-Type': 'application/json', 'X-CSRF-Token': 'csrf-test-token' };
+
+test('fee reconciliation retains the intent agreement when current configuration changes',async t=>{
+ const {url,pool,momoClient}=await start(t);momoClient.config.feeRateBps=500;
+ const response=await fetch(`${url}/api/operations/finance/momo/intents/${intentId}/check`,{method:'POST',headers,body:'{}'});
+ assert.equal(response.status,200);assert.equal((await response.json()).status,'SUCCEEDED');
+ const payment=pool.statements.find(s=>s.sql.startsWith('INSERT INTO payments'));assert.equal(payment.params[8],'25.00');assert.equal(payment.params[9],250);
+});
+
+test('legacy successful intents without recorded fee terms require Finance review',async t=>{
+ const {url,pool}=await start(t);pool.feeRate=null;
+ const response=await fetch(`${url}/api/operations/finance/momo/intents/${intentId}/check`,{method:'POST',headers,body:'{}'});
+ assert.equal(response.status,200);assert.equal((await response.json()).status,'REVIEW');
+ assert.ok(!pool.statements.some(s=>s.sql.startsWith('INSERT INTO payments')));
+});
 
 test('Collections request stays pending until status confirms success, then posts gross invoice amount and 2.5% fee', async t => {
   const { url, authClient, pool, providerCalls } = await start(t);

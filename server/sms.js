@@ -126,14 +126,14 @@ async function getMtnToken() {
   return mtnToken.value;
 }
 
-async function sendWithMtn({ to, message }) {
+async function sendWithMtn({ to, message, dispatchReference }) {
   const recipient = normalizeLiberiaNumber(to);
   const senderAddress = String(process.env.MTN_SMS_SENDER_ADDRESS || '').trim();
   if (!senderAddress) throw new Error('MTN SMS sender address is not configured.');
   const text = String(message || '');
   if (!text) throw new Error('MTN SMS message cannot be empty.');
-  const clientCorrelator = randomUUID();
-  const transactionId = randomUUID();
+  const clientCorrelator = dispatchReference || randomUUID();
+  const transactionId = dispatchReference || randomUUID();
   const send = async token => fetch(`${MTN_API}/messages/sms/outbound`, {
     method: 'POST',
     headers: {
@@ -162,12 +162,12 @@ async function sendWithMtn({ to, message }) {
 
 // Orange Liberia's SMS API reaches all local operators. Keep provider-specific
 // secrets server-side; generic gateway support remains available as a fallback.
-export async function sendSchoolSms({ to, message }) {
+export async function sendSchoolSms({ to, message, dispatchReference }) {
   const provider = selectedProvider();
   if (provider === 'MTN') {
     if (!mtnConfigured()) throw new Error('MTN SMS production credentials and approved sender address are not configured.');
     if (process.env.MTN_SMS_ENABLE_LIVE !== 'true') throw new Error('MTN SMS live sending is disabled. Set MTN_SMS_ENABLE_LIVE=true only after confirming production charges and sender approval.');
-    return sendWithMtn({ to, message });
+    return sendWithMtn({ to, message, dispatchReference });
   }
   if (provider === 'ORANGE') {
     if (!orangeConfigured()) throw new Error('Orange SMS credentials are not configured.');

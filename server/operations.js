@@ -2,6 +2,7 @@ import { registerWebsiteRequestStaffRoutes } from './websiteRequests.js';
 import { registerHrRecruitmentRoutes } from './hrRecruitment.js';
 import { registerStaffWorkflowRoutes } from './staffWorkflows.js';
 import { registerIntegrationReadiness } from './integrationReadiness.js';
+import {claimAnnouncementSms,dispatchClaimedSms} from './smsDispatch.js';
 import { registerExamMarkingRoutes } from './admissionExamMarking.js';
 import { createGuardianEmailChallenge, findVerifiedGuardianEmail } from './admissionGuardianEmail.js';
 import { sendExamEmail } from './admissionExamEmail.js';
@@ -235,7 +236,7 @@ async function linkOrCreateStaffRecord(client,{schoolId,userId,employeeNumber,fu
   return created.rows[0];
 }
 
-export function createOperationsRouter({ authenticate, sendExaminationEmail=sendExamEmail, sendInvitation = sendAccountInvitation, pool = null, momoClient = createMomoClient() }) {
+export function createOperationsRouter({ authenticate, sendExaminationEmail=sendExamEmail, sendInvitation = sendAccountInvitation, pool = null, momoClient = createMomoClient(), sendSms=sendSchoolSms }) {
   const router = express.Router();
   router.use(authenticate);
   router.use((_req, res, next) => { res.setHeader('Cache-Control', 'no-store'); next(); });
@@ -1175,9 +1176,9 @@ export function createOperationsRouter({ authenticate, sendExaminationEmail=send
         ON CONFLICT (school_id, provider, environment) DO UPDATE SET enabled = true, updated_at = now(), config = EXCLUDED.config
         RETURNING id`, [schoolId, momoClient.config.environment, JSON.stringify({ currency: momoClient.config.currency, feeRateBps: momoClient.config.feeRateBps })]);
       const inserted = await req.auth.client.query(`INSERT INTO payment_intents
-          (id, school_id, invoice_id, provider_profile_id, payment_id, idempotency_key, provider_reference, amount, currency, payer_msisdn_last4, status, expires_at)
-        VALUES ($1,$2,$3,$4,NULL,$5,$6,$7,$8,$9,'CREATED',now() + interval '15 minutes')
-        RETURNING id`, [intentId, schoolId, invoiceId, profile.rows[0].id, randomUUID(), referenceId, (amountCents / 100).toFixed(2), row.currency, payerPhone.slice(-4)]);
+          (id, school_id, invoice_id, provider_profile_id, payment_id, idempotency_key, provider_reference, amount, currency, payer_msisdn_last4, status, expires_at,fee_rate_bps,fee_agreement_ref)
+        VALUES ($1,$2,$3,$4,NULL,$5,$6,$7,$8,$9,'CREATED',now() + interval '15 minutes',$10,$11)
+        RETURNING id`, [intentId, schoolId, invoiceId, profile.rows[0].id, randomUUID(), referenceId, (amountCents / 100).toFixed(2), row.currency, payerPhone.slice(-4),momoClient.config.feeRateBps,momoClient.config.feeAgreementRef]);
       invoiceNumber = row.invoice_number;
       await audit(req, 'MTN_MOMO_PAYMENT_REQUEST_CREATED', 'PAYMENT_INTENT', inserted.rows[0].id,
         { invoiceId, invoiceNumber, amount: (amountCents / 100).toFixed(2), currency: row.currency, msisdnLast4: payerPhone.slice(-4) });
@@ -1253,7 +1254,7 @@ export function createOperationsRouter({ authenticate, sendExaminationEmail=send
       const amountMatches = provider.amount !== null && Math.round(Number(provider.amount) * 100) === Math.round(Number(intent.amount) * 100);
       const detailsMatch = amountMatches && provider.currency === intent.currency && provider.externalId === intent.id;
       const saved = await withTenantTransaction(pool, schoolId, async client => {
-        const locked = await client.query(`SELECT pi.id, pi.invoice_id, pi.payment_id, pi.provider_reference, pi.amount::text, pi.currency, pi.status,
+        const locked = await client.query(`SELECT pi.id, pi.invoice_id, pi.payment_id, pi.provider_reference, pi.amount::text, pi.currency, pi.status,pi.fee_rate_bps,pi.fee_agreement_ref,
             fi.invoice_number, fi.status AS invoice_status, fi.student_id,
             COALESCE(lines.total,0) AS total, COALESCE(alloc.paid,0) AS paid
           FROM payment_intents pi JOIN fee_invoices fi ON fi.school_id = pi.school_id AND fi.id = pi.invoice_id
@@ -1271,17 +1272,22 @@ export function createOperationsRouter({ authenticate, sendExaminationEmail=send
             JSON.stringify({ providerReference: row.provider_reference, requestedAmount: row.amount, providerAmount: provider.amount, requestedCurrency: row.currency, providerCurrency: provider.currency, externalIdMatches: provider.externalId === intentId })]);
           return { status: 'REVIEW', receipt: null, fee: null };
         }
+        if(!Number.isInteger(row.fee_rate_bps)||row.fee_rate_bps<0||row.fee_rate_bps>10000||!row.fee_agreement_ref){
+          await client.query("UPDATE payment_intents SET status='REVIEW',provider_status='SUCCESSFUL_FEE_AGREEMENT_MISSING',completed_at=now() WHERE school_id=$1 AND id=$2",[schoolId,intentId]);
+          await client.query("INSERT INTO audit_events(school_id,actor_user_id,action,entity_type,entity_id,details) VALUES($1,$2,'MTN_MOMO_FEE_REVIEW_REQUIRED','PAYMENT_INTENT',$3,$4::jsonb)",[schoolId,userId,intentId,JSON.stringify({providerReference:row.provider_reference})]);
+          return {status:'REVIEW',receipt:null,fee:null};
+        }
         const receivedCents = Math.round(Number(row.amount) * 100);
         const balanceCents = Math.max(0, Math.round((Number(row.total) - Number(row.paid)) * 100));
         const canAllocate = receivedCents <= balanceCents;
         const receipt = `RIA-${new Date().toISOString().slice(0,10).replaceAll('-','')}-${randomBytes(3).toString('hex').toUpperCase()}`;
-        const feeCents = Math.round(receivedCents * momoClient.config.feeRateBps / 10_000);
+        const feeCents = Math.round(receivedCents * row.fee_rate_bps / 10_000);
         const payment = await client.query(`INSERT INTO payments
             (school_id, student_id, currency, amount, channel, status, provider_transaction_id, receipt_number, cashier_user_id, received_at, note, provider_fee_amount, provider_fee_rate_bps)
           VALUES ($1,$2,$3,$4,'MTN_MOMO','SUCCEEDED',$5,$6,$7,now(),$8,$9,$10)
           RETURNING id, receipt_number, amount::text, currency, channel, status, provider_fee_amount::text`,
         [schoolId, row.student_id, row.currency, (receivedCents / 100).toFixed(2), provider.financialTransactionId || row.provider_reference, receipt, userId,
-          `MTN Collections payment · ${row.invoice_number}`, (feeCents / 100).toFixed(2), momoClient.config.feeRateBps]);
+          `MTN Collections payment · ${row.invoice_number}`, (feeCents / 100).toFixed(2), row.fee_rate_bps]);
         if (canAllocate) {
           await client.query(`INSERT INTO payment_allocations (school_id, payment_id, invoice_id, amount) VALUES ($1,$2,$3,$4)`, [schoolId, payment.rows[0].id, row.invoice_id, (receivedCents / 100).toFixed(2)]);
           const nextStatus = receivedCents === balanceCents ? 'PAID' : 'PARTIALLY_PAID';
@@ -1293,11 +1299,12 @@ export function createOperationsRouter({ authenticate, sendExaminationEmail=send
           [schoolId, intentId, nextIntentStatus, canAllocate ? 'SUCCESSFUL' : `SUCCESSFUL_${reviewCode}`, payment.rows[0].id]);
         await client.query(`INSERT INTO audit_events (school_id, actor_user_id, action, entity_type, entity_id, details)
           VALUES ($1,$2,$3,'PAYMENT',$4,$5::jsonb)`, [schoolId, userId, canAllocate ? 'MTN_MOMO_PAYMENT_ALLOCATED' : 'MTN_MOMO_PAYMENT_REQUIRES_REVIEW', payment.rows[0].id,
-          JSON.stringify({ intentId, invoiceId: row.invoice_id, providerReference: row.provider_reference, receipt, grossAmount: (receivedCents / 100).toFixed(2), feeAmount: (feeCents / 100).toFixed(2), feeRateBps: momoClient.config.feeRateBps })]);
+          JSON.stringify({ intentId, invoiceId: row.invoice_id, providerReference: row.provider_reference, receipt, grossAmount: (receivedCents / 100).toFixed(2), feeAmount: (feeCents / 100).toFixed(2), feeRateBps: row.fee_rate_bps,feeAgreementRef:row.fee_agreement_ref })]);
         return { status: nextIntentStatus, receipt: payment.rows[0].receipt_number, fee: payment.rows[0].provider_fee_amount };
       });
       const message = saved.status === 'SUCCEEDED' ? `Payment confirmed and allocated. Receipt ${saved.receipt}; MTN fee LRD ${saved.fee}.`
-        : 'MTN confirmed the transfer, but its details or the invoice balance changed. The payment was recorded as unallocated for finance review.';
+        : saved.receipt ? 'MTN confirmed the transfer, but the invoice balance changed. The payment was recorded as unallocated for Finance review.'
+          : 'MTN confirmed the transfer, but its details or recorded fee agreement require Finance review before a receipt can be issued. Do not start another collection for this transfer.';
       return res.json({ status: saved.status, receipt: saved.receipt, providerFee: saved.fee, message });
     } catch (error) {
       if (error instanceof MomoProviderError) return res.status(502).json({ error: error.message });
@@ -2714,13 +2721,18 @@ export function createOperationsRouter({ authenticate, sendExaminationEmail=send
 
   router.post('/communications/:announcementId/send-sms', needsPermission('communications.sms.send'), csrf, async(req,res)=>{
     if(!smsReadiness()){await close(req,false);return res.status(503).json({error:'SMS delivery is not ready. Check the selected provider’s credentials and live-send setting in the app environment.'});}
-
-    try{const schoolId=req.auth.claims.schoolId;const announcement=await req.auth.client.query(`SELECT id,title,body,status FROM announcements WHERE school_id=$1 AND id=$2`,[schoolId,req.params.announcementId]);if(!announcement.rowCount||announcement.rows[0].status!=='PUBLISHED'){await close(req,false);return res.status(409).json({error:'Publish this school announcement before sending SMS.'});}
+    if(!pool){await close(req,false);return res.status(503).json({error:'SMS dispatch needs its durable database connection before any messages can be sent.'});}
+    try{const schoolId=req.auth.claims.schoolId;
+      const ready=await req.auth.client.query("SELECT EXISTS(SELECT 1 FROM information_schema.columns WHERE table_schema='public' AND table_name='notification_deliveries' AND column_name='dispatch_reference') AS ready");
+      if(!ready.rows[0]?.ready){await close(req,false);return res.status(503).json({error:'SMS dispatch is awaiting the reviewed database update. No messages were sent.'});}
+      const announcement=await req.auth.client.query(`SELECT id,title,body,status FROM announcements WHERE school_id=$1 AND id=$2 FOR UPDATE`,[schoolId,req.params.announcementId]);if(!announcement.rowCount||announcement.rows[0].status!=='PUBLISHED'){await close(req,false);return res.status(409).json({error:'Publish this school announcement before sending SMS.'});}
       await queueAnnouncementSms(req.auth.client,schoolId,announcement.rows[0].id);
-      const queued=await req.auth.client.query(`SELECT id,recipient_ref FROM notification_deliveries WHERE school_id=$1 AND announcement_id=$2 AND channel='SMS' AND status IN ('QUEUED','FAILED') ORDER BY queued_at LIMIT 300`,[schoolId,announcement.rows[0].id]);
-      let sent=0,failed=0;
-      for(const delivery of queued.rows){try{const {providerMessageId}=await sendSchoolSms({to:delivery.recipient_ref,message:`${announcement.rows[0].title}: ${announcement.rows[0].body}`});await req.auth.client.query(`UPDATE notification_deliveries SET status='SENT',provider_message_id=$3,sent_at=now(),error_code=NULL WHERE school_id=$1 AND id=$2`,[schoolId,delivery.id,providerMessageId]);sent++;}catch(error){await req.auth.client.query(`UPDATE notification_deliveries SET status='FAILED',error_code=$3 WHERE school_id=$1 AND id=$2`,[schoolId,delivery.id,(error instanceof Error?error.message:'Delivery failed').slice(0,120)]);failed++;}}
-      await audit(req,'ANNOUNCEMENT_SMS_DISPATCHED','ANNOUNCEMENT',announcement.rows[0].id,{sent,failed});return done(req,res,200,{sent,failed,notice:`SMS delivery finished: ${sent} sent, ${failed} failed.`});
+      const queued=await claimAnnouncementSms(req.auth.client,{schoolId,announcementId:announcement.rows[0].id,userId:req.auth.claims.userId});
+      await audit(req,'ANNOUNCEMENT_SMS_CLAIMED','ANNOUNCEMENT',announcement.rows[0].id,{claimed:queued.rows.length});
+      await close(req,true);
+      const result=await dispatchClaimedSms({deliveries:queued.rows,schoolId,announcementId:announcement.rows[0].id,userId:req.auth.claims.userId,
+        message:`${announcement.rows[0].title}: ${announcement.rows[0].body}`,sendSms,transaction:action=>withTenantTransaction(pool,schoolId,action)});
+      return res.json(result);
     }catch(error){return fail(req,res,error);}
   });
 
