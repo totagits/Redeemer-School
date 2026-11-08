@@ -8,7 +8,7 @@ function reference(value,label) {
 }
 // Caller supplies a transaction-capable client in the separate control-plane
 // database. This function never connects to a school database or any provider.
-export async function registerInstitution(client,input,{expectedRevision,operator,reason}) {
+export async function registerInstitution(client,input,{expectedRevision,operator,reason,beforeCommit}) {
   const config=validateInstitutionManifest(input);
   if(!Number.isSafeInteger(expectedRevision)||expectedRevision<0)throw new ManifestError('Supply the expected revision (0 for a new school).');
   operator=reference(operator,'operator reference'); reason=reference(reason,'change reason');
@@ -43,6 +43,7 @@ export async function registerInstitution(client,input,{expectedRevision,operato
     for(const domain of config.domains)await client.query('INSERT INTO totag_platform.requested_domains(hostname,institution_id) VALUES($1,$2) ON CONFLICT(hostname) DO NOTHING',[domain.hostname,saved.id]);
     // The database trigger appends history in this same transaction. The
     // operator role cannot insert, alter or delete history directly.
+    if(beforeCommit)await beforeCommit(client,saved);
     await client.query('COMMIT');
     return {...saved,operationalState:'CONFIGURATION_ONLY',sharedSaas:'NOT_ENABLED'};
   }catch(error){await client.query('ROLLBACK');throw error;}

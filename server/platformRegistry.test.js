@@ -49,7 +49,7 @@ test('TOTAG offline plan needs no database, prints no credentials and does not a
 });
 
 function adapter(db){return {query:async(sql,args)=>{
-  if(!args && sql.includes('CREATE SCHEMA')){await db.exec(sql);return {rows:[]};}
+  if(!args && (sql.includes('CREATE SCHEMA')||sql.includes('CREATE TABLE'))){await db.exec(sql);return {rows:[]};}
   return db.query(sql,args);
 }};}
 
@@ -58,7 +58,7 @@ test('registry persists two independent configurations, blocks resource takeover
   try {
     const database=(await db.query('SELECT current_database() AS name')).rows[0].name;
     await assert.rejects(()=>migrateRegistry(client,'wrong_database'));
-    assert.deepEqual(await migrateRegistry(client,database),['001_registry.sql']);
+    assert.deepEqual(await migrateRegistry(client,database),['001_registry.sql','002_console_access.sql','003_school_requests.sql']);
     assert.deepEqual(await migrateRegistry(client,database),[]);
     await db.exec('SET ROLE totag_registry_operator');
     const schoolA=clone(),schoolB=clone();

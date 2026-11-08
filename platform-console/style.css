@@ -1,0 +1,3 @@
+@import "tailwindcss";
+@source "./**/*.tsx";
+:root{font-family:Inter,ui-sans-serif,system-ui,-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif;color:#17233a;background:#f5f7fb;font-synthesis:none}button,a,input,select,textarea{outline-offset:3px}button:disabled{cursor:not-allowed;opacity:.5}button{cursor:pointer}input[type=color]{padding:3px}::selection{background:#bce5e2}table{border-collapse:collapse}summary{cursor:pointer}textarea{resize:vertical}

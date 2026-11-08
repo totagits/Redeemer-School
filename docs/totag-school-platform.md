@@ -36,7 +36,7 @@ First review the fictional example offline:
 npm run platform -- plan --manifest examples/institutions/fictional-tvet-school.json
 ```
 
-For a real school, prepare a reviewed JSON configuration using the same shape, approved logo file path and school configuration approval reference. The registry stores the path, not the logo file; asset upload, validation and activation belong to the next integration stage. File extension validation alone does not establish that an image is valid or approved.
+For a real school, prepare a reviewed JSON configuration using the same shape, approved logo file path and school configuration approval reference. The registry stores the path; the separate management console now stores school-authorized raster logo assets with protected upload/download. Activation remains separate. File extension validation alone does not establish that an image is valid or approved.
 
 Before using database commands, TOTAG must provision a separate registry database and keep its connection secret outside school application containers. `TOTAG_REGISTRY_DATABASE_URL` is the only accepted connection setting; commands never fall back to `DATABASE_URL` or `RUNTIME_DATABASE_URL`. Do not enter credentials into the configuration file or command arguments.
 
@@ -64,7 +64,7 @@ Use the revision returned by `show` for later changes. A stale revision is rejec
 | 1. TOTAG configuration registry | Separate registry, validated configuration, audit and conflict handling | Implemented and tested locally; no live registry provisioned |
 | 2. Dedicated-school onboarding | Reviewed configuration applied consistently to website, portal, documents, logo/assets, email and deployment settings; empty-school setup with named administrator | Dedicated branding/palette builds and runtime binding implemented; fictional browser preview verified. Automated provisioning and live acceptance remain outstanding. See [branding evidence](institution-branding-verification.md). |
 | 3. Departments and TVET | Connected department/program management, instructor assignment, learner pathways, practical assessment, workshop resources and approved qualifications | Registry catalog implemented; operational workflows outstanding |
-| 4. TOTAG management console | Individually authenticated operators, MFA, scoped support grants, approval and audit; no implicit school-record access | Outstanding |
+| 4. TOTAG management console | Individually authenticated operators, MFA, scoped configuration, approval and audit; no implicit school-record access | Implemented and tested locally with customer intake, branding/catalog editors and history. Live identity/hosting acceptance and scoped support grants remain outstanding. See [console report](totag-management-console.md). |
 | 5. Shared SaaS runtime | Verified domain-to-school routing, host-bound sessions and links, cross-school isolation across every API/file/job/cache, school-specific keys and providers | Outstanding; shared deployment model rejected by current registry validation |
 | 6. Subscription and lifecycle | Plans, billing, suspension policy, data export, retention, offboarding and per-school backup/restore | Outstanding; no automatic billing or deletion |
 | 7. Full acceptance | Two fictional schools with different branding/programs; negative access tests; restore/upgrade rehearsal; operator and school acceptance | Configuration separation tested; full school runtime acceptance outstanding |
@@ -90,3 +90,6 @@ These tests prove configuration-registry behavior only. They do not prove multi-
 `server/sharedSchoolIsolation.test.js` additionally applies all existing school migrations to a disposable database, checks forced row security on every school-owned table and verifies the runtime role has no ownership or bypass privilege. Two fictional schools reuse the same local learner number and account email; each can see only its own seeded records. Cross-school learner reads/updates, invalid guardian links and inserts under another school's identifier are denied. Transaction-local school scope disappears on commit and rollback, including when the same connection is reused. This is database-foundation evidence, not proof of host/session/provider/file isolation for shared SaaS.
 
 Local verification on 8 November: 408 tests discovered, 407 passed, zero failed and one existing platform-specific skip. Type checking and frontend build passed. The offline CLI plan succeeded for the four-department fictional TVET example without database access. No live deployment or migration was performed for this foundation.
+
+
+The customer-request integration and console implementation are documented in [TOTAG management console](totag-management-console.md). These separate review branches do not change Redeemer’s pinned authority-review deployment.
