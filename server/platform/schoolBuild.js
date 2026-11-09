@@ -2,6 +2,7 @@ import {readFileSync} from 'node:fs';
 import path from 'node:path';
 import {createHash} from 'node:crypto';
 import {validateInstitutionManifest} from './institutionManifest.js';
+import {schoolPaletteReport} from '../../shared/schoolPalette.js';
 
 export function loadSchoolBuild(manifestPath,assetsDirectory) {
   if(!manifestPath)return null;
@@ -11,12 +12,7 @@ export function loadSchoolBuild(manifestPath,assetsDirectory) {
   const manifest=validateInstitutionManifest(JSON.parse(bytes.toString('utf8')));
   assertSchoolPalette(manifest.branding);
   const filename=path.basename(manifest.branding.logoPath),logo=readFileSync(path.join(assetsDirectory,filename));
-  if(logo.length<24||logo.length>2*1024*1024)throw Error('School logo must be a PNG, WebP or JPEG up to 2 MB.');
-  const extension=path.extname(filename).toLowerCase();
-  const valid=extension==='.png'?logo.subarray(0,8).equals(Buffer.from([137,80,78,71,13,10,26,10]))
-    :extension==='.webp'?logo.toString('ascii',0,4)==='RIFF'&&logo.toString('ascii',8,12)==='WEBP'
-    :['.jpg'].includes(extension)&&logo[0]===255&&logo[1]===216&&logo[logo.length-2]===255&&logo[logo.length-1]===217;
-  if(!valid)throw Error('Logo file content does not match its image extension.');
+  validateInstitutionLogo(filename,logo);
   const hash=createHash('sha256').update(JSON.stringify(manifest)).update(logo).digest('hex');
   // Deliberate allowlist: no staff domains, resource references, approvals,
   // credentials or internal academic configuration goes into the browser.
@@ -25,13 +21,22 @@ export function loadSchoolBuild(manifestPath,assetsDirectory) {
     accentColor:manifest.branding.accentColor,environment:manifest.deployment.environment,buildId:hash};
   return {manifest,logo,publicConfig,hash};
 }
+export function validateInstitutionLogo(filename,logo){
+  if(typeof filename!=='string'||!/^[-A-Za-z0-9_]+\.(png|webp|jpg)$/.test(filename))throw Error('Use a school logo filename.');
+  if(logo.length<24||logo.length>2*1024*1024)throw Error('School logo must be a PNG, WebP or JPEG up to 2 MB.');
+  const extension=path.extname(filename).toLowerCase();
+  const valid=extension==='.png'?logo.subarray(0,8).equals(Buffer.from([137,80,78,71,13,10,26,10]))
+    :extension==='.webp'?logo.toString('ascii',0,4)==='RIFF'&&logo.toString('ascii',8,12)==='WEBP'
+    :['.jpg'].includes(extension)&&logo[0]===255&&logo[1]===216&&logo[logo.length-2]===255&&logo[logo.length-1]===217;
+  if(!valid)throw Error('Logo file content does not match its image extension.');
+  return extension==='.png'?'image/png':extension==='.webp'?'image/webp':'image/jpeg';
+}
 
-function luminance(hex){const rgb=[1,3,5].map(i=>parseInt(hex.slice(i,i+2),16)/255).map(c=>c<=0.04045?c/12.92:((c+0.055)/1.055)**2.4);return rgb[0]*0.2126+rgb[1]*0.7152+rgb[2]*0.0722;}
-function contrast(a,b){const x=luminance(a),y=luminance(b);return (Math.max(x,y)+0.05)/(Math.min(x,y)+0.05);}
 export function assertSchoolPalette(branding){
-  if(contrast(branding.primaryColor,'#ffffff')<4.5||contrast(branding.secondaryColor||branding.primaryColor,'#ffffff')<4.5)throw Error('Primary and secondary colours need at least 4.5:1 contrast with white text.');
-  if(contrast(branding.accentColor,'#020617')<4.5)throw Error('Accent colour needs at least 4.5:1 contrast with dark text.');
-  if(contrast(branding.accentColor,branding.primaryColor)<4.5)throw Error('Accent and primary colours need at least 4.5:1 contrast for selected navigation.');
+  const report=schoolPaletteReport(branding);
+  if(report.primary<4.5||report.secondary<4.5)throw Error('Primary and secondary colours need at least 4.5:1 contrast with white text.');
+  if(report.accent<4.5)throw Error('Accent colour needs at least 4.5:1 contrast with dark text.');
+  if(report.navigation<4.5)throw Error('Accent and primary colours need at least 4.5:1 contrast for selected navigation.');
 }
 
 function html(value){return String(value).replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));}

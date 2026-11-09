@@ -1,0 +1,9 @@
+@import "tailwindcss";
+@source "./**/*.tsx";
+:root{font-family:Inter,ui-sans-serif,system-ui,-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif;color:#17233a;background:#f5f7fb;font-synthesis:none}button,a,input,select,textarea{outline-offset:3px}button:disabled{cursor:not-allowed;opacity:.5}button{cursor:pointer}input[type=color]{padding:3px}::selection{background:#bce5e2}table{border-collapse:collapse}summary{cursor:pointer}textarea{resize:vertical}
+
+:root{--totag-green:#166534;--totag-blue:#1e40af;--totag-gold:#fcd34d}
+.totag-brand-header{border-top:4px solid var(--totag-blue);box-shadow:0 -4px 0 var(--totag-gold)}
+.totag-logo-frame{position:relative;width:142px;height:62px;overflow:hidden;background:white;border-radius:8px}
+.totag-logo{position:absolute;width:168px;height:168px;max-width:none;left:-13px;top:-52px;object-fit:contain}
+::selection{background:#bbf7d0}
