@@ -3,7 +3,7 @@ import pg from 'pg';
 import path from 'node:path';
 import {fileURLToPath} from 'node:url';
 import {createConsoleStore} from './consoleStore.js';
-import {createConsoleOidc,oidcConfiguration} from './consoleOidc.js';
+import {createConsoleOidc,oidcConfiguration,createIdentityTestChallenges} from './consoleOidc.js';
 import {createConsoleApp} from './consoleApp.js';
 
 const dir=path.dirname(fileURLToPath(import.meta.url));
@@ -14,6 +14,10 @@ try{
     if(origin.protocol!=='https:'||origin.username||origin.password||origin.pathname!=='/'||origin.search||origin.hash)throw Error('Use the reviewed HTTPS console root.');
     createConsoleApp({origin:origin.origin,setupOnly:true,distDir:path.resolve(dir,'../../console-dist')})
       .listen(Number(process.env.TOTAG_CONSOLE_PORT||4100),'0.0.0.0',()=>console.log('TOTAG hosting verification mode: database, sign-in and intake are closed.'));
+  }else if(process.env.TOTAG_CONSOLE_SIGNIN_TEST_ONLY==='true'){
+    const config=oidcConfiguration(process.env),oidc=await createConsoleOidc(config,createIdentityTestChallenges(),fetch,{testOnly:true});
+    createConsoleApp({origin:config.origin,oidc,identityTest:true,distDir:path.resolve(dir,'../../console-dist')})
+      .listen(Number(process.env.TOTAG_CONSOLE_PORT||4100),'0.0.0.0',()=>console.log('TOTAG identity test mode: database and operational access are closed.'));
   }else{
   if(!process.env.TOTAG_REGISTRY_DATABASE_URL||!process.env.TOTAG_REGISTRY_DATABASE_NAME)throw Error('Configure the separate restricted registry connection and exact database name.');
   const config=oidcConfiguration(process.env);

@@ -10,16 +10,24 @@ export function oidcConfiguration(env){
   if(discoveryUrl.protocol!=='https:'||discoveryUrl.username||discoveryUrl.password||discoveryUrl.search||discoveryUrl.hash||!discoveryUrl.pathname.endsWith('/.well-known/openid-configuration'))throw Error('Use the approved HTTPS discovery address.');
   return {issuer,discoveryUrl:discoveryUrl.href,clientId:env.TOTAG_OIDC_CLIENT_ID,clientSecret:env.TOTAG_OIDC_CLIENT_SECRET,origin:origin.origin,callback:origin.origin+'/auth/callback',allowedAcrs:String(env.TOTAG_OIDC_MFA_ACRS||'').split(',').map(v=>v.trim()).filter(Boolean)};
 }
-export async function verifyOperatorIdToken(token,key,config,nonce){
-  const {payload}=await jwtVerify(token,key,{issuer:config.issuer,audience:config.clientId,algorithms:['RS256'],clockTolerance:30,requiredClaims:['sub','exp','iat','nonce','auth_time'],maxTokenAge:'10 minutes'});
-  const now=Math.floor(Date.now()/1000);
-  if(payload.nonce!==nonce||typeof payload.sub!=='string'||!payload.sub||payload.sub.length>512||typeof payload.auth_time!=='number'||payload.auth_time>now+30||payload.auth_time<now-600)throw Error('Invalid or stale operator authentication.');
+async function verifiedClaims(token,key,config){
+  const {payload}=await jwtVerify(token,key,{issuer:config.issuer,audience:config.clientId,algorithms:['RS256'],clockTolerance:30,requiredClaims:['sub','exp','iat'],maxTokenAge:'10 minutes'});
+  if(typeof payload.sub!=='string'||!payload.sub||payload.sub.length>512)throw Error('Invalid operator identity.');
   if((payload.azp!==undefined&&payload.azp!==config.clientId)||(Array.isArray(payload.aud)&&payload.aud.length>1&&payload.azp!==config.clientId))throw Error('Invalid authorized party.');
-  const mfa=(Array.isArray(payload.amr)&&payload.amr.includes('mfa'))||(typeof payload.acr==='string'&&config.allowedAcrs.includes(payload.acr));
-  if(!mfa)throw Error('Verified workforce MFA is required.');
+  return payload;
+}
+function assurance(payload,config,nonce){
+  const now=Math.floor(Date.now()/1000);
+  return {signedIdentityVerified:true,signInBoundToBrowser:typeof nonce==='string'&&payload.nonce===nonce,recentAuthentication:typeof payload.auth_time==='number'&&payload.auth_time<=now+30&&payload.auth_time>=now-600,
+    secondFactorVerified:(Array.isArray(payload.amr)&&payload.amr.includes('mfa'))||(typeof payload.acr==='string'&&config.allowedAcrs.includes(payload.acr))};
+}
+export async function verifyOperatorIdToken(token,key,config,nonce){
+  const payload=await verifiedClaims(token,key,config),report=assurance(payload,config,nonce);
+  if(!report.signInBoundToBrowser||!report.recentAuthentication)throw Error('Invalid or stale operator authentication.');
+  if(!report.secondFactorVerified)throw Error('Verified workforce MFA is required.');
   return {issuer:payload.iss,subject:payload.sub};
 }
-export async function createConsoleOidc(config,store,fetchImpl=fetch){
+export async function createConsoleOidc(config,store,fetchImpl=fetch,{testOnly=false}={}){
   const metadataUrl=new URL(config.discoveryUrl||config.issuer.replace(/\/$/,'')+'/.well-known/openid-configuration');
   const response=await fetchImpl(metadataUrl.href,{redirect:'error',signal:AbortSignal.timeout(10000)});
   if(!response.ok)throw Error('Workforce identity discovery failed.');
@@ -45,9 +53,24 @@ export async function createConsoleOidc(config,store,fetchImpl=fetch){
       const result=await fetchImpl(discovery.token_endpoint,{method:'POST',redirect:'error',signal:AbortSignal.timeout(10000),headers:{'Content-Type':'application/x-www-form-urlencoded'},body:new URLSearchParams({grant_type:'authorization_code',client_id:config.clientId,client_secret:config.clientSecret,code,redirect_uri:config.callback,code_verifier:challenge.verifier})});
       if(!result.ok)throw Error('Workforce sign-in failed.');
       const tokens=await result.json();if(typeof tokens.id_token!=='string')throw Error('Identity token missing.');
+      if(testOnly){const payload=await verifiedClaims(tokens.id_token,keys,config);return {evidence:assurance(payload,config,challenge.nonce)};}
       const identity=await verifyOperatorIdToken(tokens.id_token,keys,config,challenge.nonce);
       const operator=await store.operator(identity.issuer,identity.subject);if(!operator)throw Error('An approved TOTAG operator account is required.');
       return store.createSession(operator,true);
     }
   };
+}
+
+// Hosted sign-in rehearsal uses ephemeral challenges only. It has no operator
+// lookup or session issuance methods and never connects a registry.
+export function createIdentityTestChallenges(){
+  const challenges=new Map();
+  return {async createChallenge(state,binding,nonce,verifier){
+    const now=Date.now();for(const [key,value] of challenges)if(value.until<=now)challenges.delete(key);
+    if(challenges.size>=100)throw Error('Too many sign-in checks.');
+    challenges.set(state,{binding,nonce,verifier,until:now+300000});
+  },async consumeChallenge(state,binding){
+    const found=challenges.get(state);if(!found||found.until<=Date.now()||found.binding!==binding)return null;
+    challenges.delete(state);return {nonce:found.nonce,verifier:found.verifier};
+  }};
 }

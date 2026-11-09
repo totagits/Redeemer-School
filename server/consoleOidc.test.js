@@ -2,7 +2,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import {generateKeyPair,SignJWT,exportJWK,createLocalJWKSet} from 'jose';
 import {createHash} from 'node:crypto';
-import {createConsoleOidc,verifyOperatorIdToken,oidcConfiguration} from './platform/consoleOidc.js';
+import {createConsoleOidc,verifyOperatorIdToken,oidcConfiguration,createIdentityTestChallenges} from './platform/consoleOidc.js';
 
 const config={issuer:'https://identity.example.invalid',clientId:'test-console',clientSecret:'fictional-secret',origin:'https://console.example.invalid',callback:'https://console.example.invalid/auth/callback',allowedAcrs:['urn:test:verified-mfa']};
 const {privateKey,publicKey}=await generateKeyPair('RS256');
@@ -43,4 +43,18 @@ test('explicit discovery can use a distinct directory host without weakening sig
   const fetchMetadata=async(url)=>{assert.equal(url,discoveryUrl);return Response.json({issuer:config.issuer,authorization_endpoint:directory+'/authorize',token_endpoint:directory+'/token',jwks_uri:directory+'/keys',code_challenge_methods_supported:['S256'],token_endpoint_auth_methods_supported:['client_secret_post']});};
   assert.ok(await createConsoleOidc(configured,{},fetchMetadata));
   await assert.rejects(()=>token({amr:undefined,auth_time:undefined,nonce:undefined}).then(t=>verifyOperatorIdToken(t,keys,configured,'test-nonce')));
+});
+test('workforce test reports missing assurance without issuing a session or revealing identity',async()=>{
+  const store=createIdentityTestChallenges();let signedToken;
+  const mock=async(url)=>{
+    if(String(url).endsWith('openid-configuration'))return Response.json({issuer:config.issuer,authorization_endpoint:config.issuer+'/authorize',token_endpoint:config.issuer+'/token',jwks_uri:config.issuer+'/keys'});
+    if(String(url).endsWith('/keys'))return Response.json({keys:[jwk]});
+    return Response.json({id_token:signedToken});
+  };
+  const oidc=await createConsoleOidc(config,store,mock,{testOnly:true});
+  const challenge=await oidc.begin(),params=new URL(challenge.url).searchParams;
+  signedToken=await token({auth_time:undefined,amr:undefined,nonce:undefined});
+  const result=await oidc.callback('code',params.get('state'),challenge.binding);
+  assert.deepEqual(result,{evidence:{signedIdentityVerified:true,signInBoundToBrowser:false,recentAuthentication:false,secondFactorVerified:false}});
+  await assert.rejects(()=>oidc.callback('code',params.get('state'),challenge.binding));
 });

@@ -10,11 +10,12 @@ import {validateSchoolRequest} from '../../shared/schoolRequest.js';
 
 function cookies(req){return Object.fromEntries(String(req.headers.cookie||'').split(';').map(part=>{const index=part.indexOf('=');return index<0?[]:[part.slice(0,index).trim(),part.slice(index+1).trim()];}).filter(a=>a.length===2));}
 function same(a,b){if(typeof a!=='string'||typeof b!=='string')return false;const x=Buffer.from(a),y=Buffer.from(b);return x.length===y.length&&timingSafeEqual(x,y);}
-export function createConsoleApp({store,origin,oidc=null,demoOperator=null,distDir,intakeSecret=null,setupOnly=false}){
+export function createConsoleApp({store,origin,oidc=null,demoOperator=null,distDir,intakeSecret=null,setupOnly=false,identityTest=false}){
   const app=express(),demo=Boolean(demoOperator),url=new URL(origin);
   if(demo&&!['127.0.0.1','localhost'].includes(url.hostname))throw Error('Demonstration must remain on loopback.');
   if(!demo&&url.protocol!=='https:')throw Error('The operator console requires HTTPS.');
   if(setupOnly&&(store||oidc||demo||intakeSecret))throw Error('Setup mode must not have a database, identity provider, demo identity or intake key.');
+  if(identityTest&&(store||!oidc||demo||intakeSecret||setupOnly))throw Error('Identity test mode requires only the workforce test provider.');
   const sessionName=demo?'totag_demo_session':'__Host-totag_console',loginName='__Host-totag_login';
   const setCookie=(res,name,value,maxAge)=>res.append('Set-Cookie',`${name}=${value}; Path=/; HttpOnly; SameSite=Lax; Max-Age=${maxAge}${demo?'':'; Secure'}`);
   app.disable('x-powered-by');
@@ -42,7 +43,9 @@ export function createConsoleApp({store,origin,oidc=null,demoOperator=null,distD
   });
   app.get('/auth/callback',async(req,res)=>{
     if(!oidc)return res.status(404).end();
-    try{const session=await oidc.callback(req.query.code,req.query.state,cookies(req)[loginName]);setCookie(res,loginName,'',0);setCookie(res,sessionName,session.raw,3600);return res.redirect(303,'/');}
+    try{const session=await oidc.callback(req.query.code,req.query.state,cookies(req)[loginName]);setCookie(res,loginName,'',0);
+      if(identityTest){if(!session.evidence)throw Error('Missing sign-in test result.');return res.json({signInTest:true,...session.evidence,consoleAccessGranted:false});}
+      setCookie(res,sessionName,session.raw,3600);return res.redirect(303,'/');}
     catch{setCookie(res,loginName,'',0);return res.redirect(303,'/?signIn=failed');}
   });
   app.post('/api/demo-session',async(req,res)=>{
@@ -50,9 +53,9 @@ export function createConsoleApp({store,origin,oidc=null,demoOperator=null,distD
     if(req.get('Origin')!==origin)return res.status(403).end();
     const session=await store.createSession(demoOperator,false);setCookie(res,sessionName,session.raw,3600);return res.json({ok:true});
   });
-  app.get('/api/status',(_req,res)=>res.json({demo,signInConfigured:Boolean(oidc),schoolRecordAccess:false,sharedHostingEnabled:false}));
+  app.get('/api/status',(_req,res)=>res.json({demo,signInConfigured:Boolean(oidc),identityTest,schoolRecordAccess:false,sharedHostingEnabled:false}));
   app.use('/api',async(req,res,next)=>{
-    if(setupOnly)return res.status(401).json({error:'Workforce access is not enabled.'});
+    if(setupOnly||identityTest)return res.status(401).json({error:'Workforce access is not enabled.'});
     try{
       const raw=cookies(req)[sessionName],operator=await store.session(raw);
       if(!operator||(!demo&&!operator.mfa_verified))return res.status(401).json({error:'Sign in with your approved TOTAG operator account.'});
