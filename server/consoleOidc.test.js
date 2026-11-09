@@ -35,5 +35,12 @@ test('workforce callback binds browser state, PKCE and nonce and does not derive
 });
 test('OIDC configuration/discovery rejects unsafe origins and mismatched endpoint hosts',async()=>{
   assert.throws(()=>oidcConfiguration({TOTAG_OIDC_ISSUER:config.issuer,TOTAG_OIDC_CLIENT_ID:'test',TOTAG_OIDC_CLIENT_SECRET:'secret',TOTAG_CONSOLE_PUBLIC_URL:'http://console.example.invalid'}));
-  await assert.rejects(()=>createConsoleOidc(config,{},async()=>Response.json({issuer:config.issuer,authorization_endpoint:config.issuer+'/authorize',token_endpoint:'https://other.example.invalid/token',jwks_uri:config.issuer+'/keys'})),/issuer origin/);
+  await assert.rejects(()=>createConsoleOidc(config,{},async()=>Response.json({issuer:config.issuer,authorization_endpoint:config.issuer+'/authorize',token_endpoint:'https://other.example.invalid/token',jwks_uri:config.issuer+'/keys'})),/discovery origin/);
+});
+test('explicit discovery can use a distinct directory host without weakening signed MFA requirements',async()=>{
+  const directory='https://directory.example.invalid/app',discoveryUrl=directory+'/.well-known/openid-configuration';
+  const configured=oidcConfiguration({TOTAG_OIDC_ISSUER:config.issuer,TOTAG_OIDC_DISCOVERY_URL:discoveryUrl,TOTAG_OIDC_CLIENT_ID:config.clientId,TOTAG_OIDC_CLIENT_SECRET:config.clientSecret,TOTAG_CONSOLE_PUBLIC_URL:config.origin});
+  const fetchMetadata=async(url)=>{assert.equal(url,discoveryUrl);return Response.json({issuer:config.issuer,authorization_endpoint:directory+'/authorize',token_endpoint:directory+'/token',jwks_uri:directory+'/keys',code_challenge_methods_supported:['S256'],token_endpoint_auth_methods_supported:['client_secret_post']});};
+  assert.ok(await createConsoleOidc(configured,{},fetchMetadata));
+  await assert.rejects(()=>token({amr:undefined,auth_time:undefined,nonce:undefined}).then(t=>verifyOperatorIdToken(t,keys,configured,'test-nonce')));
 });

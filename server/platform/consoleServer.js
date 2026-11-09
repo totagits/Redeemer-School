@@ -9,6 +9,12 @@ import {createConsoleApp} from './consoleApp.js';
 const dir=path.dirname(fileURLToPath(import.meta.url));
 let pool;
 try{
+  if(process.env.TOTAG_CONSOLE_SETUP_ONLY==='true'){
+    const origin=new URL(process.env.TOTAG_CONSOLE_PUBLIC_URL);
+    if(origin.protocol!=='https:'||origin.username||origin.password||origin.pathname!=='/'||origin.search||origin.hash)throw Error('Use the reviewed HTTPS console root.');
+    createConsoleApp({origin:origin.origin,setupOnly:true,distDir:path.resolve(dir,'../../console-dist')})
+      .listen(Number(process.env.TOTAG_CONSOLE_PORT||4100),'0.0.0.0',()=>console.log('TOTAG hosting verification mode: database, sign-in and intake are closed.'));
+  }else{
   if(!process.env.TOTAG_REGISTRY_DATABASE_URL||!process.env.TOTAG_REGISTRY_DATABASE_NAME)throw Error('Configure the separate restricted registry connection and exact database name.');
   const config=oidcConfiguration(process.env);
   pool=new pg.Pool({connectionString:process.env.TOTAG_REGISTRY_DATABASE_URL,max:10,connectionTimeoutMillis:5000});
@@ -22,6 +28,7 @@ try{
   const app=createConsoleApp({store,origin:config.origin,oidc,intakeSecret:process.env.TOTAG_SCHOOL_INTAKE_SECRET||null,distDir:path.resolve(dir,'../../console-dist')});
   const server=app.listen(Number(process.env.TOTAG_CONSOLE_PORT||4100),'0.0.0.0',()=>console.log('TOTAG operator console started. School records are not connected.'));
   const stop=()=>server.close(async()=>{await pool.end();process.exit(0);});process.on('SIGTERM',stop);process.on('SIGINT',stop);
+  }
 }catch{
   await pool?.end();console.error('TOTAG console did not start. Check the separate registry target, restricted role, migrations and workforce identity configuration. No school connection fallback is permitted.');process.exitCode=1;
 }

@@ -10,13 +10,16 @@ import {validateSchoolRequest} from '../../shared/schoolRequest.js';
 
 function cookies(req){return Object.fromEntries(String(req.headers.cookie||'').split(';').map(part=>{const index=part.indexOf('=');return index<0?[]:[part.slice(0,index).trim(),part.slice(index+1).trim()];}).filter(a=>a.length===2));}
 function same(a,b){if(typeof a!=='string'||typeof b!=='string')return false;const x=Buffer.from(a),y=Buffer.from(b);return x.length===y.length&&timingSafeEqual(x,y);}
-export function createConsoleApp({store,origin,oidc=null,demoOperator=null,distDir,intakeSecret=null}){
+export function createConsoleApp({store,origin,oidc=null,demoOperator=null,distDir,intakeSecret=null,setupOnly=false}){
   const app=express(),demo=Boolean(demoOperator),url=new URL(origin);
   if(demo&&!['127.0.0.1','localhost'].includes(url.hostname))throw Error('Demonstration must remain on loopback.');
   if(!demo&&url.protocol!=='https:')throw Error('The operator console requires HTTPS.');
+  if(setupOnly&&(store||oidc||demo||intakeSecret))throw Error('Setup mode must not have a database, identity provider, demo identity or intake key.');
   const sessionName=demo?'totag_demo_session':'__Host-totag_console',loginName='__Host-totag_login';
   const setCookie=(res,name,value,maxAge)=>res.append('Set-Cookie',`${name}=${value}; Path=/; HttpOnly; SameSite=Lax; Max-Age=${maxAge}${demo?'':'; Secure'}`);
   app.disable('x-powered-by');
+  // The container's loopback health probe cannot use the public proxy Host.
+  app.get('/healthz',(_req,res)=>res.set('Cache-Control','no-store').json({ok:true}));
   app.use((req,res,next)=>{
     res.set({'Cache-Control':'no-store','X-Content-Type-Options':'nosniff','Referrer-Policy':'no-referrer','X-Frame-Options':'DENY','Content-Security-Policy':"default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' blob: data:; connect-src 'self'; font-src 'self'; object-src 'none'; base-uri 'none'; frame-ancestors 'none'; form-action 'self'"});
     if(req.headers.host?.toLowerCase()!==url.host.toLowerCase())return res.status(421).json({error:'Use the configured TOTAG console address.'});
@@ -49,6 +52,7 @@ export function createConsoleApp({store,origin,oidc=null,demoOperator=null,distD
   });
   app.get('/api/status',(_req,res)=>res.json({demo,signInConfigured:Boolean(oidc),schoolRecordAccess:false,sharedHostingEnabled:false}));
   app.use('/api',async(req,res,next)=>{
+    if(setupOnly)return res.status(401).json({error:'Workforce access is not enabled.'});
     try{
       const raw=cookies(req)[sessionName],operator=await store.session(raw);
       if(!operator||(!demo&&!operator.mfa_verified))return res.status(401).json({error:'Sign in with your approved TOTAG operator account.'});

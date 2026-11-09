@@ -50,12 +50,21 @@ Console server settings:
 | `TOTAG_REGISTRY_DATABASE_NAME` | Exact expected database name |
 | `TOTAG_CONSOLE_PUBLIC_URL` | Clean HTTPS root address of this console |
 | `TOTAG_OIDC_ISSUER` | Approved HTTPS workforce issuer |
+| `TOTAG_OIDC_DISCOVERY_URL` | Optional exact HTTPS metadata address if it is hosted on a different origin than the issuer |
 | `TOTAG_OIDC_CLIENT_ID` / `TOTAG_OIDC_CLIENT_SECRET` | Confidential client; secret stays server-side |
 | `TOTAG_OIDC_MFA_ACRS` | Optional, explicitly verified MFA assurance values |
 | `TOTAG_SCHOOL_INTAKE_SECRET` | Strong shared bridge secret of at least 43 characters |
 | `TOTAG_CONSOLE_PORT` | Optional service port; default 4100 |
 
-Register the exact `/auth/callback` redirect. Current discovery requires authorization, token and JWKS endpoints on the issuer's HTTPS origin. The provider must support RS256 and `client_secret_post`; incompatible providers need an explicitly reviewed adapter. Configure the reverse proxy to preserve the console's real Host, enforce HTTPS and protect secrets. The console has no public CORS data access.
+Register the exact `/auth/callback` redirect. Authorization, token and JWKS endpoints must remain on the configured discovery origin, while signed token issuer must match the separate configured issuer exactly. The provider must support RS256, S256 PKCE and `client_secret_post`; incompatible providers need an explicitly reviewed adapter. Configure the reverse proxy to preserve the console's real Host, enforce HTTPS and protect secrets. The console has no public CORS data access.
+
+### Hosting and Zoho readiness
+
+The corporate logo is bundled from the existing TOTAG website’s branding assets, with green, blue and gold styling on the console and sign-in screen. School palette and logo configuration remain independent.
+
+The isolated **TOTAG School Platform** Coolify project is separate from Redeemer and the corporate site. The intended console address is `https://school-admin.totaggroup.com`. To verify hosting before connecting identity or data, explicitly set `TOTAG_CONSOLE_SETUP_ONLY=true` and `TOTAG_CONSOLE_PUBLIC_URL` to that address. Use `Dockerfile.totag-console`, port 4100, and `/healthz` for container liveness. This mode does not open any registry connection, accept intake, activate sign-in, or allow the fictional demo. The root page only displays the branded sign-in holding screen. Removing the setup flag requires all production database and identity settings to pass startup checks.
+
+Zoho Directory has a hidden **TOTAG School Management** OpenID application with the exact `/auth/start` and `/auth/callback` addresses. No staff member was assigned at registration. Its verified public metadata uses an `accounts.zoho.com` issuer with `directory.zoho.com` endpoints; it supports RS256 and S256. It does not advertise `nonce`, `auth_time`, `amr` or `acr`. Discovery metadata alone does not prove which claims a real authentication returns. Verify a real MFA-authenticated response in a restricted test before granting any operational access. If Zoho cannot deliver the required assurance, use an independently verified additional factor or a compatible workforce provider. Do not replace signed assurance with email verification, a username claim, or an allowlisted address. No client secret is included here.
 
 The corporate backend needs `TOTAG_SCHOOL_CONSOLE_URL` and the same intake secret. Its bridge accepts only exact approved corporate Origins, signs the exact outgoing bytes with timestamp/HMAC SHA256, forbids redirect-following, and returns a receipt only on a confirmed save. The console rejects stale, tampered and unsigned deliveries. Public requests are limited in-process to five per network address per fifteen minutes. Before a multi-instance public launch, add durable shared rate limiting, trusted-proxy addressing, operational monitoring, contact-data retention policy and abuse controls. No email delivery or automated notifications are implemented for requests.
 

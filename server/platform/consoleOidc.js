@@ -6,7 +6,9 @@ export function oidcConfiguration(env){
   if(!env.TOTAG_OIDC_ISSUER||!env.TOTAG_OIDC_CLIENT_ID||!env.TOTAG_OIDC_CLIENT_SECRET)throw Error('Configure the separate TOTAG workforce identity provider.');
   const issuer=String(env.TOTAG_OIDC_ISSUER),url=new URL(issuer),origin=new URL(env.TOTAG_CONSOLE_PUBLIC_URL);
   if(url.protocol!=='https:'||url.username||url.password||url.search||url.hash||origin.protocol!=='https:'||origin.username||origin.password||origin.pathname!=='/'||origin.search||origin.hash)throw Error('Use clean HTTPS issuer and console addresses.');
-  return {issuer,clientId:env.TOTAG_OIDC_CLIENT_ID,clientSecret:env.TOTAG_OIDC_CLIENT_SECRET,origin:origin.origin,callback:origin.origin+'/auth/callback',allowedAcrs:String(env.TOTAG_OIDC_MFA_ACRS||'').split(',').map(v=>v.trim()).filter(Boolean)};
+  const discoveryUrl=new URL(env.TOTAG_OIDC_DISCOVERY_URL||issuer.replace(/\/$/,'')+'/.well-known/openid-configuration');
+  if(discoveryUrl.protocol!=='https:'||discoveryUrl.username||discoveryUrl.password||discoveryUrl.search||discoveryUrl.hash||!discoveryUrl.pathname.endsWith('/.well-known/openid-configuration'))throw Error('Use the approved HTTPS discovery address.');
+  return {issuer,discoveryUrl:discoveryUrl.href,clientId:env.TOTAG_OIDC_CLIENT_ID,clientSecret:env.TOTAG_OIDC_CLIENT_SECRET,origin:origin.origin,callback:origin.origin+'/auth/callback',allowedAcrs:String(env.TOTAG_OIDC_MFA_ACRS||'').split(',').map(v=>v.trim()).filter(Boolean)};
 }
 export async function verifyOperatorIdToken(token,key,config,nonce){
   const {payload}=await jwtVerify(token,key,{issuer:config.issuer,audience:config.clientId,algorithms:['RS256'],clockTolerance:30,requiredClaims:['sub','exp','iat','nonce','auth_time'],maxTokenAge:'10 minutes'});
@@ -18,13 +20,16 @@ export async function verifyOperatorIdToken(token,key,config,nonce){
   return {issuer:payload.iss,subject:payload.sub};
 }
 export async function createConsoleOidc(config,store,fetchImpl=fetch){
-  const response=await fetchImpl(config.issuer.replace(/\/$/,'')+'/.well-known/openid-configuration',{redirect:'error',signal:AbortSignal.timeout(10000)});
+  const metadataUrl=new URL(config.discoveryUrl||config.issuer.replace(/\/$/,'')+'/.well-known/openid-configuration');
+  const response=await fetchImpl(metadataUrl.href,{redirect:'error',signal:AbortSignal.timeout(10000)});
   if(!response.ok)throw Error('Workforce identity discovery failed.');
   const discovery=await response.json();
   if(discovery.issuer!==config.issuer)throw Error('Identity issuer mismatch.');
   for(const field of ['authorization_endpoint','token_endpoint','jwks_uri']){
-    const url=new URL(discovery[field]);if(url.protocol!=='https:'||url.origin!==new URL(config.issuer).origin||url.username||url.password||url.hash)throw Error('Identity endpoints must stay on the configured HTTPS issuer origin.');
+    const url=new URL(discovery[field]);if(url.protocol!=='https:'||url.origin!==metadataUrl.origin||url.username||url.password||url.hash)throw Error('Identity endpoints must stay on the configured HTTPS discovery origin.');
   }
+  if(discovery.code_challenge_methods_supported&&!discovery.code_challenge_methods_supported.includes('S256'))throw Error('Workforce sign-in requires S256 PKCE.');
+  if(discovery.token_endpoint_auth_methods_supported&&!discovery.token_endpoint_auth_methods_supported.includes('client_secret_post'))throw Error('The workforce provider must support the configured confidential-client exchange.');
   const keys=createRemoteJWKSet(new URL(discovery.jwks_uri),{timeoutDuration:10000,[customFetch]:(url,options)=>fetchImpl(url,{...options,redirect:'error'})});
   return {
     async begin(){
